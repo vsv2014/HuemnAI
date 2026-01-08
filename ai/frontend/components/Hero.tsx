@@ -16,10 +16,10 @@ export default function Hero() {
       <div className="flex flex-col items-center text-center">
         {/* Main Headline */}
         <h1 className="text-4xl sm:text-5xl md:text-6xl lg:text-7xl xl:text-8xl font-bold leading-tight mb-4 md:mb-6 px-4 text-white">
-          Reimagine AI for Human with HUMANE.
+          Reimagine AI for Human with HUEMN.
           <span className="text-blue-400 relative inline-block">
-            <span className="absolute inset-0 blur-md opacity-80 text-blue-300">OS</span>
-            <span className="relative drop-shadow-[0_0_8px_rgba(59,130,246,0.8)] drop-shadow-[0_0_16px_rgba(59,130,246,0.6)]">OS</span>
+            <span className="absolute inset-0 blur-md opacity-80 text-blue-300">.Ai</span>
+            <span className="relative drop-shadow-[0_0_8px_rgba(59,130,246,0.8)] drop-shadow-[0_0_16px_rgba(59,130,246,0.6)]">.Ai</span>
           </span>
         </h1>
 

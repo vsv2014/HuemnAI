@@ -272,7 +272,7 @@ export default function EconomicTrendsTracker() {
           Economic Trends Tracker
         </h1>
         <p className="text-lg sm:text-xl text-white/70 mb-2">
-          Reimagine AI for Human with HUMANE.OS
+          Reimagine AI for Human with HUEMN.Ai
         </p>
         <p className="text-base text-white/60">
           Track national, international, and state-level economic trends with AI-powered analysis and guidance.

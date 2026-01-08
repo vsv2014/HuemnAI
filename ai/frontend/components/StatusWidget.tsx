@@ -153,7 +153,7 @@ export default function StatusWidget() {
                 H
               </div>
               <div>
-                <h3 className="text-white font-semibold">HUMANE.OS Tools</h3>
+                <h3 className="text-white font-semibold">HUEMN.Ai Tools</h3>
                 <p className="text-white/60 text-xs">Your subscribed tools</p>
               </div>
             </div>
@@ -269,7 +269,7 @@ function getToolIcon(toolType: string | undefined | null): string {
     hubspot: "🎯",
     pipedrive: "📈",
     airtable: "📊",
-    // HUMANE.OS tools
+    // HUEMN.Ai tools
     customer_service: "🎧",
     ticket_assigner: "📋",
     ticket_solver: "✅",

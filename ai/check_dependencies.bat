@@ -1,6 +1,6 @@
 @echo off
 echo ========================================
-echo   HUMANE.OS - Dependency Checker
+echo   HUEMN.Ai - Dependency Checker
 echo ========================================
 echo.
 

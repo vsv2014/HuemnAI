@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
-export default function HumaneLogo({ size = "large" }: { size?: "small" | "large" }) {
+export default function HuemnLogo({ size = "large" }: { size?: "small" | "large" }) {
   const router = useRouter();
   const [isAnimating, setIsAnimating] = useState(false);
 

@@ -1,4 +1,4 @@
-# Configuration Guide - HUMANE.OS
+# Configuration Guide - HUEMN.Ai
 
 This guide will help you configure the system so all tools work properly.
 
@@ -40,7 +40,7 @@ This guide will help you configure the system so all tools work properly.
 #### Basic Settings (Already Set)
 ```env
 ENV=dev
-DATABASE_URL=sqlite:///./humane.db
+DATABASE_URL=sqlite:///./huemn.db
 BACKEND_PORT=8001
 DEFAULT_LLM=openai
 ```
@@ -236,8 +236,8 @@ SMTP_HOST=smtp.gmail.com
 SMTP_PORT=587
 SMTP_USER=your-email@gmail.com
 SMTP_PASSWORD=your-app-password
-SMTP_FROM_EMAIL=noreply@humane.os
-SMTP_FROM_NAME=HUMANE.OS Team
+SMTP_FROM_EMAIL=noreply@huemn.ai
+SMTP_FROM_NAME=HUEMN.Ai Team
 SMTP_USE_TLS=1
 ```
 

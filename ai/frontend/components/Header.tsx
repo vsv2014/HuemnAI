@@ -1,12 +1,12 @@
 "use client";
 
-import HumaneLogo from "./HumaneLogo";
+import HuemnLogo from "./HuemnLogo";
 
 export default function Header() {
   return (
     <header className="sticky top-0 z-50 backdrop-blur bg-black/30 border-b border-white/10">
       <div className="max-w-7xl mx-auto px-8 py-5 flex justify-between items-center">
-        <HumaneLogo size="small" />
+        <HuemnLogo size="small" />
 
         <nav className="hidden md:flex gap-8 text-sm text-white/70">
           <a className="hover:text-white">Products</a>

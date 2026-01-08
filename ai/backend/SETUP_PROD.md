@@ -1,7 +1,7 @@
 Production Setup (quick)
 
 1. Set environment variables (example):
-   - DATABASE_URL=postgresql+psycopg2://user:pass@postgres:5432/humane
+   - DATABASE_URL=postgresql+psycopg2://user:pass@postgres:5432/huemn
    - REDIS_URL=redis://redis:6379/0
    - SENTRY_DSN=
    - STORAGE_PROVIDER=s3

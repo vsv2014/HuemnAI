@@ -56,7 +56,7 @@ export default function WhatSetsUsApart() {
   return (
     <section className="max-w-7xl mx-auto px-4 sm:px-6 md:px-10 py-12 sm:py-16 md:py-20">
       <h2 className="text-3xl sm:text-4xl md:text-5xl font-bold mb-8 sm:mb-12">
-        What sets HUMANE.OS apart
+        What sets HUEMN.Ai apart
       </h2>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 sm:gap-8">

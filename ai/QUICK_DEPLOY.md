@@ -23,10 +23,10 @@ chmod +x deploy.sh
 ### Step 2: Upload to Server
 ```bash
 # Using SFTP/SCP
-scp -r ai username@your-server-ip:/var/www/humane-os/
+scp -r ai username@your-server-ip:/var/www/huemn-ai/
 
 # Or use FileZilla/FTP client
-# Upload entire 'ai' folder to /var/www/humane-os/
+# Upload entire 'ai' folder to /var/www/huemn-ai/
 ```
 
 ### Step 3: SSH into Server
@@ -56,7 +56,7 @@ sudo npm install -g pm2
 ### Step 5: Deploy Application
 ```bash
 # Navigate to project
-cd /var/www/humane-os/ai
+cd /var/www/huemn-ai/ai
 
 # Setup Backend
 cd backend
@@ -74,13 +74,13 @@ npm install
 cp .env.production .env.local  # Edit with your API URL
 nano .env.local  # Set NEXT_PUBLIC_API_BASE
 npm run build
-pm2 start npm --name "humane-frontend" -- start
+pm2 start npm --name "huemn-frontend" -- start
 pm2 save
 
 # Setup Nginx
-sudo cp ../../nginx.conf.example /etc/nginx/sites-available/humane-os
-sudo nano /etc/nginx/sites-available/humane-os  # Update domain names
-sudo ln -s /etc/nginx/sites-available/humane-os /etc/nginx/sites-enabled/
+sudo cp ../../nginx.conf.example /etc/nginx/sites-available/huemn-ai
+sudo nano /etc/nginx/sites-available/huemn-ai  # Update domain names
+sudo ln -s /etc/nginx/sites-available/huemn-ai /etc/nginx/sites-enabled/
 sudo nginx -t
 sudo systemctl restart nginx
 
@@ -97,7 +97,7 @@ sudo certbot --nginx -d yourdomain.com -d www.yourdomain.com
 ```env
 ENV=production
 SECRET_KEY=your-random-secret-key-here
-DATABASE_URL=sqlite:///./humane.db
+DATABASE_URL=sqlite:///./huemn.db
 BACKEND_PORT=8001
 BACKEND_HOST=0.0.0.0
 CORS_ORIGINS=https://yourdomain.com,https://www.yourdomain.com
@@ -148,7 +148,7 @@ pm2 startup
 
 ### Nginx 502 Bad Gateway
 - Check if backend is running: `pm2 list`
-- Check backend logs: `pm2 logs humane-backend`
+- Check backend logs: `pm2 logs huemn-backend`
 - Verify port 8001 is accessible: `curl http://localhost:8001/health`
 
 ---

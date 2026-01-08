@@ -8,10 +8,10 @@ export default function TrustBadges() {
           {/* Left Content */}
           <div>
             <h2 className="text-3xl sm:text-4xl md:text-5xl font-bold mb-4 sm:mb-6">
-              HUMANE.OS named a leader in Enterprise AI Platforms
+              HUEMN.Ai named a leader in Enterprise AI Platforms
             </h2>
             <p className="text-base sm:text-lg text-white/80 mb-6 sm:mb-8 leading-relaxed">
-              In its evaluation of leading AI platforms, industry analysts recognized HUMANE.OS as a leader in Enterprise AI Solutions. We received the highest scores across multiple criteria including innovation, customer satisfaction, and platform capabilities.
+              In its evaluation of leading AI platforms, industry analysts recognized HUEMN.Ai as a leader in Enterprise AI Solutions. We received the highest scores across multiple criteria including innovation, customer satisfaction, and platform capabilities.
             </p>
             <div className="flex flex-wrap gap-4">
               <div className="px-4 py-2 bg-white/10 rounded-lg border border-white/20">
@@ -51,13 +51,13 @@ export default function TrustBadges() {
                 <div className="absolute top-2 right-2 text-xs text-white/40">Strong Performers</div>
                 <div className="absolute bottom-2 left-2 text-xs text-white/40">Contenders</div>
                 
-                {/* HUMANE.OS Position (Top Right - Leader) */}
+                {/* HUEMN.Ai Position (Top Right - Leader) */}
                 <div className="absolute top-8 right-8">
                   <div className="relative">
                     <div className="absolute -inset-2 bg-blue-400/30 rounded-full animate-pulse" />
                     <div className="relative w-4 h-4 bg-blue-400 rounded-full border-2 border-white" />
                     <div className="absolute -top-6 -right-4 whitespace-nowrap text-xs font-semibold text-white">
-                      HUMANE.OS
+                      HUEMN.Ai
                     </div>
                   </div>
                 </div>

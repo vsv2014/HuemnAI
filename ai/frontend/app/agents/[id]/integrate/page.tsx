@@ -50,7 +50,7 @@ export default function AgentIntegratePage() {
     const agentName = agent?.name || "AI Assistant";
     const welcomeMessage = agent?.welcome_message || "Hello! How can I help you today?";
     
-    return `<!-- HUMANE.OS Agent Widget - ${agentName} -->
+    return `<!-- HUEMN.Ai Agent Widget - ${agentName} -->
 <script>
 (function() {
   const AGENT_ID = ${agentId};
@@ -61,12 +61,12 @@ export default function AgentIntegratePage() {
   
   // Create widget container
   const widget = document.createElement('div');
-  widget.id = 'humane-agent-widget';
+  widget.id = 'huemn-agent-widget';
   widget.style.cssText = 'position: fixed; ${widgetConfig.position.includes('bottom') ? 'bottom: 20px;' : 'top: 20px;'} ${widgetConfig.position.includes('right') ? 'right: 20px;' : 'left: 20px;'} z-index: 999999; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;';
   
   // Widget button
   const button = document.createElement('button');
-  button.id = 'humane-widget-button';
+  button.id = 'huemn-widget-button';
   button.style.cssText = 'width: 60px; height: 60px; border-radius: 50%; background: linear-gradient(135deg, ' + WIDGET_CONFIG.primaryColor + ', ' + WIDGET_CONFIG.primaryColor + 'dd); border: none; box-shadow: 0 4px 20px rgba(0,0,0,0.3); cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 24px; color: white; transition: transform 0.2s;';
   button.innerHTML = '💬';
   button.onmouseover = function() { this.style.transform = 'scale(1.1)'; };
@@ -74,7 +74,7 @@ export default function AgentIntegratePage() {
   
   // Chat window (initially hidden)
   const chatWindow = document.createElement('div');
-  chatWindow.id = 'humane-chat-window';
+  chatWindow.id = 'huemn-chat-window';
   chatWindow.style.cssText = 'display: none; position: fixed; ${widgetConfig.position.includes('bottom') ? 'bottom: 90px;' : 'top: 90px;'} ${widgetConfig.position.includes('right') ? 'right: 20px;' : 'left: 20px;'} width: 380px; height: 600px; background: #0b0f19; border-radius: 16px; box-shadow: 0 8px 32px rgba(0,0,0,0.5); z-index: 999998; flex-direction: column; border: 1px solid rgba(255,255,255,0.1);';
   
   // Chat header
@@ -84,13 +84,13 @@ export default function AgentIntegratePage() {
   
   // Messages container
   const messagesContainer = document.createElement('div');
-  messagesContainer.id = 'humane-messages';
+  messagesContainer.id = 'huemn-messages';
   messagesContainer.style.cssText = 'flex: 1; overflow-y: auto; padding: 16px; background: #05070f;';
   
   // Input area
   const inputArea = document.createElement('div');
   inputArea.style.cssText = 'padding: 16px; border-top: 1px solid rgba(255,255,255,0.1); background: rgba(11,15,25,0.9); border-radius: 0 0 16px 16px;';
-  inputArea.innerHTML = '<div style="display: flex; gap: 8px;"><input type="text" id="humane-input" placeholder="Type your message..." style="flex: 1; padding: 12px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; color: white; outline: none;" /><button id="humane-send" style="padding: 12px 20px; background: ' + WIDGET_CONFIG.primaryColor + '; border: none; border-radius: 8px; color: white; cursor: pointer; font-weight: 600;">Send</button></div>';
+  inputArea.innerHTML = '<div style="display: flex; gap: 8px;"><input type="text" id="huemn-input" placeholder="Type your message..." style="flex: 1; padding: 12px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; color: white; outline: none;" /><button id="huemn-send" style="padding: 12px 20px; background: ' + WIDGET_CONFIG.primaryColor + '; border: none; border-radius: 8px; color: white; cursor: pointer; font-weight: 600;">Send</button></div>'; 
   
   chatWindow.appendChild(header);
   chatWindow.appendChild(messagesContainer);
@@ -115,7 +115,7 @@ export default function AgentIntegratePage() {
   
   // Send message
   function sendMessage() {
-    const inputEl = document.getElementById('humane-input');
+    const inputEl = document.getElementById('huemn-input');
     const message = inputEl.value.trim();
     if (!message) return;
     
@@ -156,8 +156,8 @@ export default function AgentIntegratePage() {
     messagesContainer.scrollTop = messagesContainer.scrollHeight;
   }
   
-  document.getElementById('humane-send').onclick = sendMessage;
-  document.getElementById('humane-input').onkeypress = function(e) {
+  document.getElementById('huemn-send').onclick = sendMessage;
+  document.getElementById('huemn-input').onkeypress = function(e) {
     if (e.key === 'Enter') sendMessage();
   };
   

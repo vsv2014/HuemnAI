@@ -6,7 +6,7 @@ const testimonials = [
   {
     company: "Morgan Stanley",
     quote: "HUEMN.Ai helped our financial advisors save 15-20 minutes daily, enabling them to engage with customers more effectively and drive revenue.",
-  }
+  },
   {
     company: "Pfizer",
     quote: "We've deployed 60 AI agents across various enterprise functions—research, development, medical, commercial, manufacturing—globally. We needed a scalable platform, and the agents are getting increasingly intelligent.",

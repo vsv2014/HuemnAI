@@ -185,7 +185,7 @@ export default function IndustrySectors() {
       {/* Call to Action */}
       <div className="text-center bg-gradient-to-r from-blue-500/10 via-purple-500/10 to-blue-500/10 rounded-2xl p-8 sm:p-10 md:p-12 border border-white/10">
         <h3 className="text-2xl sm:text-3xl md:text-4xl font-bold mb-4 sm:mb-6">
-          Discover why hundreds of enterprises use HUMANE.OS
+          Discover why hundreds of enterprises use HUEMN.Ai
         </h3>
         <div className="flex flex-col sm:flex-row gap-4 justify-center items-center">
           <a

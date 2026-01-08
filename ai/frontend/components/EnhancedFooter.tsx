@@ -15,12 +15,12 @@ export default function EnhancedFooter() {
           <div className="lg:col-span-2">
             <div className="flex items-center gap-2 mb-4">
               <h2 className="text-xl sm:text-2xl font-bold">
-                <span className="text-white">HUMANE</span>
-                <span className="text-blue-400 drop-shadow-[0_0_8px_rgba(96,165,250,0.8)]">.OS</span>
+                <span className="text-white">HUEMN</span>
+                <span className="text-blue-400 drop-shadow-[0_0_8px_rgba(96,165,250,0.8)]">.Ai</span>
               </h2>
             </div>
             <p className="text-white/70 text-sm sm:text-base mb-6">
-              Reimagine AI for Human with HUMANE.OS
+              Reimagine AI for Human with HUEMN.Ai
             </p>
             <div className="h-px bg-white/10 mb-6" />
             <div className="flex items-center gap-2">
@@ -215,7 +215,7 @@ export default function EnhancedFooter() {
         {/* Bottom Bar */}
         <div className="border-t border-white/10 mt-8 sm:mt-12 pt-6 sm:pt-8">
           <div className="flex flex-col sm:flex-row justify-between items-center gap-4 text-sm text-white/60">
-            <p>© 2024 HUMANE.OS. All rights reserved.</p>
+            <p>© 2024 HUEMN.Ai. All rights reserved.</p>
             <div className="flex gap-6">
               <Link href="#" className="hover:text-white transition-colors">Privacy Policy</Link>
               <Link href="#" className="hover:text-white transition-colors">Terms of Service</Link>

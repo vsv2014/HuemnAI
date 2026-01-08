@@ -21,7 +21,7 @@ setup_logging()
 # Initialize DB (will not auto-drop/create in non-dev environments)
 init_db()
 
-app = FastAPI(title="HUMANE.OS")
+app = FastAPI(title="HUEMN.Ai")
 
 # register lifecycle for background jobs
 register_lifecycle(app)
@@ -45,7 +45,7 @@ app.add_middleware(
 
 @app.get("/")
 async def root():
-    return {"message": "HUMANE.OS API", "version": "2.0.0", "tools": ["ticketing", "ticket_assigner", "status_updater", "knowledge_ai", "hr_services", "ticket_booking_agent"]}
+    return {"message": "HUEMN.Ai API", "version": "2.0.0", "tools": ["ticketing", "ticket_assigner", "status_updater", "knowledge_ai", "hr_services", "ticket_booking_agent"]}
 
 @app.get("/health")
 async def health():

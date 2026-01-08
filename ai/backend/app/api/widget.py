@@ -48,13 +48,13 @@ async def get_embed_script():
     // Create widget container
     function createWidget() {{
         const widget = document.createElement('div');
-        widget.id = 'humane-os-widget';
+        widget.id = 'huemn-ai-widget';
         widget.style.cssText = 'position: fixed; top: 10px; right: 10px; z-index: 999999;';
         
         // Inject React component (simplified version)
         widget.innerHTML = `
             <div style="background: #1a1f2e; border: 1px solid rgba(255,255,255,0.2); border-radius: 8px; padding: 8px; box-shadow: 0 4px 20px rgba(0,0,0,0.3);">
-                <button id="humane-widget-btn" style="display: flex; align-items: center; gap: 8px; padding: 6px 12px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); border-radius: 6px; color: white; cursor: pointer; font-size: 14px;">
+                <button id="huemn-widget-btn" style="display: flex; align-items: center; gap: 8px; padding: 6px 12px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); border-radius: 6px; color: white; cursor: pointer; font-size: 14px;">
                     <span>🟢</span>
                     <span>Online</span>
                     <span style="font-size: 10px;">▼</span>
@@ -65,9 +65,9 @@ async def get_embed_script():
         document.body.appendChild(widget);
         
         // Add click handler
-        document.getElementById('humane-widget-btn').addEventListener('click', function() {{
+        document.getElementById('huemn-widget-btn').addEventListener('click', function() {{
             // Open widget in new window or iframe
-            window.open(FRONTEND_BASE + '/widget/status', 'humane-os-widget', 'width=400,height=600');
+            window.open(FRONTEND_BASE + '/widget/status', 'huemn-ai-widget', 'width=400,height=600');
         }});
     }}
     
@@ -89,7 +89,7 @@ async def get_widget_status_page():
 <!DOCTYPE html>
 <html>
 <head>
-    <title>HUMANE.OS Status Widget</title>
+    <title>HUEMN.Ai Status Widget</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <style>
         body {

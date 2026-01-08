@@ -166,7 +166,7 @@ This guide explains what features work **automatically** out of the box and what
 **Example:**
 ```env
 # Database (automatic)
-DATABASE_URL=sqlite:///./humane.db
+DATABASE_URL=sqlite:///./huemn.db
 
 # OpenAI (recommended)
 OPENAI_API_KEY=sk-your-key-here

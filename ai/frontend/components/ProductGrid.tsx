@@ -29,7 +29,7 @@ const ALL_TOOLS = [
   { title: "Knowledge AI", desc: "Search and surface SOPs, documents, and internal knowledge effectively.", slug: "knowledge-ai" },
   { title: "Ticket Booking Agent", desc: "Compare and book tickets across multiple platforms: flights, trains, buses, restaurants, and more.", slug: "ticket-booking-agent" },
   { title: "Analytics Dashboard", desc: "Track performance, ticket solving rate, SLA metrics, team workload, and comprehensive analytics with futuristic visualizations.", slug: "analytics-dashboard" },
-  { title: "Economic Trends Tracker", desc: "Track national, international, and state-level economic trends with AI-powered analysis and guidance. Reimagine AI for Human with HUMANE.OS.", slug: "economic-trends" },
+  { title: "Economic Trends Tracker", desc: "Track national, international, and state-level economic trends with AI-powered analysis and guidance. Reimagine AI for Human with HUEMN.Ai.", slug: "economic-trends" },
   { title: "⚙️ Settings & Configuration", desc: "Configure API keys, LLM providers, and integrations. Manage all your settings securely from one place.", slug: "settings", isSettings: true },
 ];
 

@@ -1,9 +1,9 @@
-// PM2 Ecosystem Configuration for HUMANE.OS Backend
+// PM2 Ecosystem Configuration for HUEMN.Ai Backend
 // Usage: pm2 start ecosystem.config.js
 
 module.exports = {
   apps: [{
-    name: 'humane-backend',
+    name: 'huemn-backend',
     script: 'run_backend.py',
     interpreter: 'python3',
     cwd: process.cwd(),

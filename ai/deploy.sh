@@ -1,11 +1,11 @@
 #!/bin/bash
 
-# HUMANE.OS Deployment Script
+# HUEMN.Ai Deployment Script
 # This script prepares your application for deployment
 
 set -e  # Exit on error
 
-echo "🚀 HUMANE.OS Deployment Preparation"
+echo "🚀 HUEMN.Ai Deployment Preparation"
 echo "===================================="
 echo ""
 

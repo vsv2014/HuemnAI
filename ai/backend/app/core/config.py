@@ -6,11 +6,11 @@ load_dotenv()
 
 class Settings:
     # Core
-    APP_NAME = "HUMANE.OS"
+    APP_NAME = "HUEMN.Ai"
     ENV = os.getenv("ENV", "dev")
 
     # Database
-    DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./humane.db")
+    DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./huemn.db")
 
     # Redis / Cache
     REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379")
@@ -74,8 +74,8 @@ class Settings:
     SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
     SMTP_USER = os.getenv("SMTP_USER", "")
     SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "")
-    SMTP_FROM_EMAIL = os.getenv("SMTP_FROM_EMAIL", "noreply@humane.os")
-    SMTP_FROM_NAME = os.getenv("SMTP_FROM_NAME", "HUMANE.OS Team")
+    SMTP_FROM_EMAIL = os.getenv("SMTP_FROM_EMAIL", "noreply@huemn.ai")
+    SMTP_FROM_NAME = os.getenv("SMTP_FROM_NAME", "HUEMN.Ai Team")
     SMTP_USE_TLS = os.getenv("SMTP_USE_TLS", "1") == "1"
     
     # Twilio / Telephony Configuration

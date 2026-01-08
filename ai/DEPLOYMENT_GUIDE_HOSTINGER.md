@@ -1,6 +1,6 @@
-# 🚀 Deployment Guide: HUMANE.OS to Hostinger
+# 🚀 Deployment Guide: HUEMN.Ai to Hostinger
 
-This guide will walk you through deploying your HUMANE.OS application to Hostinger.
+This guide will walk you through deploying your HUEMN.Ai application to Hostinger.
 
 ## 📋 Table of Contents
 1. [Prerequisites](#prerequisites)
@@ -56,9 +56,9 @@ NEXT_PUBLIC_API_BASE=https://yourdomain.com/api
 **Backend** (`ai/ai/backend/.env.production`):
 ```env
 ENV=production
-DATABASE_URL=sqlite:///./humane.db
+DATABASE_URL=sqlite:///./huemn.db
 # For PostgreSQL (recommended for production):
-# DATABASE_URL=postgresql://user:password@localhost:5432/humane_db
+# DATABASE_URL=postgresql://user:password@localhost:5432/huemn_db
 
 SECRET_KEY=your-super-secret-key-change-this-in-production
 BACKEND_PORT=8001
@@ -157,20 +157,20 @@ echo "✅ Build complete!"
 ```bash
 # On your VPS
 cd /var/www
-sudo git clone https://github.com/yourusername/humane-os.git
+sudo git clone https://github.com/yourusername/Huemn.git
 # Or upload via SFTP/FTP
 ```
 
 #### Option B: Using SFTP/FTP
 1. Use FileZilla or similar FTP client
 2. Connect to your VPS
-3. Upload entire `ai` folder to `/var/www/humane-os/`
+3. Upload entire `ai` folder to `/var/www/huemn-ai/`
 
 ### Step 4: Set Up Backend
 
 ```bash
 # Navigate to backend
-cd /var/www/humane-os/ai/backend
+cd /var/www/huemn-ai/ai/backend
 
 # Create virtual environment
 python3 -m venv venv
@@ -192,10 +192,10 @@ python3 -c "from app.db.init_db import init_db; init_db()"
 ```javascript
 module.exports = {
   apps: [{
-    name: 'humane-backend',
+    name: 'huemn-backend',
     script: 'run_backend.py',
     interpreter: 'python3',
-    cwd: '/var/www/humane-os/ai/backend',
+    cwd: '/var/www/huemn-ai/ai/backend',
     env: {
       ENV: 'production',
       PORT: 8001,
@@ -210,7 +210,7 @@ module.exports = {
 
 **Start backend with PM2**:
 ```bash
-cd /var/www/humane-os/ai/backend
+cd /var/www/huemn-ai/ai/backend
 pm2 start ecosystem.config.js
 pm2 save
 pm2 startup  # Follow instructions to enable auto-start on boot
@@ -220,7 +220,7 @@ pm2 startup  # Follow instructions to enable auto-start on boot
 
 ```bash
 # Navigate to frontend
-cd /var/www/humane-os/ai/frontend
+cd /var/www/huemn-ai/ai/frontend
 
 # Install dependencies
 npm install
@@ -232,13 +232,13 @@ cp .env.production .env.local
 npm run build
 
 # Start with PM2
-pm2 start npm --name "humane-frontend" -- start
+pm2 start npm --name "huemn-frontend" -- start
 pm2 save
 ```
 
 ### Step 6: Configure Nginx
 
-Create Nginx configuration (`/etc/nginx/sites-available/humane-os`):
+Create Nginx configuration (`/etc/nginx/sites-available/huemn-ai`):
 ```nginx
 # Frontend (Next.js)
 server {
@@ -279,7 +279,7 @@ server {
 
 **Enable the site**:
 ```bash
-sudo ln -s /etc/nginx/sites-available/humane-os /etc/nginx/sites-enabled/
+sudo ln -s /etc/nginx/sites-available/huemn-ai /etc/nginx/sites-enabled/
 sudo nginx -t  # Test configuration
 sudo systemctl restart nginx
 ```
@@ -402,24 +402,24 @@ sudo certbot --nginx -d yourdomain.com -d www.yourdomain.com
 ### Backend not starting:
 ```bash
 # Check logs
-pm2 logs humane-backend
+pm2 logs huemn-backend
 
 # Check if port is in use
 sudo netstat -tulpn | grep 8001
 
 # Restart backend
-pm2 restart humane-backend
+pm2 restart huemn-backend
 ```
 
 ### Frontend not loading:
 ```bash
 # Check logs
-pm2 logs humane-frontend
+pm2 logs huemn-frontend
 
 # Rebuild frontend
-cd /var/www/humane-os/ai/frontend
+cd /var/www/huemn-ai/ai/frontend
 npm run build
-pm2 restart humane-frontend
+pm2 restart huemn-frontend
 ```
 
 ### Nginx errors:
@@ -437,10 +437,10 @@ sudo nginx -t
 ### Database issues:
 ```bash
 # Check database file permissions
-ls -la /var/www/humane-os/ai/backend/humane.db
+ls -la /var/www/huemn-ai/ai/backend/huemn.db
 
 # Reinitialize database
-cd /var/www/humane-os/ai/backend
+cd /var/www/huemn-ai/ai/backend
 python3 -c "from app.db.init_db import init_db; init_db()"
 ```
 

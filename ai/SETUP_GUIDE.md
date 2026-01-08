@@ -384,7 +384,7 @@ kill -9 $(lsof -ti:3000)
 1. Are you in the correct directory? (`ai/ai/`)
 2. Are all Python packages installed? (`pip list`)
 3. Check for error messages in the terminal
-4. Verify database file exists: `backend/humane.db`
+4. Verify database file exists: `backend/huemn.db`
 
 **Common errors:**
 - **ModuleNotFoundError:** Run `pip install -r requirements.txt` again
@@ -532,7 +532,7 @@ Once both servers are running:
 5. **Hard refresh browser** - Press `Ctrl+F5` (Windows) or `Cmd+Shift+R` (Mac) if you see old content
 6. **First time setup** - Allow 5-10 minutes for all package installations
 7. **Network access** - Backend runs on `0.0.0.0:8001`, accessible from network
-8. **Database** - SQLite database (`humane.db`) is created automatically
+8. **Database** - SQLite database (`huemn.db`) is created automatically
 
 ---
 

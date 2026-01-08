@@ -129,7 +129,7 @@ def get_email_template(name: str, company: str, selected_tools: List[str], use_c
             <div class="content">
                 <h1>Thank You for Requesting a Demo!</h1>
                 <p>Dear {name},</p>
-                <p>Thank you for your interest in HUMANE.OS! We've received your demo request and are excited to show you how our AI-powered platform can transform your enterprise operations.</p>
+                <p>Thank you for your interest in HUEMN.Ai! We've received your demo request and are excited to show you how our AI-powered platform can transform your enterprise operations.</p>
                 
                 <div class="highlight">
                     <p style="margin: 0; font-weight: 600; color: #ffffff;">Your Request Details:</p>
@@ -141,14 +141,14 @@ def get_email_template(name: str, company: str, selected_tools: List[str], use_c
                 <p><strong>What Happens Next?</strong></p>
                 <p>We will get in touch with you as soon as possible. One of our leadership team members will reach out to schedule a personalized demo tailored to your specific needs and use cases.</p>
                 
-                <p>In the meantime, feel free to explore our platform and learn more about how HUMANE.OS can help your organization.</p>
+                <p>In the meantime, feel free to explore our platform and learn more about how HUEMN.Ai can help your organization.</p>
                 
                 <div style="text-align: center;">
-                    <a href="https://humane.os" class="button">Visit Our Website</a>
+                    <a href="https://huemn.ai" class="button">Visit Our Website</a>
                 </div>
             </div>
             <div class="footer">
-                <p><strong>HUMANE.OS</strong></p>
+                <p><strong>HUEMN.Ai</strong></p>
                 <p>Reimagine the enterprise with AI</p>
                 <p style="margin-top: 20px; font-size: 12px; color: #666;">
                     This is an automated message. Please do not reply directly to this email.
@@ -182,7 +182,7 @@ async def send_demo_thank_you_email(
     try:
         # Create message
         msg = MIMEMultipart("alternative")
-        msg["Subject"] = "Thank You for Your Demo Request - HUMANE.OS"
+        msg["Subject"] = "Thank You for Your Demo Request - HUEMN.Ai"
         msg["From"] = f"{settings.SMTP_FROM_NAME} <{settings.SMTP_FROM_EMAIL}>"
         msg["To"] = email
 
