@@ -1,0 +1,32 @@
+========================================
+   HUMANE.OS - QUICK START GUIDE
+========================================
+
+EASIEST WAY TO START:
+---------------------
+1. Navigate to: ai/ai/
+2. Double-click: start_servers.bat
+3. Wait 30-60 seconds
+4. Open: http://localhost:3000
+
+MANUAL START:
+-------------
+Terminal 1 (Backend):
+  cd ai/ai
+  python run_backend.py
+
+Terminal 2 (Frontend):
+  cd ai/ai/frontend
+  npm run dev
+
+ACCESS:
+------
+Frontend: http://localhost:3000
+Backend:  http://127.0.0.1:8001
+
+STOP SERVERS:
+-------------
+Press Ctrl+C in each terminal window
+
+========================================
+
