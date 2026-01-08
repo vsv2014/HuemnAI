@@ -180,7 +180,7 @@ export default function AIForWorkService() {
               AI for <span className="text-blue-400">Human</span>
             </h2>
             <p className="text-lg sm:text-xl text-white/80 mb-2 sm:mb-3 leading-relaxed">
-              Reimagine AI for Human with HUMANE.OS
+              Reimagine AI for Human with HUEMN.Ai
             </p>
             <p className="text-base sm:text-lg text-white/70 mb-6 sm:mb-8 leading-relaxed">
               Track economic trends across states, countries, and the world. Get intelligent guidance and insights powered by advanced AI analysis of national and international economic data.

@@ -36,7 +36,7 @@ export default function AnimatedImageLogo({
     >
       <div className="relative logo-container" style={{ width, height }}>
         <img
-          src="/images/humane-logo.jpg"
+          src="/images/huemn-ai-logo.jpg"
           alt="HUEMN.Ai Logo"
           width={width}
           height={height}
@@ -48,7 +48,7 @@ export default function AnimatedImageLogo({
       </div>
       
       {showText && (
-        <h1 className={`${textSize} font-semibold tracking-wide humane-text group-hover:text-white transition-colors duration-300`}>
+        <h1 className={`${textSize} font-semibold tracking-wide huemn-text group-hover:text-white transition-colors duration-300`}>
           HUEMN<span className="text-indigo-400">.Ai</span>
         </h1>
       )}

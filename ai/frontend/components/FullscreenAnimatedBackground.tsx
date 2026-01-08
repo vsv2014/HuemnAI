@@ -1,6 +1,6 @@
 "use client";
 
-export default function FullscreenAnimatedBackground({ src = "/images/humane-logo.jpg" }: { src?: string }) {
+export default function FullscreenAnimatedBackground({ src = "/images/huemn-ai-logo.jpg" }: { src?: string }) {
   return (
     <div className="fixed inset-0 pointer-events-none z-0 overflow-hidden" style={{ top: 0, left: 0, right: 0, bottom: 0 }}>
       {/* Background image - extends from top (header) to bottom, no gaps */}

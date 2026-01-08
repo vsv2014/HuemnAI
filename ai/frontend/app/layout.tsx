@@ -126,10 +126,10 @@ export default function RootLayout({ children }: { children: ReactNode }) {
           <div className="flex items-center gap-1.5 cursor-pointer group" onClick={() => router.push("/")}>
             <Rotating3DLogo size="small" className="hidden md:block md:!w-16 md:!h-16" />
             <h1 className="text-lg sm:text-xl md:text-2xl font-bold tracking-wide">
-              <span className="text-white">HUMANE</span>
+              <span className="text-white">HUEMN</span>
               <span className="text-indigo-400 relative inline-block">
-                <span className="absolute inset-0 blur-md opacity-80 text-indigo-300">.OS</span>
-                <span className="relative drop-shadow-[0_0_8px_rgba(99,102,241,0.8)]">.OS</span>
+                <span className="absolute inset-0 blur-md opacity-80 text-indigo-300">.Ai</span>
+                <span className="relative drop-shadow-[0_0_8px_rgba(99,102,241,0.8)]">.Ai</span>
               </span>
             </h1>
           </div>

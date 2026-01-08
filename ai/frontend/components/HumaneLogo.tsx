@@ -32,7 +32,7 @@ export default function HumaneLogo({ size = "large" }: { size?: "small" | "large
           viewBox="0 0 64 64" 
           width={logoSize} 
           height={logoSize} 
-          className="humane-logo-svg"
+          className="huemn-logo-svg"
         >
           <defs>
             {/* Gradient for the border glow */}
@@ -151,9 +151,9 @@ export default function HumaneLogo({ size = "large" }: { size?: "small" | "large
         </svg>
       </div>
       
-      {/* HUMANE.OS Text */}
-      <h1 className={`${textSize} font-semibold tracking-wide humane-text group-hover:text-white transition-colors duration-300`}>
-        HUMANE<span className="text-indigo-400">.OS</span>
+      {/* HUEMN.Ai Text */}
+      <h1 className={`${textSize} font-semibold tracking-wide huemn-text group-hover:text-white transition-colors duration-300`}>
+        HUEMN<span className="text-indigo-400">.Ai</span>
       </h1>
     </div>
   );

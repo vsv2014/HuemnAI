@@ -258,19 +258,19 @@ main {
   }
 }
 
-/* Humane Logo Styles */
-.humane-logo-svg {
+/* HUEMN.Ai Logo Styles */
+.huemn-logo-svg {
   filter: drop-shadow(0 0 10px rgba(124, 124, 255, 0.4));
   transition: all 0.3s ease;
   animation: logoFloat 4s ease-in-out infinite;
 }
 
-.group:hover .humane-logo-svg {
+.group:hover .huemn-logo-svg {
   filter: drop-shadow(0 0 20px rgba(0, 212, 255, 0.6));
   transform: scale(1.05);
 }
 
-.humane-text {
+.huemn-text {
   background: linear-gradient(90deg, #ffffff 0%, #ffffff 50%, rgba(255, 255, 255, 0.8) 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
@@ -279,7 +279,7 @@ main {
   transition: all 0.3s ease;
 }
 
-.group:hover .humane-text {
+.group:hover .huemn-text {
   text-shadow: 0 0 30px rgba(0, 212, 255, 0.8);
   transform: translateX(2px);
 }

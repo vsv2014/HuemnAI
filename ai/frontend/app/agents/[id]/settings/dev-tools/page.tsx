@@ -56,7 +56,7 @@ export default function DevToolsPage() {
                   <div>
                     <h3 className="font-medium mb-2 text-white">Step 1: Download Web SDK</h3>
                     <p className="text-white/60">
-                      Download the HUMANE.OS BotKit SDK from our{" "}
+                      Download the HUEMN.Ai BotKit SDK from our{" "}
                       <a href="#" className="text-blue-400 hover:underline">GitHub Repo</a>
                     </p>
                   </div>
@@ -101,7 +101,7 @@ export default function DevToolsPage() {
                   <div className="flex items-start gap-2">
                     <span className="text-yellow-400">⚠️</span>
                     <p className="text-sm text-yellow-300">
-                      HUMANE.OS App registered for SDK events will be used for Agent Transfer events as well.
+                      HUEMN.Ai App registered for SDK events will be used for Agent Transfer events as well.
                     </p>
                   </div>
                 </div>
