@@ -1,7 +1,7 @@
 
 @echo off
 echo ========================================
-echo   HUMANE.OS - Server Startup
+echo   HUEMN.Ai - Server Startup
 echo ========================================
 echo.
 
@@ -79,11 +79,11 @@ echo ========================================
 echo.
 
 echo Starting Backend Server on port 8001...
-start "HUMANE.OS Backend" cmd /k "cd /d %~dp0backend && python run_backend.py"
+start "HUEMN.Ai Backend" cmd /k "cd /d %~dp0backend && python run_backend.py"
 timeout /t 3 /nobreak >nul
 
 echo Starting Frontend Server on port 3000...
-start "HUMANE.OS Frontend" cmd /k "cd /d %~dp0frontend && npm run dev"
+start "HUEMN.Ai Frontend" cmd /k "cd /d %~dp0frontend && npm run dev"
 timeout /t 3 /nobreak >nul
 
 echo.

@@ -1,8 +1,8 @@
-# HUMANE.OS - Server Startup Script with Dependency Check
+# HUEMN.Ai - Server Startup Script with Dependency Check
 # PowerShell script to check dependencies, install if needed, and start servers
 
 Write-Host "========================================" -ForegroundColor Cyan
-Write-Host "   HUMANE.OS - Server Startup" -ForegroundColor Cyan
+Write-Host "   HUEMN.Ai - Server Startup" -ForegroundColor Cyan
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host ""
 

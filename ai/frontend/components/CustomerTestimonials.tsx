@@ -5,19 +5,19 @@ import { useState } from "react";
 const testimonials = [
   {
     company: "Morgan Stanley",
-    quote: "HUMANE.OS helped our financial advisors save 15-20 minutes daily, enabling them to engage with customers more effectively and drive revenue.",
-  },
+    quote: "HUEMN.Ai helped our financial advisors save 15-20 minutes daily, enabling them to engage with customers more effectively and drive revenue.",
+  }
   {
     company: "Pfizer",
     quote: "We've deployed 60 AI agents across various enterprise functions—research, development, medical, commercial, manufacturing—globally. We needed a scalable platform, and the agents are getting increasingly intelligent.",
   },
   {
     company: "Microsoft",
-    quote: "Our strategic partnership with HUMANE.OS marks a milestone in accelerating enterprise AI transformation, integrating conversational and Gen AI capabilities with our cloud for scalable and secure AI adoption.",
+    quote: "Our strategic partnership with HUEMN.Ai marks a milestone in accelerating enterprise AI transformation, integrating conversational and Gen AI capabilities with our cloud for scalable and secure AI adoption.",
   },
   {
     company: "Amazon",
-    quote: "HUMANE.OS has transformed how we handle customer service at scale. The AI agents provide consistent, high-quality support 24/7, significantly improving our customer satisfaction scores.",
+    quote: "HUEMN.Ai has transformed how we handle customer service at scale. The AI agents provide consistent, high-quality support 24/7, significantly improving our customer satisfaction scores.",
   },
   {
     company: "Goldman Sachs",
@@ -25,7 +25,7 @@ const testimonials = [
   },
   {
     company: "JPMorgan Chase",
-    quote: "Implementing HUMANE.OS across our customer service channels has reduced response times by 70% while maintaining the highest quality standards.",
+    quote: "Implementing HUEMN.Ai across our customer service channels has reduced response times by 70% while maintaining the highest quality standards.",
   },
 ];
 
@@ -50,7 +50,7 @@ export default function CustomerTestimonials() {
             Customer testimonials
           </h2>
           <p className="text-lg sm:text-xl text-white/70">
-            Discover how organizations deliver AI value with HUMANE.OS.
+            Discover how organizations deliver AI value with HUEMN.Ai.
           </p>
         </div>
         

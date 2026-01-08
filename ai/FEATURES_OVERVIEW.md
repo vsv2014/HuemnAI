@@ -1,4 +1,4 @@
-# HUMANE.OS Features Overview
+# HUEMN.Ai Features Overview
 
 ## Complete Feature List
 

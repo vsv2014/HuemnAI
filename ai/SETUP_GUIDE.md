@@ -1,6 +1,6 @@
-# HUMANE.OS - Complete Setup Guide for New Computers
+# HUEMN.Ai - Complete Setup Guide for New Computers
 
-This comprehensive guide will help you set up and run the HUMANE.OS application on any computer (Windows, macOS, or Linux).
+This comprehensive guide will help you set up and run the HUEMN.Ai application on any computer (Windows, macOS, or Linux).
 
 ---
 
@@ -250,7 +250,7 @@ curl http://127.0.0.1:8001/health
 ### Check Frontend Server
 
 - Open browser: http://localhost:3000
-- Should display the HUMANE.OS application interface
+- Should display the HUEMN.Ai application interface
 
 ### Check Both Servers Are Running
 
@@ -560,7 +560,7 @@ You'll know everything is working when:
 
 ---
 
-**Congratulations!** Your HUMANE.OS application is now running! 🎉
+**Congratulations!** Your HUEMN.Ai application is now running! 🎉
 
 ---
 

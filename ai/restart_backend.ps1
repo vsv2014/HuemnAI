@@ -3,7 +3,7 @@ $scriptPath = Split-Path -Parent $MyInvocation.MyCommand.Path
 
 Write-Host "Stopping existing backend processes..." -ForegroundColor Yellow
 Get-Process | Where-Object {
-    $_.MainWindowTitle -like "*HUMANE.OS Backend*" -or
+    $_.MainWindowTitle -like "*HUEMN.Ai Backend*" -or
     $_.CommandLine -like "*run_backend*"
 } | Stop-Process -Force -ErrorAction SilentlyContinue
 

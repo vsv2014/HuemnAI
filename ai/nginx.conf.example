@@ -1,6 +1,6 @@
-# Nginx Configuration Example for HUMANE.OS
-# Copy this to /etc/nginx/sites-available/humane-os
-# Then: sudo ln -s /etc/nginx/sites-available/humane-os /etc/nginx/sites-enabled/
+# Nginx Configuration Example for HUEMN.Ai
+# Copy this to /etc/nginx/sites-available/huemn-ai
+# Then: sudo ln -s /etc/nginx/sites-available/huemn-ai /etc/nginx/sites-enabled/
 # Test: sudo nginx -t
 # Restart: sudo systemctl restart nginx
 

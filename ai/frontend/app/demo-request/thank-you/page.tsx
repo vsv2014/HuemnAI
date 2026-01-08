@@ -43,7 +43,7 @@ export default function ThankYouPage() {
           <div className="space-y-4 text-white/70 text-lg mb-8">
             <p>
               We've received your demo request and are excited to show you how 
-              HUMANE.OS can transform your enterprise operations.
+              HUEMN.Ai can transform your enterprise operations.
             </p>
             
             <div className="bg-blue-500/10 border-l-4 border-blue-500 p-6 rounded-lg text-left mt-8">

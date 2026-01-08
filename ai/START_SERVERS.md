@@ -1,4 +1,4 @@
-# How to Start HUMANE.OS Servers
+# How to Start HUEMN.Ai Servers
 
 This guide provides multiple ways to start both the backend and frontend servers with automatic dependency checking.
 

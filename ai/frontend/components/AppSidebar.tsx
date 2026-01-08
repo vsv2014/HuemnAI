@@ -203,7 +203,7 @@ export default function AppSidebar({ agentId }: { agentId: number }) {
               <div className="w-8 h-8 bg-gradient-to-br from-blue-500 to-purple-500 rounded-lg flex items-center justify-center">
                 <span className="text-white text-sm font-bold">AI</span>
               </div>
-              <h2 className="text-lg font-bold bg-gradient-to-r from-white to-white/70 bg-clip-text text-transparent">HUMANE.OS</h2>
+              <h2 className="text-lg font-bold bg-gradient-to-r from-white to-white/70 bg-clip-text text-transparent">HUEMN.Ai</h2>
             </div>
           </div>
         )}
