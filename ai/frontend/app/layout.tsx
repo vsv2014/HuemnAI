@@ -232,7 +232,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
 
         {/* PAGE CONTENT */}
         {!isAgentBuilder && <FullscreenAnimatedBackground />}
-        <main style={{ margin: 0, padding: 0 }}>{children}</main>
+        <main className="relative z-10" style={{ margin: 0, padding: 0 }}>{children}</main>
       </body>
     </html>
   );

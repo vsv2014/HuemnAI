@@ -254,6 +254,31 @@ class AgentMessage(Base):
     conversation = relationship("AgentConversation", back_populates="messages")
 
 
+class AgentAnalyticsEvent(Base):
+    """Analytics events for agent execution tracking"""
+    __tablename__ = "agent_analytics_events"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    agent_id = Column(Integer, ForeignKey("agents.id"), nullable=False, index=True)
+    conversation_id = Column(Integer, ForeignKey("agent_conversations.id"), nullable=True, index=True)
+    
+    # Event details
+    event_type = Column(String(50), nullable=False)  # node_entry, node_exit, error, user_message, agent_response
+    event_name = Column(String(255), nullable=True)
+    node_id = Column(Integer, ForeignKey("agent_nodes.id"), nullable=True)
+    
+    # Data
+    properties = Column(JSON, nullable=True)  # Detailed event data
+    
+    # Timestamps
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    
+    # Relationships
+    agent = relationship("Agent")
+    conversation = relationship("AgentConversation")
+    node = relationship("AgentNode")
+
+
 class AgentIntegration(Base):
     """Tracks which agents are integrated into a master agent"""
     __tablename__ = "agent_integrations"

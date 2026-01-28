@@ -70,7 +70,7 @@ export default function AgentsPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-[#05070f] via-[#0a1020] to-[#05070f] text-white p-6">
+      <div className="min-h-screen text-white p-6 relative z-10">
         <div className="max-w-7xl mx-auto">
           <div className="text-center py-12">Loading agents...</div>
         </div>
@@ -79,7 +79,7 @@ export default function AgentsPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-[#05070f] via-[#0a1020] to-[#05070f] text-white p-6">
+    <div className="min-h-screen text-white p-6 relative z-10">
       <div className="max-w-7xl mx-auto">
         {/* Header */}
         <div className="mb-8">

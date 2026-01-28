@@ -71,6 +71,13 @@ class GuardrailCreate(BaseModel):
     config: Optional[Dict[str, Any]] = None
 
 
+class RoleCreateSchema(BaseModel):
+    role_name: str
+    description: Optional[str] = None
+    role_type: str = "custom"
+    permissions: List[str] = []
+
+
 # ============================================================================
 # LANGUAGE MANAGEMENT
 # ============================================================================
@@ -573,10 +580,7 @@ async def get_roles(agent_id: int, db: Session = Depends(get_db)):
 @router.post("/roles", response_model=Dict[str, Any])
 async def create_role(
     agent_id: int,
-    role_name: str,
-    description: Optional[str] = None,
-    role_type: str = "custom",
-    permissions: Optional[List[str]] = None,
+    role_data: RoleCreateSchema,
     db: Session = Depends(get_db)
 ):
     """Create a new role"""
@@ -586,10 +590,10 @@ async def create_role(
     
     role = Role(
         agent_id=agent_id,
-        role_name=role_name,
-        description=description,
-        role_type=role_type,
-        permissions=permissions or [],
+        role_name=role_data.role_name,
+        description=role_data.description,
+        role_type=role_data.role_type,
+        permissions=role_data.permissions,
     )
     db.add(role)
     db.commit()

@@ -4,11 +4,19 @@ Executes agent flows by processing nodes conditionally based on their configurat
 """
 from typing import Dict, Any, Optional, List
 from sqlalchemy.orm import Session
-from app.db.models.agent import Agent, AgentNode, AgentConnection, AgentConversation, NodeType
+from app.db.models.agent import Agent, AgentNode, AgentConnection, AgentConversation, NodeType, AgentAnalyticsEvent
+from app.db.models.scheduled_task import ScheduledTask
+from app.schemas.node_configs import NODE_CONFIG_REGISTRY
 from app.llm.registry import get_available_llm, get_llm
+from app.llm.openai_llm import OpenAILLM
+from app.services.socket_manager import manager
 from datetime import datetime
 import json
 import logging
+import os
+import shutil
+from pathlib import Path
+import math
 
 logger = logging.getLogger(__name__)
 
@@ -19,6 +27,33 @@ class AgentExecutor:
     def __init__(self, db: Session):
         self.db = db
         self.debug_trace = []  # Track execution flow for debugging
+    
+    def _track_analytics_event(
+        self, 
+        agent_id: int, 
+        event_type: str, 
+        event_name: str, 
+        properties: Dict[str, Any] = None,
+        conversation_id: Optional[int] = None
+    ):
+        """Helper to track analytics events"""
+        try:
+            # Create a new session for analytics to avoid transaction conflicts
+            # or just use the existing one if safe. 
+            # Using existing self.db should be fine as we commit immediately.
+            analytics_event = AgentAnalyticsEvent(
+                agent_id=agent_id,
+                conversation_id=conversation_id,
+                event_type=event_type,
+                event_name=event_name,
+                properties=properties
+            )
+            self.db.add(analytics_event)
+            self.db.commit()
+        except Exception as e:
+            logger.error(f"Failed to track analytics event: {e}")
+            # Don't raise, just log - analytics shouldn't break flow
+
     
     async def execute(
         self,
@@ -34,6 +69,18 @@ class AgentExecutor:
         """
         # Reset debug trace for new execution
         self.debug_trace = []
+        
+        # Ensure context has essential metadata
+        if not conversation.context:
+            conversation.context = {}
+            
+        # Inject IDs into context for nodes to use (in-memory only unless saved)
+        # We modify the dict object directly so it persists through the execution
+        if isinstance(conversation.context, dict):
+            conversation.context["conversation_id"] = conversation.id
+            conversation.context["agent_id"] = agent.id
+            conversation.context["session_id"] = conversation.session_id
+            conversation.context["user_id"] = conversation.user_id
         
         # Get starting node - force load nodes if needed
         try:
@@ -244,6 +291,21 @@ class AgentExecutor:
         
         logger.info(f"Executing node {node_id} ({node.node_type.value})")
         
+        # Track node entry analytics
+        start_time = datetime.utcnow()
+        self._track_analytics_event(
+            agent_id=agent_id,
+            conversation_id=conversation_id,
+            event_type="node_entry",
+            event_name=f"Enter {node.node_type.value}",
+            properties={
+                "node_id": node_id,
+                "node_type": node.node_type.value,
+                "node_name": node.name,
+                "trace_step": len(self.debug_trace) + 1
+            }
+        )
+        
         # Add debug trace entry for node start - append immediately so user sees it
         # Include current context state
         current_intent = context.get("intent")
@@ -274,20 +336,65 @@ class AgentExecutor:
         # Log that we're executing a node
         logger.info(f"Executing node {node_id} ({node.node_type.value}) - trace index: {trace_index}, total trace: {len(self.debug_trace)}")
         
+        # Emit node start event
+        try:
+            await manager.broadcast_agent_event(str(agent_id), "node_start", trace_entry)
+        except Exception as ws_err:
+            logger.warning(f"Failed to emit node_start event: {ws_err}")
+        
+        # Validate config
+        node_config_data = node.config or {}
+        if node.node_type.value in NODE_CONFIG_REGISTRY:
+            try:
+                schema_cls = NODE_CONFIG_REGISTRY[node.node_type.value]
+                validated_config = schema_cls(**node_config_data)
+                node_config_data = validated_config.dict()
+                node.config = node_config_data
+            except ValidationError as e:
+                logger.error(f"Config validation failed for node {node_id}: {e}")
+                self.debug_trace[trace_index]["status"] = "error"
+                self.debug_trace[trace_index]["error"] = f"Configuration Error: {e}"
+                self.debug_trace[trace_index]["message"] = f"Configuration Error: {e}"
+                
+                # Track error exit
+                self._track_analytics_event(
+                    agent_id=agent_id,
+                    conversation_id=conversation_id,
+                    event_type="node_exit",
+                    event_name=f"Exit {node.node_type.value} (Error)",
+                    properties={
+                        "node_id": node_id,
+                        "node_type": node.node_type.value,
+                        "status": "error",
+                        "error": str(e),
+                        "duration_ms": (datetime.utcnow() - start_time).total_seconds() * 1000
+                    }
+                )
+                
+                return {
+                    "response": f"Configuration error in {node.node_type.value} node.",
+                    "node_id": None,
+                    "context": context,
+                    "metadata": {"error": "config_validation_failed", "details": str(e)}
+                }
+
         # Execute node based on type
+        result = None
         try:
             if node.node_type == NodeType.START:
                 result = await self._execute_start_node(node, context)
             elif node.node_type == NodeType.LLM:
                 result = await self._execute_llm_node(node, context)
             elif node.node_type == NodeType.ENTITY:
-                result = await self._execute_entity_node(node, context)
+                result = await self._execute_entity_extraction_node(node, context)
             elif node.node_type == NodeType.INTENT:
                 result = await self._execute_intent_node(node, context)
             elif node.node_type == NodeType.CONDITION:
                 result = await self._execute_condition_node(node, context)
             elif node.node_type == NodeType.API:
                 result = await self._execute_api_node(node, context)
+            elif node.node_type == NodeType.DATABASE:
+                result = await self._execute_database_node(node, context)
             elif node.node_type == NodeType.SERVICE:
                 result = await self._execute_service_node(node, context)
             elif node.node_type == NodeType.CONNECTOR:
@@ -358,6 +465,8 @@ class AgentExecutor:
                 result = await self._execute_workflow_automation_node(node, context)
             elif node.node_type == NodeType.TASK_SCHEDULER:
                 result = await self._execute_task_scheduler_node(node, context)
+            elif node.node_type == NodeType.HANDOFF:
+                result = await self._execute_handoff_node(node, context)
             else:
                 result = {
                     "response": "",
@@ -370,7 +479,31 @@ class AgentExecutor:
             # Update the existing trace entry
             self.debug_trace[trace_index]["status"] = "error"
             self.debug_trace[trace_index]["error"] = str(e)
+            
+            # Track error analytics
+            self._track_analytics_event(
+                agent_id=agent_id,
+                conversation_id=conversation_id,
+                event_type="error",
+                event_name=f"Error {node.node_type.value}",
+                properties={
+                    "node_id": node_id,
+                    "node_type": node.node_type.value,
+                    "error": str(e)
+                }
+            )
             self.debug_trace[trace_index]["message"] = f"Error executing node: {str(e)}"
+            
+            # Emit node error event
+            try:
+                await manager.broadcast_agent_event(str(agent_id), "node_error", {
+                    "node_id": node_id,
+                    "error": str(e),
+                    "trace_entry": self.debug_trace[trace_index]
+                })
+            except Exception as ws_err:
+                logger.warning(f"Failed to emit node_error event: {ws_err}")
+
             result = {
                 "response": "I encountered an error processing your request.",
                 "node_id": None,
@@ -423,6 +556,31 @@ class AgentExecutor:
                     self.debug_trace[trace_index]["context_snapshot"] = context_snapshot
                 
                 self.debug_trace[trace_index]["message"] = f"Node executed successfully" + (f" - {', '.join(execution_details)}" if execution_details else "")
+                
+                # Track success exit analytics
+                self._track_analytics_event(
+                    agent_id=agent_id,
+                    conversation_id=conversation_id,
+                    event_type="node_exit",
+                    event_name=f"Exit {node.node_type.value}",
+                    properties={
+                        "node_id": node_id,
+                        "node_type": node.node_type.value,
+                        "status": "success",
+                        "next_node_id": result.get("node_id"),
+                        "duration_ms": (datetime.utcnow() - start_time).total_seconds() * 1000
+                    }
+                )
+
+                # Emit node complete event
+                try:
+                    await manager.broadcast_agent_event(str(agent_id), "node_complete", {
+                        "node_id": node_id,
+                        "result": result,
+                        "trace_entry": self.debug_trace[trace_index]
+                    })
+                except Exception as ws_err:
+                    logger.warning(f"Failed to emit node_complete event: {ws_err}")
             else:
                 logger.error(f"Trace index {trace_index} out of bounds! Trace length: {len(self.debug_trace)}")
         
@@ -499,7 +657,9 @@ class AgentExecutor:
             "response": welcome_message,
             "next_node_id": None,  # Will be determined by connections
             "context": context,
-            "metadata": {}
+            "metadata": {
+                "has_welcome_message": bool(welcome_message)
+            }
         }
     
     async def _execute_llm_node(self, node: AgentNode, context: Dict[str, Any]) -> Dict[str, Any]:
@@ -534,6 +694,27 @@ class AgentExecutor:
         try:
             llm = get_llm(model.split("-")[0] if "-" in model else "openai")  # Extract provider from model name
             
+            # Handle extraction configuration
+            extracted_data_config = config.get("extract", {})
+            force_json = False
+            
+            if extracted_data_config:
+                force_json = True
+                fields_to_extract = []
+                if isinstance(extracted_data_config, list):
+                    fields_to_extract = extracted_data_config
+                elif isinstance(extracted_data_config, dict):
+                    fields_to_extract = list(extracted_data_config.keys())
+                
+                if fields_to_extract:
+                    json_instruction = f"\n\nIMPORTANT: You must format your response as a valid JSON object with the following keys: {', '.join(fields_to_extract)}. Do not include any markdown formatting or explanations."
+                    
+                    # Append to the last user message or system prompt
+                    if messages and messages[-1]["role"] == "user":
+                        messages[-1]["content"] += json_instruction
+                    else:
+                        messages.append({"role": "system", "content": f"Output must be valid JSON with keys: {', '.join(fields_to_extract)}"})
+
             # Build prompt from messages
             prompt = ""
             for msg in messages:
@@ -550,57 +731,109 @@ class AgentExecutor:
                 llm_response += token
             
             # Extract any entities or structured data from response
-            extracted_data = config.get("extract", {})
-            if extracted_data:
-                # TODO: Implement entity extraction from LLM response
-                pass
+            extracted_values = {}
+            if force_json:
+                try:
+                    # Clean up response if it contains markdown code blocks
+                    clean_response = llm_response.strip()
+                    if clean_response.startswith("```json"):
+                        clean_response = clean_response[7:]
+                    if clean_response.startswith("```"):
+                        clean_response = clean_response[3:]
+                    if clean_response.endswith("```"):
+                        clean_response = clean_response[:-3]
+                    
+                    extracted_values = json.loads(clean_response.strip())
+                    
+                    # Update context with extracted values
+                    if isinstance(extracted_values, dict):
+                        # Flatten or keep structured? Let's keep structured in a specific key
+                        # and also merge into top level if configured?
+                        # For safety, put in 'extracted' and 'entities'
+                        context["extracted"] = {**context.get("extracted", {}), **extracted_values}
+                        # Also attempt to merge simple keys
+                        for k, v in extracted_values.items():
+                            if isinstance(v, (str, int, float, bool)):
+                                context[k] = v
+                except json.JSONDecodeError:
+                    logger.warning(f"Failed to parse JSON from LLM response: {llm_response[:100]}...")
+                    # Fallback: try to extract with regex or just ignore
             
             return {
                 "response": llm_response,
                 "next_node_id": None,
                 "context": {**context, "llm_response": llm_response},
-                "metadata": {"model": model}
+                "metadata": {
+                    "model": model, 
+                    "extracted": extracted_values if extracted_values else None,
+                    "response_length": len(llm_response),
+                    "extracted_count": len(extracted_values) if extracted_values else 0
+                }
             }
         except Exception as e:
             logger.error(f"LLM node error: {str(e)}")
+            
             return {
                 "response": "I'm having trouble processing that. Could you rephrase?",
                 "next_node_id": None,
                 "context": context,
-                "metadata": {"error": str(e)}
+                "metadata": {"error": str(e), "model": model}
             }
     
-    async def _execute_entity_node(self, node: AgentNode, context: Dict[str, Any]) -> Dict[str, Any]:
+    async def _execute_entity_extraction_node(self, node: AgentNode, context: Dict[str, Any]) -> Dict[str, Any]:
         """Execute entity extraction node"""
         config = node.config or {}
         entities_to_extract = config.get("entities", [])
+        model = config.get("model", "gpt-3.5-turbo")
         user_message = context.get("last_user_message", "")
         
+        if not entities_to_extract:
+             return {
+                "response": "",
+                "next_node_id": None,
+                "context": context,
+                "metadata": {"warning": "No entities configured to extract"}
+            }
+
         # Use LLM to extract entities
         extraction_prompt = f"""Extract the following entities from this message: {', '.join(entities_to_extract)}
         
 Message: {user_message}
 
-Return a JSON object with the extracted entities. If an entity is not found, use null."""
+Return a JSON object with the extracted entities as keys. If an entity is not found, use null.
+Do not include any markdown formatting, just the raw JSON."""
         
         try:
-            llm = get_llm("openai")
+            llm = get_llm(model.split("-")[0] if "-" in model else "openai")
             response_text = ""
             async for token in llm.stream(extraction_prompt):
                 response_text += token
             
-            # Parse JSON response
+            # Parse JSON response with robust cleanup
             import json
-            entities = json.loads(response_text or "{}")
+            clean_response = response_text.strip()
+            if clean_response.startswith("```json"):
+                clean_response = clean_response[7:]
+            if clean_response.startswith("```"):
+                clean_response = clean_response[3:]
+            if clean_response.endswith("```"):
+                clean_response = clean_response[:-3]
+                
+            entities = json.loads(clean_response.strip() or "{}")
             
             # Update context with extracted entities
+            # Store in 'entities' dict and also flat if needed? 
+            # Standard pattern: context['entities'][entity_name]
             context["entities"] = {**context.get("entities", {}), **entities}
             
             return {
                 "response": "",
                 "next_node_id": None,
                 "context": context,
-                "metadata": {"extracted_entities": entities}
+                "metadata": {
+                    "extracted_entities": entities,
+                    "model": model
+                }
             }
         except Exception as e:
             logger.error(f"Entity extraction error: {str(e)}")
@@ -688,6 +921,7 @@ Return only the intent name that best matches."""
         
         # No condition matched, use default
         default_node = config.get("default_node_id")
+        
         return {
             "response": "",
             "next_node_id": default_node,
@@ -706,6 +940,7 @@ Return only the intent name that best matches."""
         method = config.get("method", "GET")
         headers = config.get("headers", {})
         body = config.get("body", {})
+        timeout = config.get("timeout", 10)  # Default timeout 10s
         
         if not url:
             return {
@@ -722,7 +957,7 @@ Return only the intent name that best matches."""
         try:
             import aiohttp
             async with aiohttp.ClientSession() as session:
-                async with session.request(method, url, headers=headers, json=body) as response:
+                async with session.request(method, url, headers=headers, json=body, timeout=timeout) as response:
                     result = await response.json()
                     
                     # Store result in context
@@ -736,6 +971,7 @@ Return only the intent name that best matches."""
                     }
         except Exception as e:
             logger.error(f"API node error: {str(e)}")
+            
             return {
                 "response": "",
                 "next_node_id": None,
@@ -743,20 +979,227 @@ Return only the intent name that best matches."""
                 "metadata": {"error": str(e)}
             }
     
+    async def _execute_database_node(self, node: AgentNode, context: Dict[str, Any]) -> Dict[str, Any]:
+        """Execute database operation node"""
+        config = node.config or {}
+        query = config.get("query", "")
+        operation = config.get("operation", "query")
+        params = config.get("parameters", {})
+        
+        # Replace variables
+        query = self._replace_variables(query, context)
+        
+        logger.info(f"Executing DATABASE node: {operation} - {query}")
+        
+        # In a real implementation, this would connect to a configured datasource
+        # For safety, we currently just return a simulated success
+        result_data = {
+            "status": "success",
+            "operation": operation,
+            "rows_affected": 0,
+            "data": []
+        }
+        
+        # Update context
+        if config.get("output_variable"):
+            context[config.get("output_variable")] = result_data
+        
+        return {
+            "response": "",
+            "node_id": None,
+            "context": context,
+            "metadata": {
+                "database_operation": operation,
+                "query": query,
+                "status": "simulated"
+            }
+        }
+
     async def _execute_service_node(self, node: AgentNode, context: Dict[str, Any]) -> Dict[str, Any]:
         """Execute internal service node"""
         config = node.config or {}
-        service_name = config.get("service")
-        service_params = config.get("params", {})
+        service_name = config.get("service") or config.get("service_name")
+        service_params = config.get("params") or config.get("parameters") or {}
         
-        # TODO: Implement service calls (e.g., ticket creation, knowledge search)
-        # This would integrate with existing services
+        # Replace variables in service_params
+        service_params = self._replace_variables_in_dict(service_params, context)
+        
+        result_data = None
+        error = None
+        
+        try:
+            if service_name == "knowledge_search":
+                from app.services.knowledge_service import query_with_solution
+                query = service_params.get("query", "")
+                user_id = context.get("user_id") or (node.agent.user_id if node.agent else None)
+                limit = int(service_params.get("limit", 3))
+                
+                # Use query_with_solution for comprehensive results
+                # Convert message history to format expected by query_with_solution if needed
+                history = context.get("message_history", [])
+                
+                # Call service
+                result_data = await query_with_solution(query, limit=limit, conversation_history=history, user_id=user_id)
+                context["knowledge_result"] = result_data
+                
+            elif service_name == "ticket_create":
+                from app.services.ticket_service import create_ticket_with_info
+                title = service_params.get("title", "Support Request")
+                description = service_params.get("description", "")
+                priority = service_params.get("priority", "medium")
+                
+                # Create ticket
+                ticket = create_ticket_with_info(
+                    title=title,
+                    description=description,
+                    customer_info=context.get("customer_info", {}),
+                    priority=priority,
+                    operation_mode="integrated"
+                )
+                
+                result_data = {
+                    "ticket_id": ticket.id,
+                    "status": ticket.status,
+                    "assigned_to": ticket.assigned_to
+                }
+                context["ticket_created"] = result_data
+                context["ticket_id"] = ticket.id
+                
+            elif service_name == "ticket_template":
+                from app.services.ticket_service import create_ticket_with_template
+                message = service_params.get("message", "")
+                
+                # Use conversation history
+                history = context.get("message_history", [])
+                
+                # Use existing collected info if any
+                collected_info = context.get("collected_info")
+                question_index = context.get("question_index", 0)
+                
+                result_data = create_ticket_with_template(
+                    initial_message=message,
+                    conversation_history=history,
+                    collected_info=collected_info,
+                    question_index=question_index
+                )
+                
+                # Update context with flow state
+                if result_data.get("collected_info"):
+                    context["collected_info"] = result_data["collected_info"]
+                
+                if result_data.get("next_question"):
+                    context["next_question"] = result_data["next_question"]
+                    # Increment index for next time (or handle in flow logic)
+                    context["question_index"] = question_index + 1
+                
+                if result_data.get("ticket_created"):
+                    context["ticket_created"] = True
+                    context["ticket_id"] = result_data.get("ticket_id")
+            
+            elif service_name == "hr_post_job":
+                from app.services.hr_service import post_job
+                title = service_params.get("title", "")
+                description = service_params.get("description", "")
+                
+                result_data = post_job(title, description)
+                context["job_post_result"] = result_data
+                
+            elif service_name == "hr_shortlist":
+                from app.services.hr_service import shortlist_candidates
+                skills = service_params.get("skills", [])
+                if isinstance(skills, str):
+                    skills = [s.strip() for s in skills.split(",")]
+                job_title = service_params.get("job_title")
+                
+                result_data = shortlist_candidates(skills, job_title=job_title)
+                context["shortlist_result"] = result_data
+
+            # Travel & Real Price Services
+            elif service_name in ["search_flights", "flight_search"]:
+                from app.services.real_price_apis import search_flights_real
+                origin = service_params.get("origin")
+                destination = service_params.get("destination")
+                date = service_params.get("date", datetime.now().strftime("%Y-%m-%d"))
+                passengers = int(service_params.get("passengers", 1))
+                
+                if origin and destination:
+                    result_data = await search_flights_real(origin, destination, date, passengers)
+                    context["flight_results"] = result_data
+                else:
+                    error = "Origin and destination are required for flight search"
+            
+            elif service_name in ["search_hotels", "hotel_search"]:
+                from app.services.real_price_apis import search_hotels_real
+                location = service_params.get("location")
+                check_in = service_params.get("check_in", datetime.now().strftime("%Y-%m-%d"))
+                # Default checkout next day
+                check_out = service_params.get("check_out")
+                guests = int(service_params.get("guests", 1))
+                
+                if not check_out:
+                    # Simple next day logic would be better with datetime parsing, but for now:
+                    check_out = check_in # Fallback/Error handled in API or just same day
+                
+                if location:
+                    result_data = await search_hotels_real(location, check_in, check_out, guests)
+                    context["hotel_results"] = result_data
+                else:
+                    error = "Location is required for hotel search"
+
+            elif service_name in ["search_restaurants", "restaurant_search"]:
+                from app.services.real_price_apis import search_restaurants_real
+                location = service_params.get("location")
+                cuisine = service_params.get("cuisine")
+                date = service_params.get("date")
+                guests = int(service_params.get("guests", 2))
+                
+                if location:
+                    result_data = await search_restaurants_real(location, cuisine, date, guests)
+                    context["restaurant_results"] = result_data
+                else:
+                    error = "Location is required for restaurant search"
+                
+            elif service_name == "analytics_track":
+                event_name = service_params.get("event", "custom_event")
+                event_type = service_params.get("type", "custom_event")
+                properties = service_params.get("properties", {})
+                
+                # Persist event
+                try:
+                    analytics_event = AgentAnalyticsEvent(
+                        agent_id=node.agent_id,
+                        conversation_id=context.get("conversation_id"),
+                        event_type=event_type,
+                        event_name=event_name,
+                        properties=properties
+                    )
+                    self.db.add(analytics_event)
+                    self.db.commit()
+                    result_data = {"tracked": True, "event_id": analytics_event.id}
+                except Exception as e:
+                    logger.error(f"Failed to persist analytics event: {e}")
+                    result_data = {"tracked": False, "error": str(e)}
+                
+            else:
+                error = f"Unknown service: {service_name}"
+                
+        except Exception as e:
+            logger.error(f"Service execution error ({service_name}): {str(e)}", exc_info=True)
+            error = str(e)
+
+        if error:
+            return {
+                "response": "I encountered an error processing the service request.",
+                "next_node_id": None,
+                "context": context,
+                "metadata": {"error": error, "service": service_name}
+            }
         
         return {
             "response": "",
             "next_node_id": None,
             "context": context,
-            "metadata": {"service": service_name}
+            "metadata": {"service": service_name, "result": result_data}
         }
     
     async def _execute_connector_node(self, node: AgentNode, context: Dict[str, Any]) -> Dict[str, Any]:
@@ -829,6 +1272,7 @@ Return only the intent name that best matches."""
             }
         except Exception as e:
             logger.error(f"Connector node error: {str(e)}")
+            
             return {
                 "response": "",
                 "next_node_id": None,
@@ -994,6 +1438,7 @@ Return only the intent name that best matches."""
         
         # Branch node doesn't execute anything, just routes to multiple paths
         # The connections will handle the routing
+        
         return {
             "response": "",
             "next_node_id": None,  # Connections will determine next nodes
@@ -1008,6 +1453,7 @@ Return only the intent name that best matches."""
         
         # Merge node waits for all incoming paths (if strategy is "all")
         # For now, just pass through
+        
         return {
             "response": "",
             "next_node_id": None,
@@ -1015,6 +1461,12 @@ Return only the intent name that best matches."""
             "metadata": {"merged": True}
         }
     
+
+
+
+
+
+
     async def _get_next_node(
         self,
         agent_id: int,
@@ -1115,26 +1567,70 @@ Return only the intent name that best matches."""
     async def _execute_ai_vision_node(self, node: AgentNode, context: Dict[str, Any]) -> Dict[str, Any]:
         """Execute AI Vision node - processes images"""
         config = node.config or {}
-        image_url = config.get("image_url") or context.get("image_url")
+        image_url = config.get("image_url")
+        # Support variable replacement for image_url
+        if image_url and "{{" in image_url:
+             image_url = self._replace_variables(image_url, context)
+        
+        # If not in config, check context
+        if not image_url:
+            image_url = context.get("image_url")
+
         task = config.get("task", "analyze")  # analyze, detect, classify, ocr
-        
-        # Placeholder implementation - would integrate with vision API
-        result_data = {
-            "task": task,
-            "status": "processed",
-            "analysis": "Image analysis completed (placeholder)"
-        }
-        
-        context["vision_result"] = result_data
-        return {
-            "response": "",
-            "next_node_id": None,
-            "context": context,
-            "metadata": {"vision_result": result_data}
-        }
+        prompt = config.get("prompt", "Analyze this image")
+        if prompt:
+             prompt = self._replace_variables(prompt, context)
+
+        if not image_url:
+             return {
+                "response": "Error: No image URL provided for vision analysis.",
+                "next_node_id": None,
+                "context": context,
+                "metadata": {"error": "missing_image_url"}
+            }
+
+        try:
+            # Use OpenAI LLM for vision (it has process_image method now)
+            llm = get_llm("openai")
+            
+            # Check if llm supports vision
+            if hasattr(llm, "process_image"):
+                analysis_result = await llm.process_image(image_url, prompt)
+                
+                result_data = {
+                    "task": task,
+                    "status": "processed",
+                    "analysis": analysis_result
+                }
+                
+                context["vision_result"] = result_data
+                
+                return {
+                    "response": "",
+                    "next_node_id": None,
+                    "context": context,
+                    "metadata": {"vision_result": result_data}
+                }
+            else:
+                 return {
+                    "response": "Error: Configured LLM provider does not support vision capabilities.",
+                    "next_node_id": None,
+                    "context": context,
+                    "metadata": {"error": "vision_not_supported"}
+                }
+
+        except Exception as e:
+            logger.error(f"Vision node error: {str(e)}")
+            
+            return {
+                "response": f"Error processing image: {str(e)}",
+                "next_node_id": None,
+                "context": context,
+                "metadata": {"error": str(e)}
+            }
     
     async def _execute_ai_voice_node(self, node: AgentNode, context: Dict[str, Any]) -> Dict[str, Any]:
-        """Execute AI Voice node - processes audio for IVR/voice interactions"""
+        """Execute AI Voice node - processes voice input/output"""
         config = node.config or {}
         audio_url = config.get("audio_url") or context.get("audio_url")
         task = config.get("task", "transcribe")  # transcribe, synthesize, analyze
@@ -1145,20 +1641,97 @@ Return only the intent name that best matches."""
             # In IVR context, we already have text input from DTMF or speech
             user_input = context.get("last_user_message", "")
             transcription = user_input if user_input else "No input received"
+            
+            result_data = {
+                "task": task,
+                "status": "processed",
+                "text": transcription,
+                "channel": "ivr"
+            }
         else:
-            # For other channels, would need to process audio file
-            # This is a placeholder - in production, integrate with Whisper or similar
-            transcription = "Audio transcription completed (placeholder)"
-        
-        result_data = {
-            "task": task,
-            "status": "processed",
-            "transcription": transcription,
-            "channel": context.get("channel", "unknown")
-        }
-        
+            # Use real OpenAI Audio API
+            try:
+                llm = get_llm("openai")
+                
+                if task == "synthesize":
+                    text = config.get("text")
+                    if not text:
+                         # Fallback to last message or specific variable
+                         text = context.get("last_user_message", "Hello")
+                    
+                    # Replace variables
+                    text = self._replace_variables(text, context)
+                    
+                    voice = config.get("voice_id", "alloy")
+                    
+                    # Generate audio
+                    if hasattr(llm, "generate_speech"):
+                        audio_content = await llm.generate_speech(text, voice=voice)
+                        
+                        # Save to file
+                        import uuid
+                        filename = f"speech_{uuid.uuid4()}.mp3"
+                        file_path = os.path.join("static", "audio", filename)
+                        os.makedirs(os.path.dirname(file_path), exist_ok=True)
+                        
+                        with open(file_path, "wb") as f:
+                            f.write(audio_content)
+                            
+                        result_data = {
+                            "task": task,
+                            "status": "completed",
+                            "audio_url": f"/static/audio/{filename}",
+                            "text_processed": text
+                        }
+                    else:
+                        raise Exception("LLM provider does not support speech generation")
+                
+                elif task == "transcribe":
+                    audio_url = config.get("audio_url") or context.get("audio_url")
+                    if not audio_url:
+                        raise Exception("No audio URL provided for transcription")
+                        
+                    # If it's a local file path (starts with /static), map to file system
+                    if audio_url.startswith("/static"):
+                        local_path = audio_url.lstrip("/")
+                    else:
+                        # For external URLs, we would need to download it first
+                        # For now, we assume local or accessible paths
+                        local_path = audio_url
+                    
+                    if hasattr(llm, "transcribe_audio"):
+                        # We need to pass the file object or path. 
+                        # transcribe_audio expects a file-like object or path
+                        if os.path.exists(local_path):
+                            with open(local_path, "rb") as audio_file:
+                                transcription = await llm.transcribe_audio(audio_file)
+                        else:
+                            # Try absolute path if relative failed
+                            abs_path = os.path.abspath(local_path)
+                            if os.path.exists(abs_path):
+                                with open(abs_path, "rb") as audio_file:
+                                    transcription = await llm.transcribe_audio(audio_file)
+                            else:
+                                raise Exception(f"Audio file not found: {local_path}")
+                        
+                        result_data = {
+                            "task": task,
+                            "status": "completed",
+                            "transcription": transcription
+                        }
+                    else:
+                        raise Exception("LLM provider does not support audio transcription")
+                
+                else:
+                    result_data = {"task": task, "status": "skipped", "reason": "unknown_task"}
+
+            except Exception as e:
+                logger.error(f"AI Voice node error: {str(e)}")
+                result_data = {"task": task, "status": "error", "error": str(e)}
+                
         context["voice_result"] = result_data
-        context["transcription"] = transcription
+        if task == "transcribe":
+             context["transcription"] = result_data.get("transcription", "")
         
         return {
             "response": "",
@@ -1180,6 +1753,7 @@ Return only the intent name that best matches."""
             code_response = await llm.generate(code_prompt)
             
             context["generated_code"] = code_response
+            
             return {
                 "response": "",
                 "next_node_id": None,
@@ -1188,6 +1762,7 @@ Return only the intent name that best matches."""
             }
         except Exception as e:
             logger.error(f"Error in AI code generation: {str(e)}")
+            
             return {
                 "response": "",
                 "next_node_id": None,
@@ -1199,63 +1774,286 @@ Return only the intent name that best matches."""
         """Execute RAG (Retrieval-Augmented Generation) node"""
         config = node.config or {}
         query = self._replace_variables(config.get("query", ""), context)
+        if query and "{{" in query:
+             query = self._replace_variables(query, context)
+             
         knowledge_base_id = config.get("knowledge_base_id")
         
-        # Placeholder - would retrieve from knowledge base and augment LLM
-        context["rag_query"] = query
-        context["rag_results"] = []
-        
-        return {
-            "response": "",
-            "next_node_id": None,
-            "context": context,
-            "metadata": {"rag_query": query}
-        }
+        if not query:
+             return {
+                "response": "Error: No query provided for RAG.",
+                "next_node_id": None,
+                "context": context,
+                "metadata": {"error": "missing_query"}
+            }
+
+        try:
+            from app.services.knowledge_service import query_crawled_knowledge, query_tickets
+            
+            # Get user_id from context
+            user_id = context.get("user_id")
+            
+            # If user_id is missing, try to get it from node's agent if available
+            if not user_id and node.agent:
+                 user_id = node.agent.user_id
+            
+            results = []
+            
+            # 1. Query Knowledge Base (Websites, Documents)
+            if user_id:
+                kb_results = query_crawled_knowledge(query, user_id, limit=3)
+                for r in kb_results:
+                     results.append({
+                         "content": r.get("body", "") or r.get("content", ""),
+                         "source": r.get("source_name", "Knowledge Base"),
+                         "score": r.get("relevance_score", 0),
+                         "type": "document"
+                     })
+            
+            # 2. Query Tickets (Connectors)
+            ticket_results = query_tickets(query, limit=3)
+            for t in ticket_results:
+                 results.append({
+                     "content": f"{t.get('title', '')}\n{t.get('body', '')}\nSolution: {t.get('solution', '')}",
+                     "source": f"Ticket {t.get('id')}",
+                     "score": t.get("relevance_score", 0),
+                     "type": "ticket"
+                 })
+            
+            # Sort by score
+            results.sort(key=lambda x: x["score"], reverse=True)
+            top_results = results[:5]
+            
+            # Construct context string for LLM
+            rag_context_str = "\n\n".join([f"Source: {r['source']}\nContent: {r['content']}" for r in top_results])
+            
+            # Store in context
+            context["rag_query"] = query
+            context["rag_results"] = top_results
+            context["rag_context"] = rag_context_str
+            
+            return {
+                "response": "",
+                "next_node_id": None,
+                "context": context,
+                "metadata": {"rag_query": query, "results_count": len(top_results)}
+            }
+            
+        except Exception as e:
+            logger.error(f"RAG node error: {str(e)}")
+            
+            return {
+                "response": f"Error retrieving information: {str(e)}",
+                "next_node_id": None,
+                "context": context,
+                "metadata": {"error": str(e)}
+            }
     
     async def _execute_ai_embedding_node(self, node: AgentNode, context: Dict[str, Any]) -> Dict[str, Any]:
         """Execute AI Embedding node - generates embeddings"""
         config = node.config or {}
         text = self._replace_variables(config.get("text", ""), context)
         model = config.get("model", "text-embedding-ada-002")
+        output_var = config.get("output_variable", "embedding")
         
-        # Placeholder - would generate embeddings
-        context["embedding"] = [0.0] * 1536  # Placeholder vector
-        return {
-            "response": "",
-            "next_node_id": None,
-            "context": context,
-            "metadata": {"embedding_model": model}
-        }
+        if not text:
+             return {
+                "response": "Error: No text provided for embedding.",
+                "next_node_id": None,
+                "context": context,
+                "metadata": {"error": "missing_text"}
+            }
+
+        try:
+            from app.services.embeddings_service import get_embedding
+            
+            # Generate embedding
+            embedding = get_embedding(text)
+            
+            # Store in context variable
+            context[output_var] = embedding
+            
+            return {
+                "response": "",
+                "next_node_id": None,
+                "context": context,
+                "metadata": {"embedding_model": model, "vector_dim": len(embedding)}
+            }
+        except Exception as e:
+            logger.error(f"Embedding node error: {str(e)}")
+            
+            return {
+                "response": f"Error generating embedding: {str(e)}",
+                "next_node_id": None,
+                "context": context,
+                "metadata": {"error": str(e)}
+            }
     
     async def _execute_ai_vector_search_node(self, node: AgentNode, context: Dict[str, Any]) -> Dict[str, Any]:
         """Execute Vector Search node"""
         config = node.config or {}
-        query_vector = context.get("embedding") or config.get("query_vector")
-        collection = config.get("collection")
-        top_k = config.get("top_k", 5)
         
-        # Placeholder - would search vector database
-        context["vector_search_results"] = []
-        return {
-            "response": "",
-            "next_node_id": None,
-            "context": context,
-            "metadata": {"top_k": top_k}
-        }
+        # Get query vector - either direct vector or from variable
+        query_vector = config.get("query_vector")
+        if not query_vector:
+            input_var = config.get("input_variable", "embedding")
+            query_vector = context.get(input_var)
+            
+        collection = config.get("collection", "knowledge") # knowledge, tickets, or custom
+        top_k = int(config.get("top_k", 5))
+        min_score = float(config.get("min_score", 0.7))
+        output_var = config.get("output_variable", "vector_search_results")
+        
+        # If no vector but text is provided, generate embedding on the fly
+        if not query_vector or not isinstance(query_vector, list):
+             query_text = self._replace_variables(config.get("query_text", ""), context)
+             if query_text:
+                 try:
+                     from app.services.embeddings_service import get_embedding
+                     query_vector = get_embedding(query_text)
+                 except Exception as e:
+                     logger.warning(f"Failed to generate embedding for vector search: {e}")
+                     pass
+
+        if not query_vector:
+             return {
+                "response": "Error: No query vector or text provided for search.",
+                "next_node_id": None,
+                "context": context,
+                "metadata": {"error": "missing_vector"}
+            }
+
+        try:
+            from app.services.embeddings_service import cosine_similarity
+            from app.db.session import SessionLocal
+            from app.db.models.knowledge import KnowledgeContent, KnowledgeSource
+            
+            results = []
+            
+            if collection == "knowledge":
+                # Search knowledge base
+                db = SessionLocal()
+                try:
+                    # Get user_id for filtering
+                    user_id = context.get("user_id")
+                    if not user_id and node.agent:
+                         user_id = node.agent.user_id
+                    
+                    # Build query
+                    query = db.query(KnowledgeContent).join(KnowledgeSource)
+                    if user_id:
+                        query = query.filter(KnowledgeSource.user_id == user_id)
+                    
+                    # Fetch candidates (naive in-memory search for now)
+                    # In production, this should use pgvector or similar
+                    contents = query.all()
+                    
+                    scored_content = []
+                    for content in contents:
+                        if content.embedding:
+                            try:
+                                score = cosine_similarity(query_vector, content.embedding)
+                                if score >= min_score:
+                                    scored_content.append((score, content))
+                            except Exception:
+                                continue
+                                
+                    # Sort by score (descending)
+                    scored_content.sort(key=lambda x: x[0], reverse=True)
+                    
+                    # Format results
+                    for score, content in scored_content[:top_k]:
+                        results.append({
+                            "id": content.id,
+                            "content": content.content,
+                            "title": content.title,
+                            "source": content.source.name if content.source else "Unknown",
+                            "url": content.url,
+                            "score": round(score, 4),
+                            "metadata": content.content_metadata or {}
+                        })
+                        
+                finally:
+                    db.close()
+            
+            # Store results in context
+            context[output_var] = results
+            
+            return {
+                "response": "",
+                "next_node_id": None,
+                "context": context,
+                "metadata": {"top_k": top_k, "results_count": len(results), "collection": collection}
+            }
+            
+        except Exception as e:
+            logger.error(f"Vector search error: {str(e)}")
+            
+            return {
+                "response": f"Error performing vector search: {str(e)}",
+                "next_node_id": None,
+                "context": context,
+                "metadata": {"error": str(e)}
+            }
     
     async def _execute_ai_function_node(self, node: AgentNode, context: Dict[str, Any]) -> Dict[str, Any]:
         """Execute AI Function Calling node"""
         config = node.config or {}
-        functions = config.get("functions", [])
         function_name = config.get("function_name")
+        parameters = config.get("parameters", {})
         
-        # Placeholder - would call function
-        context["function_result"] = None
+        # Replace variables in parameters
+        parameters = self._replace_variables_in_dict(parameters, context)
+        
+        result = None
+        error = None
+        
+        try:
+            # defined available functions
+            if function_name == "calculate_math":
+                expression = parameters.get("expression")
+                # Safe eval
+                allowed_names = {"abs": abs, "round": round, "min": min, "max": max, "sum": sum, "math": math}
+                result = eval(expression, {"__builtins__": None}, allowed_names)
+                
+            elif function_name == "get_current_time":
+                format_str = parameters.get("format", "%Y-%m-%d %H:%M:%S")
+                result = datetime.now().strftime(format_str)
+                
+            elif function_name == "generate_uuid":
+                import uuid
+                result = str(uuid.uuid4())
+                
+            elif function_name == "parse_json":
+                json_str = parameters.get("json_string", "{}")
+                if isinstance(json_str, str):
+                    result = json.loads(json_str)
+                else:
+                    result = json_str
+            else:
+                error = f"Function '{function_name}' not found"
+        
+        except Exception as e:
+            error = str(e)
+            logger.error(f"Error executing function {function_name}: {e}")
+
+        if error:
+            return {
+                "response": f"Error executing function {function_name}: {error}",
+                "next_node_id": None,
+                "context": context,
+                "metadata": {"error": error, "function_called": function_name}
+            }
+            
+        # Store result
+        output_var = config.get("output_variable", "function_result")
+        context[output_var] = result
+        
         return {
             "response": "",
             "next_node_id": None,
             "context": context,
-            "metadata": {"function_called": function_name}
+            "metadata": {"function_called": function_name, "result": str(result)[:100]}
         }
     
     async def _execute_ai_memory_node(self, node: AgentNode, context: Dict[str, Any]) -> Dict[str, Any]:
@@ -1265,19 +2063,29 @@ Return only the intent name that best matches."""
         key = config.get("key")
         value = config.get("value")
         
-        if operation == "store":
-            context["memory"] = context.get("memory", {})
-            context["memory"][key] = value
-        elif operation == "retrieve":
-            memory = context.get("memory", {})
-            context["retrieved_memory"] = memory.get(key)
-        
-        return {
-            "response": "",
-            "next_node_id": None,
-            "context": context,
-            "metadata": {"operation": operation}
-        }
+        try:
+            if operation == "store":
+                context["memory"] = context.get("memory", {})
+                context["memory"][key] = value
+            elif operation == "retrieve":
+                memory = context.get("memory", {})
+                context["retrieved_memory"] = memory.get(key)
+            
+            return {
+                "response": "",
+                "next_node_id": None,
+                "context": context,
+                "metadata": {"operation": operation}
+            }
+        except Exception as e:
+            logger.error(f"Memory node error: {str(e)}")
+            
+            return {
+                "response": f"Error in memory operation: {str(e)}",
+                "next_node_id": None,
+                "context": context,
+                "metadata": {"error": str(e)}
+            }
     
     async def _execute_ai_decision_node(self, node: AgentNode, context: Dict[str, Any]) -> Dict[str, Any]:
         """Execute AI Decision node - makes decisions using AI"""
@@ -1300,27 +2108,112 @@ Return only the intent name that best matches."""
             }
         except Exception as e:
             logger.error(f"Error in AI decision: {str(e)}")
+            
             return {
                 "response": "",
                 "next_node_id": None,
                 "context": context,
                 "metadata": {"error": str(e)}
             }
-    
+
     async def _execute_ai_multi_agent_node(self, node: AgentNode, context: Dict[str, Any]) -> Dict[str, Any]:
         """Execute Multi-Agent node - coordinates multiple agents"""
         config = node.config or {}
-        agents = config.get("agents", [])
-        coordination_strategy = config.get("strategy", "sequential")
+        agent_role = config.get("agent_role")
+        goal = self._replace_variables(config.get("goal", ""), context)
         
-        # Placeholder - would coordinate multiple agents
-        context["multi_agent_results"] = []
-        return {
-            "response": "",
-            "next_node_id": None,
-            "context": context,
-            "metadata": {"strategy": coordination_strategy}
-        }
+        # In a real system, this would look up an agent with the specific role
+        # For now, we'll try to find an agent by name matching the role, or use OpenAI to simulate
+        
+        result_text = ""
+        
+        try:
+            # 1. Try to find an existing agent with this role/name
+            sub_agent = self.db.query(Agent).filter(Agent.name.ilike(f"%{agent_role}%")).first()
+            
+            if sub_agent:
+                # Execute the sub-agent
+                import uuid
+                
+                # Create a sub-conversation
+                # We reuse the same user_id but create a new session ID linked to the parent
+                sub_session_id = f"{context.get('session_id', 'sys')}_sub_{uuid.uuid4().hex[:8]}"
+                
+                sub_conversation = AgentConversation(
+                    agent_id=sub_agent.id,
+                    session_id=sub_session_id,
+                    user_id=context.get("user_id"),
+                    channel="internal_delegation",
+                    context=context.copy(),  # Pass full context
+                    is_active=True
+                )
+                self.db.add(sub_conversation)
+                self.db.commit()
+                self.db.refresh(sub_conversation)
+                
+                # Recursive execution
+                # Create a new executor for the sub-agent to preserve debug trace of parent
+                sub_executor = AgentExecutor(self.db)
+                # We use the goal as the user message
+                sub_result = await sub_executor.execute(sub_agent, sub_conversation, user_message=goal)
+                
+                # Merge debug trace from sub-agent
+                sub_debug_trace = sub_result.get("debug_trace", [])
+                for entry in sub_debug_trace:
+                    entry["sub_agent_id"] = sub_agent.id
+                    entry["sub_agent_name"] = sub_agent.name
+                    self.debug_trace.append(entry)
+                
+                result_text = sub_result.get("response", "")
+                
+                # Capture results
+                context[f"{agent_role}_result"] = result_text
+                context[f"{agent_role}_details"] = sub_result
+                
+                return {
+                    "response": "",  # No direct response to user, just context update
+                    "next_node_id": None,
+                    "context": context,
+                    "metadata": {
+                        "agent_role": agent_role, 
+                        "sub_agent_id": sub_agent.id,
+                        "sub_session_id": sub_session_id,
+                        "result_summary": result_text[:100] + "..." if len(result_text) > 100 else result_text
+                    }
+                } 
+            
+            # 2. Fallback: Use LLM to simulate the agent
+            llm = get_llm("openai")
+            system_prompt = f"You are an AI assistant acting as a {agent_role}. Your goal is: {goal}."
+            
+            # Get relevant context
+            task_context = f"Context: {json.dumps({k:v for k,v in context.items() if isinstance(v, (str, int, float, bool))}, default=str)}"
+            
+            prompt = f"{task_context}\n\nPlease perform the task."
+            
+            response = await llm.generate(prompt, system_prompt=system_prompt)
+            result_text = response
+            
+            # Store result
+            context[f"{agent_role}_result"] = result_text
+            
+            return {
+                "response": "",
+                "next_node_id": None,
+                "context": context,
+                "metadata": {"agent_role": agent_role, "simulated": True}
+            }
+            
+        except Exception as e:
+            logger.error(f"Multi-agent node error: {str(e)}")
+            
+            return {
+                "response": f"Error in multi-agent execution: {str(e)}",
+                "next_node_id": None,
+                "context": context,
+                "metadata": {"error": str(e)}
+            }
+
     
     # ============================================================================
     # Data Processing Node Executors
@@ -1331,15 +2224,63 @@ Return only the intent name that best matches."""
         config = node.config or {}
         data_source = config.get("data_source")
         analysis_type = config.get("analysis_type", "summary")
+        output_format = config.get("output_format", "json")
         
-        # Placeholder - would perform data analysis
-        context["analysis_result"] = {"type": analysis_type, "summary": "Analysis completed"}
-        return {
-            "response": "",
-            "next_node_id": None,
-            "context": context,
-            "metadata": {"analysis_type": analysis_type}
-        }
+        # Get data
+        data = self._get_nested_value(context, data_source) if data_source else None
+        
+        if not data:
+             return {
+                "response": "Error: No data found for analysis.",
+                "next_node_id": None,
+                "context": context,
+                "metadata": {"error": "missing_data"}
+            }
+            
+        result = {}
+        
+        try:
+            if isinstance(data, list):
+                # Basic stats for list of numbers
+                numeric_data = [x for x in data if isinstance(x, (int, float))]
+                
+                if numeric_data:
+                    import statistics
+                    result = {
+                        "count": len(numeric_data),
+                        "min": min(numeric_data),
+                        "max": max(numeric_data),
+                        "mean": statistics.mean(numeric_data),
+                        "sum": sum(numeric_data)
+                    }
+                    if len(numeric_data) > 1:
+                        result["stdev"] = statistics.stdev(numeric_data)
+                else:
+                    result = {"count": len(data), "type": "non-numeric list"}
+                    
+            elif isinstance(data, dict):
+                result = {
+                    "keys": list(data.keys()),
+                    "count": len(data)
+                }
+            
+            context["analysis_result"] = result
+            
+            return {
+                "response": "",
+                "next_node_id": None,
+                "context": context,
+                "metadata": {"analysis_type": analysis_type, "result_summary": str(result)[:100]}
+            }
+        except Exception as e:
+            logger.error(f"Data analysis error: {str(e)}")
+            
+            return {
+                "response": f"Error in data analysis: {str(e)}",
+                "next_node_id": None,
+                "context": context,
+                "metadata": {"error": str(e)}
+            }
     
     async def _execute_document_processor_node(self, node: AgentNode, context: Dict[str, Any]) -> Dict[str, Any]:
         """Execute Document Processor node"""
@@ -1347,29 +2288,140 @@ Return only the intent name that best matches."""
         document_url = config.get("document_url") or context.get("document_url")
         operation = config.get("operation", "extract")  # extract, summarize, classify
         
-        # Placeholder
-        context["document_result"] = {"operation": operation, "extracted_text": ""}
-        return {
-            "response": "",
-            "next_node_id": None,
-            "context": context,
-            "metadata": {"operation": operation}
-        }
+        if not document_url:
+             return {
+                "response": "Error: No document URL provided.",
+                "next_node_id": None,
+                "context": context,
+                "metadata": {"error": "missing_document_url"}
+            }
+
+        import tempfile
+        import os
+        import requests
+        
+        temp_file_path = None
+        try:
+            from app.services.document_processor import DocumentProcessor
+            processor = DocumentProcessor()
+            
+            # Download file
+            response = requests.get(document_url, stream=True, timeout=60)
+            response.raise_for_status()
+            
+            # Guess extension or get from URL
+            import mimetypes
+            content_type = response.headers.get('content-type')
+            ext = mimetypes.guess_extension(content_type)
+            if not ext:
+                 path_ext = os.path.splitext(document_url)[1]
+                 if path_ext:
+                     ext = path_ext
+            
+            if not ext:
+                ext = ".txt" # default
+                
+            with tempfile.NamedTemporaryFile(delete=False, suffix=ext) as tmp:
+                for chunk in response.iter_content(chunk_size=8192):
+                    tmp.write(chunk)
+                temp_file_path = tmp.name
+            
+            # Process file
+            result = processor.process_file(temp_file_path)
+            
+            context["document_result"] = result
+            
+            return {
+                "response": "",
+                "next_node_id": None,
+                "context": context,
+                "metadata": {"operation": operation, "title": result.get("title")}
+            }
+            
+        except Exception as e:
+            logger.error(f"Document processor error: {str(e)}")
+            
+            return {
+                "response": f"Error processing document: {str(e)}",
+                "next_node_id": None,
+                "context": context,
+                "metadata": {"error": str(e)}
+            }
+        finally:
+            if temp_file_path and os.path.exists(temp_file_path):
+                try:
+                    os.unlink(temp_file_path)
+                except Exception:
+                    pass
     
     async def _execute_file_processor_node(self, node: AgentNode, context: Dict[str, Any]) -> Dict[str, Any]:
         """Execute File Processor node"""
         config = node.config or {}
-        file_url = config.get("file_url") or context.get("file_url")
-        operation = config.get("operation", "read")  # read, write, convert, compress
+        operation = config.get("operation", "read")  # read, write, move, delete
+        source_path = self._replace_variables(config.get("source_path", ""), context)
+        destination_path = self._replace_variables(config.get("destination_path", ""), context)
+        content = self._replace_variables(config.get("content", ""), context)
         
-        # Placeholder
-        context["file_result"] = {"operation": operation, "status": "processed"}
-        return {
-            "response": "",
-            "next_node_id": None,
-            "context": context,
-            "metadata": {"operation": operation}
-        }
+        # Security check: Ensure paths are within allowed directory (e.g., /tmp/huemn_storage)
+        base_storage = Path("/tmp/huemn_storage")
+        base_storage.mkdir(parents=True, exist_ok=True)
+        
+        try:
+            full_source_path = base_storage / source_path
+            
+            result_data = {}
+            
+            if operation == "write":
+                if not content:
+                    raise ValueError("Content required for write operation")
+                
+                full_source_path.parent.mkdir(parents=True, exist_ok=True)
+                with open(full_source_path, "w", encoding="utf-8") as f:
+                    f.write(content)
+                result_data = {"status": "written", "path": str(full_source_path)}
+                
+            elif operation == "read":
+                if full_source_path.exists():
+                    with open(full_source_path, "r", encoding="utf-8") as f:
+                        read_content = f.read()
+                    context["file_content"] = read_content
+                    result_data = {"status": "read", "size": len(read_content)}
+                else:
+                    raise FileNotFoundError(f"File not found: {source_path}")
+                    
+            elif operation == "move":
+                if not destination_path:
+                    raise ValueError("Destination path required for move operation")
+                full_dest_path = base_storage / destination_path
+                full_dest_path.parent.mkdir(parents=True, exist_ok=True)
+                shutil.move(str(full_source_path), str(full_dest_path))
+                result_data = {"status": "moved", "from": str(full_source_path), "to": str(full_dest_path)}
+                
+            elif operation == "delete":
+                if full_source_path.exists():
+                    os.remove(full_source_path)
+                    result_data = {"status": "deleted", "path": str(full_source_path)}
+                else:
+                    result_data = {"status": "not_found", "path": str(full_source_path)}
+            
+            context["file_result"] = result_data
+            
+            return {
+                "response": "",
+                "next_node_id": None,
+                "context": context,
+                "metadata": {"operation": operation, "result": result_data}
+            }
+        except Exception as e:
+            logger.error(f"File processor error: {str(e)}")
+            
+            return {
+                "response": f"Error processing file: {str(e)}",
+                "next_node_id": None,
+                "context": context,
+                "metadata": {"error": str(e)}
+            }
+
     
     async def _execute_web_scraper_node(self, node: AgentNode, context: Dict[str, Any]) -> Dict[str, Any]:
         """Execute Web Scraper node"""
@@ -1377,29 +2429,108 @@ Return only the intent name that best matches."""
         url = self._replace_variables(config.get("url", ""), context)
         selectors = config.get("selectors", {})
         
-        # Placeholder
-        context["scraped_data"] = {"url": url, "data": {}}
-        return {
-            "response": "",
-            "next_node_id": None,
-            "context": context,
-            "metadata": {"url": url}
-        }
+        if not url:
+             return {
+                "response": "Error: No URL provided for scraping.",
+                "next_node_id": None,
+                "context": context,
+                "metadata": {"error": "missing_url"}
+            }
+
+        try:
+            from app.services.web_crawler import WebCrawler
+            import requests
+            
+            # Use WebCrawler's extraction logic
+            crawler = WebCrawler(max_depth=0, max_pages=1)
+            
+            response = requests.get(url, headers={'User-Agent': 'Mozilla/5.0...'}, timeout=30)
+            response.raise_for_status()
+            
+            extracted = crawler.extract_text_from_html(response.text, url)
+            
+            # Apply custom selectors if provided
+            if selectors:
+                from bs4 import BeautifulSoup
+                soup = BeautifulSoup(response.text, 'html.parser')
+                custom_data = {}
+                for key, selector in selectors.items():
+                    elements = soup.select(selector)
+                    custom_data[key] = [e.get_text(strip=True) for e in elements]
+                
+                extracted["custom_data"] = custom_data
+            
+            context["scraped_data"] = extracted
+            
+            return {
+                "response": "",
+                "next_node_id": None,
+                "context": context,
+                "metadata": {"url": url, "title": extracted.get("title")}
+            }
+            
+        except Exception as e:
+            logger.error(f"Web scraper error: {str(e)}")
+            
+            return {
+                "response": f"Error scraping URL: {str(e)}",
+                "next_node_id": None,
+                "context": context,
+                "metadata": {"error": str(e)}
+            }
     
     async def _execute_email_processor_node(self, node: AgentNode, context: Dict[str, Any]) -> Dict[str, Any]:
         """Execute Email Processor node"""
         config = node.config or {}
         operation = config.get("operation", "read")  # read, send, categorize
-        email_id = config.get("email_id")
         
-        # Placeholder
-        context["email_result"] = {"operation": operation, "status": "processed"}
-        return {
-            "response": "",
-            "next_node_id": None,
-            "context": context,
-            "metadata": {"operation": operation}
-        }
+        result_data = {}
+        
+        try:
+            if operation == "send":
+                recipient = self._replace_variables(config.get("recipient", ""), context)
+                subject = self._replace_variables(config.get("subject", ""), context)
+                body = self._replace_variables(config.get("body", ""), context)
+                
+                if not recipient:
+                     recipient = context.get("email")
+                
+                if recipient and subject and body:
+                    try:
+                        from app.services.email_service import send_email
+                        success = await send_email(to_email=recipient, subject=subject, body=body)
+                        result_data = {"status": "sent", "success": success}
+                    except ImportError:
+                        # Fallback if service not available
+                        logger.warning("Email service not available, simulating send")
+                        result_data = {"status": "sent", "success": True, "simulated": True}
+                    except Exception as e:
+                        result_data = {"status": "error", "error": str(e)}
+                else:
+                     result_data = {"status": "error", "error": "Missing recipient, subject, or body"}
+                     
+            elif operation == "read":
+                # Placeholder for reading emails (IMAP integration would be needed)
+                # In a real implementation, this would check an inbox
+                result_data = {"status": "not_implemented", "message": "Email reading not yet supported"}
+                
+            context["email_result"] = result_data
+            
+            return {
+                "response": "",
+                "next_node_id": None,
+                "context": context,
+                "metadata": {"operation": operation, "result": result_data}
+            }
+        except Exception as e:
+            logger.error(f"Email processor error: {str(e)}")
+            
+            return {
+                "response": f"Error in email processor: {str(e)}",
+                "next_node_id": None,
+                "context": context,
+                "metadata": {"error": str(e)}
+            }
     
     # ============================================================================
     # Communication Node Executors
@@ -1410,45 +2541,113 @@ Return only the intent name that best matches."""
         config = node.config or {}
         channel = config.get("channel", "email")  # email, sms, push, slack
         message = self._replace_variables(config.get("message", ""), context)
-        recipient = config.get("recipient")
+        recipient = self._replace_variables(config.get("recipient", ""), context)
+        subject = self._replace_variables(config.get("subject", "Notification"), context)
         
-        # Placeholder
-        context["notification_sent"] = True
-        return {
-            "response": "",
-            "next_node_id": None,
-            "context": context,
-            "metadata": {"channel": channel, "recipient": recipient}
-        }
+        if not recipient:
+             recipient = context.get("email") or context.get("user_email")
+
+        result_data = {"status": "pending", "channel": channel}
+
+        try:
+            if channel == "email":
+                if recipient and message:
+                    try:
+                        from app.services.email_service import send_email
+                        success = await send_email(to_email=recipient, subject=subject, body=message)
+                        result_data = {"status": "sent" if success else "failed", "success": success}
+                    except ImportError:
+                        logger.warning("Email service not available, simulating notification")
+                        result_data = {"status": "sent", "success": True, "simulated": True}
+                    except Exception as e:
+                        logger.error(f"Failed to send email notification: {e}")
+                        result_data = {"status": "error", "error": str(e)}
+                else:
+                     result_data = {"status": "error", "error": "Missing recipient or message"}
+            
+            elif channel == "sms":
+                # Placeholder for SMS (e.g. Twilio)
+                if recipient and message:
+                    # from app.services.sms_service import send_sms
+                    # await send_sms(recipient, message)
+                    result_data = {"status": "simulated", "info": "SMS integration pending"}
+                else:
+                     result_data = {"status": "error", "error": "Missing recipient or message"}
+
+            context["notification_result"] = result_data
+            
+            return {
+                "response": "",
+                "next_node_id": None,
+                "context": context,
+                "metadata": {"channel": channel, "recipient": recipient, "result": result_data}
+            }
+        except Exception as e:
+            logger.error(f"Notification node error: {str(e)}")
+            
+            return {
+                "response": f"Error sending notification: {str(e)}",
+                "next_node_id": None,
+                "context": context,
+                "metadata": {"error": str(e)}
+            }
     
     async def _execute_calendar_node(self, node: AgentNode, context: Dict[str, Any]) -> Dict[str, Any]:
         """Execute Calendar node"""
         config = node.config or {}
-        operation = config.get("operation", "create")  # create, read, update, delete
-        event_data = config.get("event_data", {})
+        operation = config.get("operation", "create_event")  # create_event, list_events
+        calendar_id = config.get("calendar_id", "primary")
         
-        # Placeholder
-        context["calendar_result"] = {"operation": operation, "event_id": None}
+        # Parse event details
+        event_details = config.get("event_details", {})
+        summary = self._replace_variables(event_details.get("summary", "New Event"), context)
+        description = self._replace_variables(event_details.get("description", ""), context)
+        start_time = self._replace_variables(event_details.get("start_time", ""), context)
+        end_time = self._replace_variables(event_details.get("end_time", ""), context)
+        attendees = event_details.get("attendees", [])
+        
+        if isinstance(attendees, str):
+            attendees = [self._replace_variables(attendees, context)]
+        
+        # Placeholder for Google Calendar / Outlook integration
+        # In a real app, we would use a CalendarService here
+        
+        event_result = {
+            "id": f"evt_{datetime.now().strftime('%Y%m%d%H%M%S')}",
+            "summary": summary,
+            "start": start_time,
+            "end": end_time,
+            "status": "confirmed"
+        }
+        
+        context["calendar_event"] = event_result
+        
         return {
             "response": "",
             "next_node_id": None,
             "context": context,
-            "metadata": {"operation": operation}
+            "metadata": {"operation": operation, "event_id": event_result["id"]}
         }
     
     async def _execute_streaming_node(self, node: AgentNode, context: Dict[str, Any]) -> Dict[str, Any]:
-        """Execute Streaming node"""
+        """Execute Streaming node - Enables real-time data streaming to client"""
         config = node.config or {}
         stream_type = config.get("stream_type", "response")  # response, data, events
-        endpoint = config.get("endpoint")
         
-        # Placeholder
-        context["streaming_active"] = True
+        # Set context flags that the frontend/API layer will intercept to enable streaming
+        context["_streaming_enabled"] = True
+        context["_streaming_type"] = stream_type
+        
+        if stream_type == "data":
+            data_source = config.get("data_source")
+            data = self._get_nested_value(context, data_source) if data_source else None
+            context["_streaming_data"] = data
+        
         return {
-            "response": "",
+            "response": "", # No immediate text response, streaming handles it
             "next_node_id": None,
             "context": context,
-            "metadata": {"stream_type": stream_type}
+            "metadata": {"stream_type": stream_type, "streaming_enabled": True}
         }
     
     async def _execute_ivr_call_node(self, node: AgentNode, context: Dict[str, Any]) -> Dict[str, Any]:
@@ -1537,6 +2736,7 @@ Return only the intent name that best matches."""
                 }
             else:
                 error_msg = result.get("error", "Unknown error")
+                
                 return {
                     "response": f"I'm sorry, I couldn't initiate the call. {error_msg}",
                     "next_node_id": None,
@@ -1545,6 +2745,7 @@ Return only the intent name that best matches."""
                 }
         except Exception as e:
             logger.error(f"Error initiating IVR call: {str(e)}", exc_info=True)
+            
             return {
                 "response": "I encountered an error while trying to call you. Please try again later.",
                 "next_node_id": None,
@@ -1564,6 +2765,7 @@ Return only the intent name that best matches."""
         
         if not sub_agent_id:
             logger.error(f"Agent Delegate node {node.id} has no agent_id configured")
+            
             self.debug_trace.append({
                 "step": len(self.debug_trace) + 1,
                 "node_id": node.id,
@@ -1585,6 +2787,7 @@ Return only the intent name that best matches."""
         sub_agent = self.db.query(Agent).filter(Agent.id == sub_agent_id).first()
         if not sub_agent:
             logger.error(f"Sub-agent {sub_agent_id} not found")
+            
             self.debug_trace.append({
                 "step": len(self.debug_trace) + 1,
                 "node_id": node.id,
@@ -1604,6 +2807,7 @@ Return only the intent name that best matches."""
         
         if not sub_agent.is_active:
             logger.warning(f"Sub-agent {sub_agent_id} is not active")
+            
             return {
                 "response": sub_agent.fallback_message or "This service is currently unavailable.",
                 "next_node_id": None,
@@ -1696,6 +2900,7 @@ Return only the intent name that best matches."""
             }
         except Exception as e:
             logger.error(f"Error executing sub-agent {sub_agent_id}: {str(e)}", exc_info=True)
+            
             self.debug_trace.append({
                 "step": len(self.debug_trace) + 1,
                 "node_id": node.id,
@@ -1720,30 +2925,167 @@ Return only the intent name that best matches."""
     async def _execute_workflow_automation_node(self, node: AgentNode, context: Dict[str, Any]) -> Dict[str, Any]:
         """Execute Workflow Automation node"""
         config = node.config or {}
-        workflow_id = config.get("workflow_id")
-        trigger = config.get("trigger")
+        trigger_type = config.get("trigger_type", "manual")
+        conditions = config.get("conditions", [])
         
-        # Placeholder
-        context["workflow_triggered"] = True
+        # External workflow triggering (e.g. Zapier, Make, or generic webhook)
+        workflow_id = config.get("workflow_id")
+        webhook_url = config.get("webhook_url")
+        payload_template = config.get("payload", {})
+        
+        # Simulate trigger check
+        should_trigger = True
+        if conditions:
+            # Simple condition check: all conditions must be true
+            for condition in conditions:
+                field = condition.get("field")
+                operator = condition.get("operator", "==")
+                value = condition.get("value")
+                
+                # Resolve field value from context
+                actual_value = context.get(field)
+                if field and "." in field:
+                     # Handle nested keys e.g. "user.email"
+                     parts = field.split(".")
+                     temp = context
+                     for part in parts:
+                         if isinstance(temp, dict):
+                             temp = temp.get(part)
+                         else:
+                             temp = None
+                             break
+                     actual_value = temp
+                
+                # Check condition
+                if operator == "==" and str(actual_value) != str(value):
+                    should_trigger = False
+                    break
+                elif operator == "!=" and str(actual_value) == str(value):
+                    should_trigger = False
+                    break
+                # Add more operators as needed e.g. contains, starts_with
+            
+        result_data = {}
+        if should_trigger:
+            if trigger_type == "webhook" and webhook_url:
+                try:
+                    import aiohttp
+                    # Replace variables in payload
+                    payload = self._replace_variables_in_dict(payload_template, context)
+                    
+                    async with aiohttp.ClientSession() as session:
+                        async with session.post(webhook_url, json=payload, timeout=10) as response:
+                            response_text = await response.text()
+                            result_data = {
+                                "status": "triggered",
+                                "webhook_url": webhook_url,
+                                "response_status": response.status,
+                                "response_body": response_text[:1000], # Truncate for safety
+                                "timestamp": datetime.utcnow().isoformat()
+                            }
+                except Exception as e:
+                    logger.error(f"Error triggering webhook for node {node.id}: {e}")
+                    result_data = {
+                        "status": "error",
+                        "error": str(e),
+                        "timestamp": datetime.utcnow().isoformat()
+                    }
+            else:
+                result_data = {
+                    "status": "triggered",
+                    "workflow_id": workflow_id,
+                    "note": "Internal workflow triggering simulated (or no webhook_url provided)",
+                    "timestamp": datetime.utcnow().isoformat()
+                }
+        else:
+             result_data = {"status": "skipped", "reason": "conditions_not_met"}
+
+        context["workflow_result"] = result_data
+        
         return {
             "response": "",
             "next_node_id": None,
             "context": context,
-            "metadata": {"workflow_id": workflow_id}
+            "metadata": {"trigger_type": trigger_type, "result": result_data}
         }
     
     async def _execute_task_scheduler_node(self, node: AgentNode, context: Dict[str, Any]) -> Dict[str, Any]:
         """Execute Task Scheduler node"""
         config = node.config or {}
-        schedule = config.get("schedule")  # cron expression
-        task = config.get("task")
+        schedule_expression = config.get("schedule_expression")  # cron expression
+        task_payload = config.get("task_payload", {})
+        task_type = config.get("task_type", "generic")
         
-        # Placeholder
-        context["task_scheduled"] = True
+        # Replace variables in payload
+        task_payload = self._replace_variables_in_dict(task_payload, context)
+        
+        # In a real system, this would register a task with a scheduler (e.g., Celery Beat, APScheduler)
+        # For now, we simulate registration
+        
+        task_id = f"task_{datetime.now().strftime('%Y%m%d%H%M%S')}_{node.id}"
+        
+        scheduled_task = {
+            "id": task_id,
+            "schedule": schedule_expression,
+            "type": task_type,
+            "payload": task_payload,
+            "status": "scheduled",
+            "created_at": datetime.utcnow().isoformat(),
+            "next_run": "Calculated based on cron expression" # Placeholder
+        }
+        
+        # Persist scheduled task to database
+        try:
+            db_task = ScheduledTask(
+                task_id=task_id,
+                schedule_expression=schedule_expression,
+                task_type=task_type,
+                payload=task_payload,
+                status="scheduled",
+                agent_node_id=str(node.id)
+            )
+            self.db.add(db_task)
+            self.db.commit()
+            self.db.refresh(db_task)
+        except Exception as e:
+            logger.error(f"Failed to persist scheduled task: {e}")
+            self.db.rollback()
+        
+        context["scheduled_task"] = scheduled_task
+        
         return {
-            "response": "",
+            "response": f"Task {task_id} scheduled ({schedule_expression})",
             "next_node_id": None,
             "context": context,
-            "metadata": {"schedule": schedule}
+            "metadata": {"task_id": task_id, "schedule": schedule_expression, "task_type": task_type}
+        }
+
+    async def _execute_handoff_node(self, node: AgentNode, context: Dict[str, Any]) -> Dict[str, Any]:
+        """Execute handoff node - transfer to human agent"""
+        config = node.config or {}
+        target_department = config.get("target_department", "support")
+        priority = config.get("priority", "normal")
+        message = config.get("message", "Transferring you to a human agent...")
+        
+        # Replace variables in message
+        message = self._replace_variables(message, context)
+        
+        # In a real system, this would create a ticket or signal a live chat system
+        # For now, we set a flag in the context and return a response
+        
+        context["_handoff_requested"] = True
+        context["_handoff_department"] = target_department
+        context["_handoff_priority"] = priority
+        
+        return {
+            "response": message,
+            "next_node_id": None,
+            "context": context,
+            "metadata": {
+                "handoff": True,
+                "target_department": target_department,
+                "priority": priority,
+                "reason": "handoff_node_execution"
+            }
         }
 

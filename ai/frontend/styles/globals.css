@@ -837,6 +837,175 @@ button[draggable="true"] *,
   pointer-events: auto !important;
 }
 
+/* ============================================================================
+   ORGANIC / CYBERPUNK THEME - Futuristic UI
+   ============================================================================ */
+
+:root {
+  --neon-blue: #00f3ff;
+  --neon-purple: #bc13fe;
+  --neon-green: #0aff0a;
+  --membrane-bg: rgba(10, 20, 40, 0.6);
+  --membrane-border: rgba(0, 243, 255, 0.3);
+  --grid-color: rgba(0, 243, 255, 0.05);
+}
+
+/* Organic Membrane Node */
+.organic-membrane {
+  position: relative;
+  border-radius: 40% 60% 70% 30% / 40% 50% 60% 50%;
+  background: var(--membrane-bg);
+  backdrop-filter: blur(12px) saturate(1.8);
+  border: 2px solid var(--membrane-border);
+  box-shadow: 
+    0 0 20px rgba(0, 243, 255, 0.1),
+    inset 0 0 20px rgba(0, 243, 255, 0.05);
+  transition: all 0.5s ease;
+  animation: membrane-morph 8s ease-in-out infinite alternate;
+  overflow: visible;
+  z-index: 10;
+}
+
+.organic-membrane:hover {
+  border-color: var(--neon-blue);
+  box-shadow: 
+    0 0 40px rgba(0, 243, 255, 0.3),
+    inset 0 0 30px rgba(0, 243, 255, 0.1);
+  z-index: 20;
+}
+
+.organic-membrane.selected {
+  border-color: var(--neon-purple);
+  box-shadow: 
+    0 0 60px rgba(188, 19, 254, 0.4),
+    inset 0 0 40px rgba(188, 19, 254, 0.2);
+  animation: membrane-pulse 2s ease-in-out infinite;
+}
+
+/* Membrane Shape Morphing Animation */
+@keyframes membrane-morph {
+  0% {
+    border-radius: 40% 60% 70% 30% / 40% 50% 60% 50%;
+  }
+  25% {
+    border-radius: 60% 40% 30% 70% / 60% 30% 70% 40%;
+  }
+  50% {
+    border-radius: 30% 70% 70% 30% / 30% 30% 70% 70%;
+  }
+  75% {
+    border-radius: 50% 50% 20% 80% / 25% 80% 20% 75%;
+  }
+  100% {
+    border-radius: 40% 60% 70% 30% / 40% 50% 60% 50%;
+  }
+}
+
+/* Selected/Active Pulse */
+@keyframes membrane-pulse {
+  0% {
+    box-shadow: 0 0 30px rgba(188, 19, 254, 0.4);
+    transform: scale(1);
+  }
+  50% {
+    box-shadow: 0 0 60px rgba(188, 19, 254, 0.6);
+    transform: scale(1.05);
+  }
+  100% {
+    box-shadow: 0 0 30px rgba(188, 19, 254, 0.4);
+    transform: scale(1);
+  }
+}
+
+/* Fluid Interior Glow */
+.membrane-glow {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: radial-gradient(
+    circle at 30% 30%,
+    rgba(255, 255, 255, 0.1),
+    transparent 60%
+  );
+  filter: blur(5px);
+  pointer-events: none;
+}
+
+/* Organic Handle - Visible Connection Points */
+.organic-handle {
+  width: 14px !important;
+  height: 14px !important;
+  background: var(--neon-blue) !important;
+  border: 2px solid rgba(255, 255, 255, 0.8) !important;
+  border-radius: 50% !important;
+  z-index: 10 !important;
+  transition: all 0.3s ease !important;
+  opacity: 0.4 !important;
+}
+
+.organic-handle:hover {
+  transform: scale(1.3) !important;
+  opacity: 1 !important;
+  box-shadow: 0 0 15px var(--neon-blue), 0 0 5px #fff !important;
+  cursor: crosshair !important;
+}
+
+.organic-handle.source {
+  background: var(--neon-blue) !important;
+}
+
+.organic-handle.target {
+  background: var(--neon-purple) !important;
+}
+
+/* Connection Line Styling (Liquid Tether) */
+.react-flow__edge-path {
+  stroke-width: 3px !important;
+  stroke-linecap: round;
+  /* Removed stroke-dasharray/animation to prefer particle flow */
+}
+
+.react-flow__edge.selected .react-flow__edge-path {
+  stroke: var(--neon-purple) !important;
+  filter: drop-shadow(0 0 12px var(--neon-purple));
+}
+
+@keyframes tether-flow {
+  /* Legacy animation - kept if needed later */
+  0% {
+    stroke-dashoffset: 0;
+  }
+  100% {
+    stroke-dashoffset: -24;
+  }
+}
+
+/* Cyberpunk Grid Background */
+.cyberpunk-grid {
+  background-size: 50px 50px;
+  background-image: 
+    linear-gradient(to right, var(--grid-color) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--grid-color) 1px, transparent 1px);
+  mask-image: radial-gradient(circle at center, black 40%, transparent 100%);
+}
+
+/* Particle Effects */
+.particle {
+  position: absolute;
+  background: white;
+  border-radius: 50%;
+  pointer-events: none;
+  animation: float-particle 10s linear infinite;
+}
+
+@keyframes float-particle {
+  0% { transform: translateY(0) translateX(0); opacity: 0; }
+  20% { opacity: 0.5; }
+  80% { opacity: 0.5; }
+  100% { transform: translateY(-100px) translateX(20px); opacity: 0; }
+}
+
+
 button[draggable="true"]:active,
 .node-draggable-button:active,
 .react-flow__pane.dragging {
@@ -853,11 +1022,17 @@ button[draggable="true"]:active,
   cursor: grab !important;
 }
 
-/* Ensure ReactFlow handles are always interactive */
-.react-flow__handle {
-  pointer-events: auto !important;
+/* Ensure ReactFlow handles are always interactive - EXCLUDING organic handles */
+.react-flow__handle:not(.organic-handle-source):not(.organic-handle-target) {
+  width: 20px !important;
+  height: 20px !important;
+  border-radius: 50% !important;
+  border: 2px solid white !important;
+  background: #3b82f6 !important;
+  transition: all 0.2s ease !important;
   cursor: crosshair !important;
-  z-index: 1000 !important;
+  z-index: 50 !important;
+  pointer-events: auto !important;
   position: relative !important;
 }
 
@@ -970,8 +1145,8 @@ header.fixed {
    REACTFLOW CONNECTION HANDLES - Enhanced Visibility
    ============================================================================ */
 
-/* Make connection handles more visible and interactive */
-.react-flow__handle {
+/* Make connection handles more visible and interactive - EXCLUDING organic handles */
+.react-flow__handle:not(.organic-handle-source):not(.organic-handle-target) {
   width: 20px !important;
   height: 20px !important;
   border-radius: 50% !important;
@@ -984,7 +1159,7 @@ header.fixed {
   position: relative !important;
 }
 
-.react-flow__handle:hover {
+.react-flow__handle:not(.organic-handle-source):not(.organic-handle-target):hover {
   width: 24px !important;
   height: 24px !important;
   transform: scale(1.3) !important;
@@ -993,17 +1168,17 @@ header.fixed {
   z-index: 100 !important;
 }
 
-.react-flow__handle[data-handlepos="top"] {
+.react-flow__handle[data-handlepos="top"]:not(.organic-handle-source):not(.organic-handle-target) {
   background: #3b82f6 !important;
   border-color: white !important;
 }
 
-.react-flow__handle[data-handlepos="bottom"] {
+.react-flow__handle[data-handlepos="bottom"]:not(.organic-handle-source):not(.organic-handle-target) {
   background: #10b981 !important;
   border-color: white !important;
 }
 
-.react-flow__handle[data-handlepos="bottom"]:hover {
+.react-flow__handle[data-handlepos="bottom"]:not(.organic-handle-source):not(.organic-handle-target):hover {
   background: #34d399 !important;
   box-shadow: 0 0 12px rgba(16, 185, 129, 0.8) !important;
 }
@@ -1011,12 +1186,10 @@ header.fixed {
 /* Connection line styling */
 .react-flow__edge {
   stroke-width: 2px !important;
-  stroke: #60a5fa !important;
 }
 
 .react-flow__edge:hover {
   stroke-width: 3px !important;
-  stroke: #93c5fd !important;
 }
 
 /* Connection path animation */
@@ -1038,5 +1211,30 @@ header.fixed {
   }
 }
 
+/* ============================================================================
+   ORGANIC MEMBRANE HANDLE OVERRIDES
+   ============================================================================ */
+/* Override global handle styles for organic membrane handles */
+.react-flow__handle.organic-handle-source,
+.react-flow__handle.organic-handle-target {
+  width: 100% !important;
+  height: 100% !important;
+  border-radius: inherit !important; /* Match parent shape */
+  border: none !important;
+  background: transparent !important;
+  position: absolute !important;
+  transform: none !important;
+  top: 0 !important;
+  left: 0 !important;
+  box-shadow: none !important;
+}
 
-
+/* Ensure hover state doesn't shrink/transform it back */
+.react-flow__handle.organic-handle-source:hover,
+.react-flow__handle.organic-handle-target:hover {
+  width: 100% !important;
+  height: 100% !important;
+  transform: none !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}

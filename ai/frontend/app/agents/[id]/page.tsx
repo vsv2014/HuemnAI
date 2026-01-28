@@ -54,8 +54,14 @@ import ReactFlow, {
   ReactFlowProvider,
   useReactFlow,
   MarkerType,
+  BaseEdge,
+  getBezierPath,
+  EdgeProps,
+  useStore,
+  EdgeLabelRenderer,
 } from "reactflow";
 import "reactflow/dist/style.css";
+import { getEdgeParams } from "./utils";
 
 // ============================================================================
 // TYPES & INTERFACES
@@ -135,118 +141,138 @@ const NODE_TYPES = [
   { type: "task_scheduler", label: "Task Scheduler", icon: "⏰", color: "#f59e0b", category: "automation", description: "Schedules tasks to run at specific times or intervals. Enables cron-like scheduling and time-based automation." },
 ];
 
+const getNodeColor = (nodeType: string) => {
+  return NODE_TYPES.find((n) => n.type === nodeType)?.color || "#60a5fa";
+};
+
 // ============================================================================
-// CUSTOM NODE COMPONENT
+// CUSTOM NODE COMPONENT - ORGANIC MEMBRANE
 // ============================================================================
 
 const CustomNode = ({ data, selected }: { data: any; selected: boolean }) => {
   const nodeConfig = NODE_TYPES.find((n) => n.type === data?.nodeType) || NODE_TYPES[0];
   const [isHovered, setIsHovered] = useState(false);
+  
+  // Check if a connection is currently being dragged (anywhere in the flow)
+  const connectionNodeId = useStore((s) => s.connectionNodeId);
+  const isConnecting = !!connectionNodeId;
+  const isSelf = connectionNodeId === data.id;
+  
+  // Check if we are in "Click-to-Connect" mode (Global state passed via data)
+  const isClickConnecting = data?.isClickConnectingSource;
 
   return (
     <div 
-      className="relative group"
+      className={`organic-membrane group flex items-center justify-center p-6 min-w-[140px] min-h-[140px] transition-all duration-500 ${selected ? 'selected' : ''}`}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
+      style={{
+        // Dynamic color injection for the membrane border/glow
+        ['--membrane-border' as any]: selected ? nodeConfig.color : `${nodeConfig.color}60`,
+        boxShadow: isClickConnecting
+          ? `0 0 40px ${nodeConfig.color}, inset 0 0 20px ${nodeConfig.color}40` // Stronger glow in connect mode
+          : selected 
+            ? `0 0 50px ${nodeConfig.color}60, inset 0 0 30px ${nodeConfig.color}40`
+            : isHovered 
+              ? `0 0 30px ${nodeConfig.color}40, inset 0 0 20px ${nodeConfig.color}20`
+              : undefined,
+        cursor: isClickConnecting ? 'crosshair' : 'grab',
+        borderColor: isClickConnecting ? nodeConfig.color : undefined,
+        borderWidth: isClickConnecting ? '2px' : undefined,
+        borderStyle: isClickConnecting ? 'dashed' : undefined,
+      }}
     >
-      {/* Animated Background Glow */}
-      <div
-        className="absolute inset-0 rounded-xl opacity-0 group-hover:opacity-40 transition-opacity duration-500 blur-2xl -z-10"
+      {/* Click-Connect Mode Indicator */}
+      {isClickConnecting && (
+        <div className="absolute -top-10 left-1/2 transform -translate-x-1/2 bg-black/80 text-white text-[10px] px-3 py-1.5 rounded-full border border-white/20 whitespace-nowrap z-50 pointer-events-none animate-bounce">
+          Select Target Node
+        </div>
+      )}
+
+      {/* Fluid Interior Glow */}
+      <div 
+        className="membrane-glow" 
         style={{ 
-          background: nodeConfig.color,
-          animation: selected ? "pulse-glow 2s ease-in-out infinite" : "none"
-        }}
+          background: `radial-gradient(circle at 30% 30%, ${nodeConfig.color}20, transparent 70%)` 
+        }} 
       />
 
-      {/* Input Handle - Top of node */}
+      {/* Target Handle (Receiver) - Always present but transparent */}
       {data?.nodeType !== "start" && (
         <Handle
           type="target"
-          position={Position.Top}
-          className="!w-6 !h-6 !bg-blue-500 !border-2 !border-white hover:!bg-blue-400 hover:!scale-125 transition-all !cursor-crosshair !shadow-lg hover:!shadow-blue-500/50"
-          style={{ 
-            top: -12,
-            pointerEvents: "auto",
-            zIndex: 1000,
-            animation: isHovered ? "handle-pulse 1.5s ease-in-out infinite" : "none"
-          }}
+          position={Position.Left}
+          className="organic-handle-target"
           isConnectable={true}
           id="target"
+          style={{ 
+            position: 'absolute',
+            inset: 0,
+            width: '100%', 
+            height: '100%', 
+            transform: 'none',
+            border: 'none',
+            borderRadius: 'inherit',
+            background: 'transparent',
+            opacity: 0,
+            zIndex: isConnecting && !isSelf ? 20 : -1, // HIGHEST priority when dragging connection
+            pointerEvents: isConnecting && !isSelf ? 'auto' : 'none',
+          }}
         />
       )}
 
-      {/* Node Container with Enhanced Colors */}
-      <div
-        className={`
-          relative px-4 py-3 rounded-xl
-          transition-all duration-300 ease-out
-          ${selected ? "scale-110 shadow-2xl" : "scale-100"}
-          ${isHovered ? "scale-105" : ""}
-          group-hover:shadow-xl
-        `}
-        style={{
-          background: `linear-gradient(135deg, ${nodeConfig.color}40 0%, ${nodeConfig.color}25 50%, ${nodeConfig.color}15 100%)`,
-          border: `2px solid ${selected ? nodeConfig.color : isHovered ? `${nodeConfig.color}CC` : `${nodeConfig.color}80`}`,
-          boxShadow: selected 
-            ? `0 0 32px ${nodeConfig.color}80, 0 12px 32px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.2), 0 0 0 1px ${nodeConfig.color}40`
-            : isHovered
-            ? `0 0 20px ${nodeConfig.color}60, 0 8px 20px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.15), 0 0 0 1px ${nodeConfig.color}30`
-            : `0 4px 12px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.1), 0 0 0 1px ${nodeConfig.color}20`,
-          backdropFilter: "blur(8px)",
-          minWidth: "120px",
-        }}
+      {/* Node Content - Draggable Area (Restricted) */}
+      <div 
+        className="node-drag-zone relative z-30 flex flex-col items-center justify-center text-center cursor-grab active:cursor-grabbing"
+        style={{ pointerEvents: 'auto' }} 
       >
-        {/* Animated Border Glow */}
-        <div
-          className="absolute inset-0 rounded-xl opacity-0 group-hover:opacity-100 transition-opacity duration-300"
-          style={{
-            background: `linear-gradient(135deg, ${nodeConfig.color}40, transparent, ${nodeConfig.color}40)`,
-            backgroundSize: "200% 200%",
-            animation: isHovered ? "border-shimmer 2s linear infinite" : "none",
-            zIndex: -1,
-          }}
-        />
-
-        {/* Icon with Animation */}
-        <div className="flex flex-col items-center gap-1.5 pointer-events-none">
-          <div 
-            className="text-2xl transition-transform duration-300 group-hover:scale-110 group-hover:rotate-3"
-            style={{ 
-              filter: `drop-shadow(0 0 8px ${nodeConfig.color}80)`,
-            }}
-          >
-            {nodeConfig.icon}
-          </div>
-          <div 
-            className="text-sm font-semibold text-white text-center transition-colors duration-300"
-            style={{ 
-              textShadow: `0 0 8px ${nodeConfig.color}40`
-            }}
-          >
-            {data?.label || data?.name || nodeConfig.label}
-          </div>
-          {data?.config?.prompt && (
-            <div className="text-xs text-white/60 truncate max-w-[100px]">
-              {data.config.prompt.substring(0, 20)}...
-            </div>
-          )}
+        <div 
+          className="text-4xl mb-2 transition-transform duration-500 group-hover:scale-125 group-hover:rotate-6"
+          style={{ filter: `drop-shadow(0 0 15px ${nodeConfig.color})` }}
+        >
+          {nodeConfig.icon}
         </div>
+        
+        <div 
+          className="text-sm font-bold text-white tracking-wider uppercase opacity-90 group-hover:opacity-100 transition-all"
+          style={{ textShadow: `0 0 10px ${nodeConfig.color}` }}
+        >
+          {data?.label || data?.name || nodeConfig.label}
+        </div>
+
+        {data?.config?.prompt && (
+          <div className="mt-1 text-[10px] text-white/50 max-w-[100px] truncate">
+            {data.config.prompt}
+          </div>
+        )}
       </div>
 
-      {/* Output Handle - Bottom of node */}
+      {/* Active State Pulse Ring (Only when executing) */}
+      {data?.status === 'executing' && (
+        <div className="absolute inset-0 rounded-[inherit] border-2 border-white animate-ping opacity-50" />
+      )}
+
+      {/* Source Handle (Sender) - Always present for edge rendering */}
       {data?.nodeType !== "end" && (
         <Handle
           type="source"
-          position={Position.Bottom}
-          className="!w-6 !h-6 !bg-green-500 !border-2 !border-white hover:!bg-green-400 hover:!scale-125 transition-all !cursor-crosshair !shadow-lg hover:!shadow-green-500/50"
-          style={{ 
-            bottom: -12,
-            pointerEvents: "auto",
-            zIndex: 1000,
-            animation: isHovered ? "handle-pulse 1.5s ease-in-out infinite" : "none"
-          }}
+          position={Position.Right}
+          className="organic-handle-source"
           isConnectable={true}
           id="source"
+          style={{ 
+            position: 'absolute',
+            inset: 0,
+            width: '100%', 
+            height: '100%', 
+            transform: 'none',
+            border: 'none',
+            borderRadius: 'inherit',
+            background: 'transparent',
+            opacity: 0,
+            zIndex: -1, // Behind content
+            pointerEvents: 'none', // Disable drag-to-connect from handle
+          }}
         />
       )}
     </div>
@@ -255,6 +281,124 @@ const CustomNode = ({ data, selected }: { data: any; selected: boolean }) => {
 
 const nodeTypes: NodeTypes = {
   default: CustomNode,
+};
+
+// ============================================================================
+// CUSTOM EDGE COMPONENT - LIQUID TETHER
+// ============================================================================
+
+const CustomEdge = ({
+  id,
+  source,
+  target,
+  sourceX,
+  sourceY,
+  targetX,
+  targetY,
+  sourcePosition,
+  targetPosition,
+  style = {},
+  markerEnd,
+  selected,
+}: EdgeProps) => {
+  const sourceNode = useStore(useCallback((store) => store.nodeInternals.get(source), [source]));
+  const targetNode = useStore(useCallback((store) => store.nodeInternals.get(target), [target]));
+  const { deleteElements } = useReactFlow();
+
+  if (!sourceNode || !targetNode) {
+    return null;
+  }
+
+  const { sx, sy, tx, ty, sourcePos, targetPos } = getEdgeParams(sourceNode, targetNode);
+
+  const [edgePath, labelX, labelY] = getBezierPath({
+    sourceX: sx,
+    sourceY: sy,
+    sourcePosition: sourcePos,
+    targetX: tx,
+    targetY: ty,
+    targetPosition: targetPos,
+  });
+
+  // Extract color from markerEnd or style, fallback to default
+  // This ensures consistency between the arrow (marker) and the path (wire)
+  const strokeColor = (markerEnd as any)?.color || style.stroke || '#60a5fa';
+
+  return (
+    <>
+      <path
+        id={id}
+        style={{ 
+          ...style, 
+          stroke: strokeColor, // Explicitly enforce stroke color in style
+          strokeWidth: 3,
+          filter: `drop-shadow(0 0 8px ${strokeColor})`
+        }}
+        stroke={strokeColor} // Also set as SVG attribute for backup
+        className="react-flow__edge-path"
+        d={edgePath}
+        markerEnd={markerEnd}
+      />
+      
+      {/* Continuous Particle Stream */}
+      {/* Particle 1 */}
+      <circle r="3" fill={strokeColor} className="particle-flow">
+        <animateMotion dur="3s" repeatCount="indefinite" path={edgePath} begin="0s" calcMode="linear">
+          <mpath href={`#${id}`} />
+        </animateMotion>
+        <animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.1;0.9;1" dur="3s" repeatCount="indefinite" begin="0s" />
+      </circle>
+
+      {/* Particle 2 - Delayed */}
+      <circle r="3" fill={strokeColor} className="particle-flow">
+        <animateMotion dur="3s" repeatCount="indefinite" path={edgePath} begin="-1s" calcMode="linear">
+          <mpath href={`#${id}`} />
+        </animateMotion>
+        <animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.1;0.9;1" dur="3s" repeatCount="indefinite" begin="-1s" />
+      </circle>
+
+      {/* Particle 3 - Delayed */}
+      <circle r="3" fill={strokeColor} className="particle-flow">
+        <animateMotion dur="3s" repeatCount="indefinite" path={edgePath} begin="-2s" calcMode="linear">
+          <mpath href={`#${id}`} />
+        </animateMotion>
+        <animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.1;0.9;1" dur="3s" repeatCount="indefinite" begin="-2s" />
+      </circle>
+      
+      {/* Delete Button - Only visible when selected */}
+      {selected && (
+        <EdgeLabelRenderer>
+          <div
+            style={{
+              position: 'absolute',
+              transform: `translate(-50%, -50%) translate(${labelX}px,${labelY}px)`,
+              pointerEvents: 'all',
+              zIndex: 1000,
+            }}
+            className="nodrag nopan"
+          >
+            <button
+              className="bg-red-500 hover:bg-red-600 text-white rounded-full w-6 h-6 flex items-center justify-center text-xs shadow-lg transition-transform hover:scale-110 border border-white/20"
+              onClick={(event) => {
+                event.stopPropagation();
+                if (confirm('Delete this connection?')) {
+                  deleteElements({ edges: [{ id }] });
+                }
+              }}
+              title="Delete Connection"
+            >
+              ✕
+            </button>
+          </div>
+        </EdgeLabelRenderer>
+      )}
+    </>
+  );
+};
+
+const edgeTypes = {
+  smoothstep: CustomEdge,
+  default: CustomEdge,
 };
 
 // ============================================================================
@@ -282,6 +426,7 @@ function FlowCanvas({
   const reactFlowWrapper = useRef<HTMLDivElement>(null);
   const { screenToFlowPosition, getViewport } = useReactFlow();
   const positionUpdateTimeout = useRef<NodeJS.Timeout | null>(null);
+  const nodeUpdateTimeout = useRef<NodeJS.Timeout | null>(null);
   
   // Test panel state
   const [testMessages, setTestMessages] = useState<Message[]>([]);
@@ -296,6 +441,28 @@ function FlowCanvas({
   const [phoneNumber, setPhoneNumber] = useState("");
   const [selectedIVRAgent, setSelectedIVRAgent] = useState<number | null>(null);
   const [calling, setCalling] = useState(false);
+  
+  // Click-to-Connect State
+  const [connectingSourceId, setConnectingSourceId] = useState<string | null>(null);
+
+  // Update nodes when connecting mode changes
+  useEffect(() => {
+    setNodes((nds) =>
+      nds.map((n) => {
+        // Only update if changed to avoid unnecessary re-renders
+        const isSource = n.id === connectingSourceId;
+        if (n.data?.isClickConnectingSource === isSource) return n;
+        
+        return {
+          ...n,
+          data: {
+            ...n.data,
+            isClickConnectingSource: isSource,
+          },
+        };
+      })
+    );
+  }, [connectingSourceId, setNodes]);
 
   // Load available agents for delegation and IVR
   useEffect(() => {
@@ -324,15 +491,16 @@ function FlowCanvas({
 
       // Convert backend nodes to ReactFlow nodes
     const flowNodes: Node[] = agent.nodes.map((node: AgentNode) => ({
-          id: node.id.toString(),
-          type: "default",
+      id: node.id.toString(),
+      type: "default",
       position: { x: node.position_x || 0, y: node.position_y || 0 },
-          data: {
-            label: node.label || node.name,
+      dragHandle: '.node-drag-zone', // Only the icon/text area is draggable
+      data: {
+        label: node.label || node.name,
         nodeType: node.node_type,
-            config: node.config || {},
-            backendId: node.id,
-            name: node.name,
+        config: node.config || {},
+        backendId: node.id,
+        name: node.name,
         description: (node as any).description || "",
         timeout: (node as any).timeout || 30,
         retry_count: (node as any).retry_count || 0,
@@ -343,18 +511,24 @@ function FlowCanvas({
     }));
       
       // Convert backend connections to ReactFlow edges
-    const flowEdges: Edge[] = (agent.connections || []).map((conn: ConnectionData) => ({
+    const flowEdges: Edge[] = (agent.connections || []).map((conn: ConnectionData) => {
+      // Find source node to determine color
+      const sourceNode = agent.nodes.find((n: AgentNode) => n.id === conn.source_node_id);
+      const nodeColor = sourceNode ? getNodeColor(sourceNode.node_type) : "#60a5fa";
+
+      return {
         id: conn.id.toString(),
         source: conn.source_node_id.toString(),
         target: conn.target_node_id.toString(),
         label: conn.label || "",
-      data: { backendId: conn.id },
+        data: { backendId: conn.id },
         type: "smoothstep",
         animated: true,
-      deletable: true,
-      style: { stroke: "#60a5fa", strokeWidth: 2 },
-      markerEnd: { type: MarkerType.ArrowClosed, color: "#60a5fa" },
-    }));
+        deletable: true,
+        style: { stroke: nodeColor, strokeWidth: 2 },
+        markerEnd: { type: MarkerType.ArrowClosed, color: nodeColor },
+      };
+    });
 
     setNodes(flowNodes);
     setEdges(flowEdges);
@@ -380,11 +554,47 @@ function FlowCanvas({
               },
               token
             ).catch(console.error);
-      }, 500);
+          }, 500);
         }
       });
     },
     [onNodesChange, token]
+  );
+
+  // Handle node configuration updates
+  const updateNodeConfiguration = useCallback(
+    (nodeId: string, dataUpdates: any) => {
+      // Update nodes state to reflect changes in the graph
+      setNodes((nds) =>
+        nds.map((n) => {
+          if (n.id === nodeId) {
+            return { ...n, data: { ...n.data, ...dataUpdates } };
+          }
+          return n;
+        })
+      );
+
+      // Update selected node state
+      setSelectedNode((prev) => {
+        if (prev?.id === nodeId) {
+          return { ...prev, data: { ...prev.data, ...dataUpdates } };
+        }
+        return prev;
+      });
+
+      // Debounced backend update
+      if (nodeUpdateTimeout.current) {
+        clearTimeout(nodeUpdateTimeout.current);
+      }
+
+      nodeUpdateTimeout.current = setTimeout(() => {
+        if (!token) return;
+        updateNode(parseInt(nodeId), dataUpdates, token).catch((err) =>
+          console.error("Failed to update node configuration:", err)
+        );
+      }, 1000);
+    },
+    [setNodes, token]
   );
 
   // Handle edge deletions
@@ -609,6 +819,11 @@ function FlowCanvas({
         }
 
         console.log("✅ Connection created successfully:", response);
+        
+        // Find source node to determine color
+        const sourceNode = nodes.find((n) => n.id === connection.source);
+        const nodeColor = sourceNode ? getNodeColor(sourceNode.data.nodeType) : "#60a5fa";
+
         const newEdge: Edge = {
           id: response.id?.toString() || `edge-${connection.source}-${connection.target}`,
           source: connection.source,
@@ -619,8 +834,8 @@ function FlowCanvas({
           type: "smoothstep",
           animated: true,
           deletable: true,
-          style: { stroke: "#60a5fa", strokeWidth: 2 },
-          markerEnd: { type: MarkerType.ArrowClosed, color: "#60a5fa" },
+          style: { stroke: nodeColor, strokeWidth: 2 },
+          markerEnd: { type: MarkerType.ArrowClosed, color: nodeColor },
         };
 
         setEdges((eds) => {
@@ -822,19 +1037,42 @@ function FlowCanvas({
           onNodesChange={handleNodesChange}
           onEdgesChange={handleEdgesChange}
           onConnect={onConnect}
+          onNodeDoubleClick={(_, node) => {
+            setConnectingSourceId(node.id);
+            setSelectedNode(null); // Close details to focus on connecting
+          }}
           onNodeClick={(_, node) => {
-            setSelectedNode(node);
-            setSelectedEdge(null);
+            if (connectingSourceId) {
+              if (node.id === connectingSourceId) {
+                setConnectingSourceId(null); // Toggle off if clicked again
+              } else {
+                // Create Connection
+                onConnect({
+                  source: connectingSourceId,
+                  target: node.id,
+                  sourceHandle: 'source',
+                  targetHandle: 'target',
+                } as any);
+                setConnectingSourceId(null);
+              }
+            } else {
+              // Standard Select
+              setSelectedNode(node);
+              setSelectedEdge(null);
+            }
           }}
           onEdgeClick={(_, edge) => {
             setSelectedEdge(edge);
             setSelectedNode(null);
+            setConnectingSourceId(null);
           }}
           onPaneClick={() => {
             setSelectedNode(null);
             setSelectedEdge(null);
+            setConnectingSourceId(null);
           }}
           nodeTypes={nodeTypes}
+          edgeTypes={edgeTypes}
           minZoom={0.1}
           maxZoom={4}
           translateExtent={[[-Infinity, -Infinity], [Infinity, Infinity]]}
@@ -1001,12 +1239,7 @@ function FlowCanvas({
                   <input
                     type="text"
                     value={selectedNode.data.name || ""}
-                    onChange={(e) => {
-                      setSelectedNode({
-                      ...selectedNode,
-                        data: { ...selectedNode.data, name: e.target.value },
-                      });
-                    }}
+                    onChange={(e) => updateNodeConfiguration(selectedNode.id, { name: e.target.value })}
                     className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm"
                     placeholder="node_name"
                   />
@@ -1053,15 +1286,9 @@ function FlowCanvas({
                     <label className="block text-xs text-white/70 mb-1">LLM Provider</label>
                     <select
                       value={selectedNode.data.config?.llm_provider || "openai"}
-                      onChange={(e) => {
-                        setSelectedNode({
-                        ...selectedNode,
-                        data: {
-                          ...selectedNode.data,
-                            config: { ...selectedNode.data.config, llm_provider: e.target.value },
-                          },
-                        });
-                      }}
+                      onChange={(e) => updateNodeConfiguration(selectedNode.id, {
+                        config: { ...selectedNode.data.config, llm_provider: e.target.value }
+                      })}
                       className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm"
                     >
                       <option value="openai">OpenAI</option>
@@ -1073,15 +1300,9 @@ function FlowCanvas({
                     <label className="block text-xs text-white/70 mb-1">System Prompt</label>
                     <textarea
                       value={selectedNode.data.config?.system_prompt || ""}
-                      onChange={(e) => {
-                        setSelectedNode({
-                          ...selectedNode,
-                          data: {
-                            ...selectedNode.data,
-                            config: { ...selectedNode.data.config, system_prompt: e.target.value },
-                          },
-                        });
-                      }}
+                      onChange={(e) => updateNodeConfiguration(selectedNode.id, {
+                        config: { ...selectedNode.data.config, system_prompt: e.target.value }
+                      })}
                       className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm"
                       rows={3}
                       placeholder="System prompt..."
@@ -1091,15 +1312,9 @@ function FlowCanvas({
                     <label className="block text-xs text-white/70 mb-1">User Prompt</label>
                     <textarea
                       value={selectedNode.data.config?.prompt || ""}
-                      onChange={(e) => {
-                        setSelectedNode({
-                        ...selectedNode,
-                        data: {
-                          ...selectedNode.data,
-                            config: { ...selectedNode.data.config, prompt: e.target.value },
-                          },
-                        });
-                      }}
+                      onChange={(e) => updateNodeConfiguration(selectedNode.id, {
+                        config: { ...selectedNode.data.config, prompt: e.target.value }
+                      })}
                       className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm"
                       rows={3}
                       placeholder="User prompt (supports {{variables}})..."
@@ -1114,18 +1329,9 @@ function FlowCanvas({
                         min="0"
                         max="2"
                         value={selectedNode.data.config?.temperature || 0.7}
-                        onChange={(e) => {
-                          setSelectedNode({
-                            ...selectedNode,
-                            data: {
-                              ...selectedNode.data,
-                              config: {
-                                ...selectedNode.data.config,
-                                temperature: parseFloat(e.target.value),
-                              },
-                            },
-                          });
-                        }}
+                        onChange={(e) => updateNodeConfiguration(selectedNode.id, {
+                          config: { ...selectedNode.data.config, temperature: parseFloat(e.target.value) }
+                        })}
                         className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm"
                       />
                     </div>
@@ -1155,13 +1361,15 @@ function FlowCanvas({
                     <select
                       value={selectedNode.data.config?.model || "gpt-3.5-turbo"}
                       onChange={(e) => {
+                        const model = e.target.value;
                         setSelectedNode({
                           ...selectedNode,
                           data: {
                             ...selectedNode.data,
-                            config: { ...selectedNode.data.config, model: e.target.value },
+                            config: { ...selectedNode.data.config, model },
                           },
                         });
+                        updateNodeConfiguration(selectedNode.id, { config: { ...selectedNode.data.config, model } });
                       }}
                       className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm"
                     >
@@ -1186,18 +1394,9 @@ function FlowCanvas({
                         min="0"
                         max="1"
                         value={selectedNode.data.config?.top_p || 1}
-                        onChange={(e) => {
-                          setSelectedNode({
-                            ...selectedNode,
-                            data: {
-                              ...selectedNode.data,
-                              config: {
-                                ...selectedNode.data.config,
-                                top_p: parseFloat(e.target.value),
-                              },
-                            },
-                          });
-                        }}
+                        onChange={(e) => updateNodeConfiguration(selectedNode.id, {
+                          config: { ...selectedNode.data.config, top_p: parseFloat(e.target.value) }
+                        })}
                         className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm"
                       />
                     </div>
@@ -1209,18 +1408,9 @@ function FlowCanvas({
                         min="-2"
                         max="2"
                         value={selectedNode.data.config?.frequency_penalty || 0}
-                        onChange={(e) => {
-                          setSelectedNode({
-                            ...selectedNode,
-                            data: {
-                              ...selectedNode.data,
-                              config: {
-                                ...selectedNode.data.config,
-                                frequency_penalty: parseFloat(e.target.value),
-                              },
-                            },
-                          });
-                        }}
+                        onChange={(e) => updateNodeConfiguration(selectedNode.id, {
+                          config: { ...selectedNode.data.config, frequency_penalty: parseFloat(e.target.value) }
+                        })}
                         className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm"
                       />
                     </div>
@@ -1234,18 +1424,9 @@ function FlowCanvas({
                         min="-2"
                         max="2"
                         value={selectedNode.data.config?.presence_penalty || 0}
-                        onChange={(e) => {
-                          setSelectedNode({
-                            ...selectedNode,
-                            data: {
-                              ...selectedNode.data,
-                              config: {
-                                ...selectedNode.data.config,
-                                presence_penalty: parseFloat(e.target.value),
-                              },
-                            },
-                          });
-                        }}
+                        onChange={(e) => updateNodeConfiguration(selectedNode.id, {
+                          config: { ...selectedNode.data.config, presence_penalty: parseFloat(e.target.value) }
+                        })}
                         className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm"
                       />
                     </div>
@@ -1254,15 +1435,9 @@ function FlowCanvas({
                       <input
                         type="text"
                         value={selectedNode.data.config?.stop || ""}
-                        onChange={(e) => {
-                          setSelectedNode({
-                            ...selectedNode,
-                            data: {
-                              ...selectedNode.data,
-                              config: { ...selectedNode.data.config, stop: e.target.value },
-                            },
-                          });
-                        }}
+                        onChange={(e) => updateNodeConfiguration(selectedNode.id, {
+                          config: { ...selectedNode.data.config, stop: e.target.value }
+                        })}
                         className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm"
                         placeholder="stop1,stop2"
                       />
@@ -1273,18 +1448,9 @@ function FlowCanvas({
                       <input
                         type="checkbox"
                         checked={selectedNode.data.config?.stream || false}
-                        onChange={(e) => {
-                          setSelectedNode({
-                            ...selectedNode,
-                            data: {
-                              ...selectedNode.data,
-                              config: {
-                                ...selectedNode.data.config,
-                                stream: e.target.checked,
-                              },
-                            },
-                          });
-                        }}
+                        onChange={(e) => updateNodeConfiguration(selectedNode.id, {
+                          config: { ...selectedNode.data.config, stream: e.target.checked }
+                        })}
                         className="w-4 h-4"
                       />
                       <label className="text-xs text-white/70">Enable Streaming</label>
@@ -1293,18 +1459,9 @@ function FlowCanvas({
                     <input
                       type="checkbox"
                       checked={selectedNode.data.config?.use_knowledge_ai || false}
-                        onChange={(e) => {
-                          setSelectedNode({
-                        ...selectedNode,
-                        data: {
-                          ...selectedNode.data,
-                              config: {
-                                ...selectedNode.data.config,
-                                use_knowledge_ai: e.target.checked,
-                              },
-                            },
-                          });
-                        }}
+                        onChange={(e) => updateNodeConfiguration(selectedNode.id, {
+                          config: { ...selectedNode.data.config, use_knowledge_ai: e.target.checked }
+                        })}
                       className="w-4 h-4"
                     />
                     <label className="text-xs text-white/70">Enable Knowledge AI Integration</label>
@@ -1313,18 +1470,9 @@ function FlowCanvas({
                       <input
                         type="checkbox"
                         checked={selectedNode.data.config?.enable_function_calling || false}
-                        onChange={(e) => {
-                          setSelectedNode({
-                            ...selectedNode,
-                            data: {
-                              ...selectedNode.data,
-                              config: {
-                                ...selectedNode.data.config,
-                                enable_function_calling: e.target.checked,
-                              },
-                            },
-                          });
-                        }}
+                        onChange={(e) => updateNodeConfiguration(selectedNode.id, {
+                          config: { ...selectedNode.data.config, enable_function_calling: e.target.checked }
+                        })}
                         className="w-4 h-4"
                       />
                       <label className="text-xs text-white/70">Enable Function Calling</label>
@@ -1344,15 +1492,9 @@ function FlowCanvas({
                     <input
                       type="text"
                       value={selectedNode.data.config?.url || ""}
-                      onChange={(e) => {
-                        setSelectedNode({
-                          ...selectedNode,
-                          data: {
-                            ...selectedNode.data,
-                            config: { ...selectedNode.data.config, url: e.target.value },
-                          },
-                        });
-                      }}
+                      onChange={(e) => updateNodeConfiguration(selectedNode.id, {
+                        config: { ...selectedNode.data.config, url: e.target.value }
+                      })}
                       className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm"
                       placeholder="https://api.example.com/endpoint"
                     />
@@ -1361,15 +1503,9 @@ function FlowCanvas({
                     <label className="block text-xs text-white/70 mb-1">HTTP Method</label>
                     <select
                       value={selectedNode.data.config?.method || "GET"}
-                      onChange={(e) => {
-                        setSelectedNode({
-                          ...selectedNode,
-                          data: {
-                            ...selectedNode.data,
-                            config: { ...selectedNode.data.config, method: e.target.value },
-                          },
-                        });
-                      }}
+                      onChange={(e) => updateNodeConfiguration(selectedNode.id, {
+                        config: { ...selectedNode.data.config, method: e.target.value }
+                      })}
                       className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm"
                     >
                       <option value="GET">GET</option>
@@ -1386,12 +1522,8 @@ function FlowCanvas({
                       onChange={(e) => {
                         try {
                           const headers = JSON.parse(e.target.value);
-                          setSelectedNode({
-                            ...selectedNode,
-                            data: {
-                              ...selectedNode.data,
-                              config: { ...selectedNode.data.config, headers },
-                            },
+                          updateNodeConfiguration(selectedNode.id, {
+                            config: { ...selectedNode.data.config, headers }
                           });
                         } catch {}
                       }}
@@ -1407,12 +1539,8 @@ function FlowCanvas({
                       onChange={(e) => {
                         try {
                           const body = JSON.parse(e.target.value);
-                          setSelectedNode({
-                            ...selectedNode,
-                            data: {
-                              ...selectedNode.data,
-                              config: { ...selectedNode.data.config, body },
-                            },
+                          updateNodeConfiguration(selectedNode.id, {
+                            config: { ...selectedNode.data.config, body }
                           });
                         } catch {}
                       }}
@@ -1427,18 +1555,9 @@ function FlowCanvas({
                       <input
                         type="number"
                         value={selectedNode.data.config?.timeout || 30}
-                        onChange={(e) => {
-                          setSelectedNode({
-                          ...selectedNode,
-                          data: {
-                            ...selectedNode.data,
-                              config: {
-                                ...selectedNode.data.config,
-                                timeout: parseInt(e.target.value),
-                              },
-                            },
-                          });
-                        }}
+                        onChange={(e) => updateNodeConfiguration(selectedNode.id, {
+                          config: { ...selectedNode.data.config, timeout: parseInt(e.target.value) }
+                        })}
                         className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm"
                         min="1"
                       />
@@ -1448,18 +1567,9 @@ function FlowCanvas({
                       <input
                         type="number"
                         value={selectedNode.data.config?.retry_count || 0}
-                        onChange={(e) => {
-                          setSelectedNode({
-                          ...selectedNode,
-                          data: {
-                            ...selectedNode.data,
-                              config: {
-                                ...selectedNode.data.config,
-                                retry_count: parseInt(e.target.value),
-                              },
-                            },
-                          });
-                        }}
+                        onChange={(e) => updateNodeConfiguration(selectedNode.id, {
+                          config: { ...selectedNode.data.config, retry_count: parseInt(e.target.value) }
+                        })}
                         className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm"
                         min="0"
                       />
@@ -1470,18 +1580,9 @@ function FlowCanvas({
                       <input
                         type="checkbox"
                         checked={selectedNode.data.config?.follow_redirects || true}
-                        onChange={(e) => {
-                          setSelectedNode({
-                            ...selectedNode,
-                            data: {
-                              ...selectedNode.data,
-                              config: {
-                                ...selectedNode.data.config,
-                                follow_redirects: e.target.checked,
-                              },
-                            },
-                          });
-                        }}
+                        onChange={(e) => updateNodeConfiguration(selectedNode.id, {
+                          config: { ...selectedNode.data.config, follow_redirects: e.target.checked }
+                        })}
                         className="w-4 h-4"
                       />
                       <label className="text-xs text-white/70">Follow Redirects</label>
@@ -1490,18 +1591,9 @@ function FlowCanvas({
                       <input
                         type="checkbox"
                         checked={selectedNode.data.config?.verify_ssl || true}
-                        onChange={(e) => {
-                          setSelectedNode({
-                            ...selectedNode,
-                            data: {
-                              ...selectedNode.data,
-                              config: {
-                                ...selectedNode.data.config,
-                                verify_ssl: e.target.checked,
-                              },
-                            },
-                          });
-                        }}
+                        onChange={(e) => updateNodeConfiguration(selectedNode.id, {
+                          config: { ...selectedNode.data.config, verify_ssl: e.target.checked }
+                        })}
                         className="w-4 h-4"
                       />
                       <label className="text-xs text-white/70">Verify SSL Certificate</label>
@@ -1511,15 +1603,9 @@ function FlowCanvas({
                     <label className="block text-xs text-white/70 mb-1">Response Format</label>
                     <select
                       value={selectedNode.data.config?.response_format || "json"}
-                      onChange={(e) => {
-                        setSelectedNode({
-                          ...selectedNode,
-                          data: {
-                            ...selectedNode.data,
-                            config: { ...selectedNode.data.config, response_format: e.target.value },
-                          },
-                        });
-                      }}
+                      onChange={(e) => updateNodeConfiguration(selectedNode.id, {
+                        config: { ...selectedNode.data.config, response_format: e.target.value }
+                      })}
                       className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm"
                     >
                       <option value="json">JSON</option>
@@ -1542,12 +1628,8 @@ function FlowCanvas({
                     <select
                       value={selectedNode.data.config?.service_type || ""}
                       onChange={(e) => {
-                        setSelectedNode({
-                        ...selectedNode,
-                        data: {
-                          ...selectedNode.data,
-                            config: { ...selectedNode.data.config, service_type: e.target.value },
-                          },
+                        updateNodeConfiguration(selectedNode.id, {
+                          config: { ...selectedNode.data.config, service_type: e.target.value }
                         });
                       }}
                       className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm"
@@ -1567,12 +1649,8 @@ function FlowCanvas({
                       <textarea
                         value={selectedNode.data.config?.query || ""}
                         onChange={(e) => {
-                          setSelectedNode({
-                          ...selectedNode,
-                          data: {
-                            ...selectedNode.data,
-                              config: { ...selectedNode.data.config, query: e.target.value },
-                            },
+                          updateNodeConfiguration(selectedNode.id, {
+                            config: { ...selectedNode.data.config, query: e.target.value }
                           });
                         }}
                         className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm"
@@ -1587,12 +1665,8 @@ function FlowCanvas({
                       <select
                         value={selectedNode.data.config?.action || ""}
                         onChange={(e) => {
-                          setSelectedNode({
-                          ...selectedNode,
-                          data: {
-                            ...selectedNode.data,
-                              config: { ...selectedNode.data.config, action: e.target.value },
-                            },
+                          updateNodeConfiguration(selectedNode.id, {
+                            config: { ...selectedNode.data.config, action: e.target.value }
                           });
                         }}
                         className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm"
@@ -1625,12 +1699,8 @@ function FlowCanvas({
                       type="text"
                       value={selectedNode.data.config?.endpoint_path || ""}
                       onChange={(e) => {
-                        setSelectedNode({
-                          ...selectedNode,
-                          data: {
-                            ...selectedNode.data,
-                            config: { ...selectedNode.data.config, endpoint_path: e.target.value },
-                          },
+                        updateNodeConfiguration(selectedNode.id, {
+                          config: { ...selectedNode.data.config, endpoint_path: e.target.value }
                         });
                       }}
                       className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm"
@@ -1642,12 +1712,8 @@ function FlowCanvas({
                     <select
                       value={selectedNode.data.config?.method || "POST"}
                       onChange={(e) => {
-                        setSelectedNode({
-                          ...selectedNode,
-                          data: {
-                            ...selectedNode.data,
-                            config: { ...selectedNode.data.config, method: e.target.value },
-                          },
+                        updateNodeConfiguration(selectedNode.id, {
+                          config: { ...selectedNode.data.config, method: e.target.value }
                         });
                       }}
                       className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm"
@@ -1665,12 +1731,8 @@ function FlowCanvas({
                       type="password"
                       value={selectedNode.data.config?.secret || ""}
                       onChange={(e) => {
-                        setSelectedNode({
-                          ...selectedNode,
-                          data: {
-                            ...selectedNode.data,
-                            config: { ...selectedNode.data.config, secret: e.target.value },
-                          },
+                        updateNodeConfiguration(selectedNode.id, {
+                          config: { ...selectedNode.data.config, secret: e.target.value }
                         });
                       }}
                       className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm"
@@ -1682,14 +1744,10 @@ function FlowCanvas({
                       type="checkbox"
                       checked={selectedNode.data.config?.verify_signature || false}
                       onChange={(e) => {
-                        setSelectedNode({
-                          ...selectedNode,
-                          data: {
-                            ...selectedNode.data,
-                            config: {
-                              ...selectedNode.data.config,
-                              verify_signature: e.target.checked,
-                            },
+                        updateNodeConfiguration(selectedNode.id, {
+                          config: {
+                            ...selectedNode.data.config,
+                            verify_signature: e.target.checked,
                           },
                         });
                       }}
@@ -1704,12 +1762,8 @@ function FlowCanvas({
                       onChange={(e) => {
                         try {
                           const headers = JSON.parse(e.target.value);
-                          setSelectedNode({
-                            ...selectedNode,
-                            data: {
-                              ...selectedNode.data,
-                              config: { ...selectedNode.data.config, expected_headers: headers },
-                            },
+                          updateNodeConfiguration(selectedNode.id, {
+                            config: { ...selectedNode.data.config, expected_headers: headers }
                           });
                         } catch {}
                       }}
@@ -1737,12 +1791,8 @@ function FlowCanvas({
                     <select
                       value={selectedNode.data.config?.connector_type || ""}
                       onChange={(e) => {
-                        setSelectedNode({
-                        ...selectedNode,
-                        data: {
-                          ...selectedNode.data,
-                            config: { ...selectedNode.data.config, connector_type: e.target.value },
-                          },
+                        updateNodeConfiguration(selectedNode.id, {
+                          config: { ...selectedNode.data.config, connector_type: e.target.value }
                         });
                       }}
                       className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm"
@@ -1776,12 +1826,8 @@ function FlowCanvas({
                     <select
                       value={selectedNode.data.config?.action || ""}
                       onChange={(e) => {
-                        setSelectedNode({
-                        ...selectedNode,
-                        data: {
-                          ...selectedNode.data,
-                            config: { ...selectedNode.data.config, action: e.target.value },
-                          },
+                        updateNodeConfiguration(selectedNode.id, {
+                          config: { ...selectedNode.data.config, action: e.target.value }
                         });
                       }}
                       className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm"
@@ -1803,12 +1849,8 @@ function FlowCanvas({
                       onChange={(e) => {
                         try {
                           const params = JSON.parse(e.target.value);
-                          setSelectedNode({
-                            ...selectedNode,
-                            data: {
-                              ...selectedNode.data,
-                              config: { ...selectedNode.data.config, parameters: params },
-                            },
+                          updateNodeConfiguration(selectedNode.id, {
+                            config: { ...selectedNode.data.config, parameters: params }
                           });
                         } catch {}
                       }}
@@ -1832,12 +1874,8 @@ function FlowCanvas({
                       type="text"
                       value={selectedNode.data.config?.variable || ""}
                       onChange={(e) => {
-                        setSelectedNode({
-                        ...selectedNode,
-                        data: {
-                          ...selectedNode.data,
-                            config: { ...selectedNode.data.config, variable: e.target.value },
-                          },
+                        updateNodeConfiguration(selectedNode.id, {
+                          config: { ...selectedNode.data.config, variable: e.target.value }
                         });
                       }}
                       className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm"
@@ -1849,12 +1887,8 @@ function FlowCanvas({
                     <select
                       value={selectedNode.data.config?.operator || "equals"}
                       onChange={(e) => {
-                          setSelectedNode({
-                            ...selectedNode,
-                            data: {
-                              ...selectedNode.data,
-                            config: { ...selectedNode.data.config, operator: e.target.value },
-                          },
+                        updateNodeConfiguration(selectedNode.id, {
+                          config: { ...selectedNode.data.config, operator: e.target.value }
                         });
                       }}
                       className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm"
@@ -1875,13 +1909,9 @@ function FlowCanvas({
                       type="text"
                       value={selectedNode.data.config?.value || ""}
                       onChange={(e) => {
-                          setSelectedNode({
-                            ...selectedNode,
-                            data: {
-                              ...selectedNode.data,
-                            config: { ...selectedNode.data.config, value: e.target.value },
-                          },
-                          });
+                        updateNodeConfiguration(selectedNode.id, {
+                          config: { ...selectedNode.data.config, value: e.target.value }
+                        });
                       }}
                       className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm"
                       placeholder="Expected value"
@@ -1902,12 +1932,8 @@ function FlowCanvas({
                       type="text"
                       value={selectedNode.data.config?.entity_name || ""}
                       onChange={(e) => {
-                        setSelectedNode({
-                        ...selectedNode,
-                        data: {
-                          ...selectedNode.data,
-                            config: { ...selectedNode.data.config, entity_name: e.target.value },
-                          },
+                        updateNodeConfiguration(selectedNode.id, {
+                          config: { ...selectedNode.data.config, entity_name: e.target.value }
                         });
                       }}
                       className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm"
@@ -1920,12 +1946,8 @@ function FlowCanvas({
                       type="text"
                       value={selectedNode.data.config?.pattern || ""}
                       onChange={(e) => {
-                        setSelectedNode({
-                        ...selectedNode,
-                        data: {
-                          ...selectedNode.data,
-                            config: { ...selectedNode.data.config, pattern: e.target.value },
-                          },
+                        updateNodeConfiguration(selectedNode.id, {
+                          config: { ...selectedNode.data.config, pattern: e.target.value }
                         });
                       }}
                       className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm font-mono"
@@ -1937,12 +1959,8 @@ function FlowCanvas({
                       type="checkbox"
                       checked={selectedNode.data.config?.required || false}
                       onChange={(e) => {
-                        setSelectedNode({
-                        ...selectedNode,
-                        data: {
-                          ...selectedNode.data,
-                            config: { ...selectedNode.data.config, required: e.target.checked },
-                          },
+                        updateNodeConfiguration(selectedNode.id, {
+                          config: { ...selectedNode.data.config, required: e.target.checked }
                         });
                       }}
                       className="w-4 h-4"
@@ -1964,12 +1982,8 @@ function FlowCanvas({
                       type="text"
                       value={selectedNode.data.config?.intent_name || ""}
                       onChange={(e) => {
-                        setSelectedNode({
-                        ...selectedNode,
-                        data: {
-                          ...selectedNode.data,
-                            config: { ...selectedNode.data.config, intent_name: e.target.value },
-                          },
+                        updateNodeConfiguration(selectedNode.id, {
+                          config: { ...selectedNode.data.config, intent_name: e.target.value }
                         });
                       }}
                       className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm"
@@ -1982,12 +1996,8 @@ function FlowCanvas({
                       type="text"
                       value={selectedNode.data.config?.keywords || ""}
                       onChange={(e) => {
-                        setSelectedNode({
-                        ...selectedNode,
-                        data: {
-                          ...selectedNode.data,
-                            config: { ...selectedNode.data.config, keywords: e.target.value },
-                          },
+                        updateNodeConfiguration(selectedNode.id, {
+                          config: { ...selectedNode.data.config, keywords: e.target.value }
                         });
                       }}
                       className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm"
@@ -2003,14 +2013,10 @@ function FlowCanvas({
                       max="1"
                       value={selectedNode.data.config?.confidence || 0.7}
                       onChange={(e) => {
-                        setSelectedNode({
-                        ...selectedNode,
-                        data: {
-                          ...selectedNode.data,
-                            config: {
-                              ...selectedNode.data.config,
-                              confidence: parseFloat(e.target.value),
-                            },
+                        updateNodeConfiguration(selectedNode.id, {
+                          config: {
+                            ...selectedNode.data.config,
+                            confidence: parseFloat(e.target.value),
                           },
                         });
                       }}
@@ -2031,12 +2037,8 @@ function FlowCanvas({
                     <textarea
                       value={selectedNode.data.config?.response || ""}
                       onChange={(e) => {
-                        setSelectedNode({
-                          ...selectedNode,
-                          data: {
-                            ...selectedNode.data,
-                            config: { ...selectedNode.data.config, response: e.target.value },
-                          },
+                        updateNodeConfiguration(selectedNode.id, {
+                          config: { ...selectedNode.data.config, response: e.target.value }
                         });
                       }}
                       className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm"
@@ -2049,12 +2051,8 @@ function FlowCanvas({
                     <select
                       value={selectedNode.data.config?.response_type || "text"}
                       onChange={(e) => {
-                        setSelectedNode({
-                          ...selectedNode,
-                          data: {
-                            ...selectedNode.data,
-                            config: { ...selectedNode.data.config, response_type: e.target.value },
-                          },
+                        updateNodeConfiguration(selectedNode.id, {
+                          config: { ...selectedNode.data.config, response_type: e.target.value }
                         });
                       }}
                       className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm"
@@ -2078,14 +2076,10 @@ function FlowCanvas({
                     type="number"
                     value={selectedNode.data.config?.duration || 1000}
                     onChange={(e) => {
-                      setSelectedNode({
-                        ...selectedNode,
-                        data: {
-                          ...selectedNode.data,
-                          config: {
-                            ...selectedNode.data.config,
-                            duration: parseInt(e.target.value),
-                          },
+                      updateNodeConfiguration(selectedNode.id, {
+                        config: {
+                          ...selectedNode.data.config,
+                          duration: parseInt(e.target.value),
                         },
                       });
                     }}
@@ -2106,12 +2100,8 @@ function FlowCanvas({
                     <select
                       value={selectedNode.data.config?.loop_type || "count"}
                       onChange={(e) => {
-                        setSelectedNode({
-                          ...selectedNode,
-                          data: {
-                            ...selectedNode.data,
-                            config: { ...selectedNode.data.config, loop_type: e.target.value },
-                          },
+                        updateNodeConfiguration(selectedNode.id, {
+                          config: { ...selectedNode.data.config, loop_type: e.target.value }
                         });
                       }}
                       className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm"
@@ -2151,13 +2141,15 @@ function FlowCanvas({
                       type="text"
                         value={selectedNode.data.config?.condition || ""}
                         onChange={(e) => {
+                          const condition = e.target.value;
                           setSelectedNode({
                         ...selectedNode,
                         data: {
                           ...selectedNode.data,
-                              config: { ...selectedNode.data.config, condition: e.target.value },
+                              config: { ...selectedNode.data.config, condition },
                             },
                           });
+                          updateNodeConfiguration(selectedNode.id, { config: { ...selectedNode.data.config, condition } });
                         }}
                         className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm font-mono"
                         placeholder="i < 10"
@@ -2178,13 +2170,15 @@ function FlowCanvas({
                     <select
                       value={selectedNode.data.config?.model || "gpt-4-vision"}
                       onChange={(e) => {
+                        const model = e.target.value;
                         setSelectedNode({
                           ...selectedNode,
                           data: {
                             ...selectedNode.data,
-                            config: { ...selectedNode.data.config, model: e.target.value },
+                            config: { ...selectedNode.data.config, model },
                           },
                         });
+                        updateNodeConfiguration(selectedNode.id, { config: { ...selectedNode.data.config, model } });
                       }}
                       className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm"
                     >
@@ -2199,13 +2193,15 @@ function FlowCanvas({
                       type="text"
                       value={selectedNode.data.config?.image_source || ""}
                       onChange={(e) => {
+                        const image_source = e.target.value;
                         setSelectedNode({
                           ...selectedNode,
                           data: {
                             ...selectedNode.data,
-                            config: { ...selectedNode.data.config, image_source: e.target.value },
+                            config: { ...selectedNode.data.config, image_source },
                           },
                         });
+                        updateNodeConfiguration(selectedNode.id, { config: { ...selectedNode.data.config, image_source } });
                       }}
                       className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm"
                       placeholder="https://example.com/image.jpg or data:image/..."
@@ -2216,13 +2212,15 @@ function FlowCanvas({
                     <textarea
                       value={selectedNode.data.config?.prompt || ""}
                       onChange={(e) => {
+                        const prompt = e.target.value;
                         setSelectedNode({
                           ...selectedNode,
                           data: {
                             ...selectedNode.data,
-                            config: { ...selectedNode.data.config, prompt: e.target.value },
+                            config: { ...selectedNode.data.config, prompt },
                           },
                         });
+                        updateNodeConfiguration(selectedNode.id, { config: { ...selectedNode.data.config, prompt } });
                       }}
                       className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm"
                       rows={3}
@@ -2251,13 +2249,15 @@ function FlowCanvas({
                       type="checkbox"
                       checked={selectedNode.data.config?.object_detection || false}
                       onChange={(e) => {
+                        const object_detection = e.target.checked;
                         setSelectedNode({
                           ...selectedNode,
                           data: {
                             ...selectedNode.data,
-                            config: { ...selectedNode.data.config, object_detection: e.target.checked },
+                            config: { ...selectedNode.data.config, object_detection },
                           },
                         });
+                        updateNodeConfiguration(selectedNode.id, { config: { ...selectedNode.data.config, object_detection } });
                       }}
                       className="w-4 h-4"
                     />
@@ -2277,13 +2277,15 @@ function FlowCanvas({
                     <select
                       value={selectedNode.data.config?.operation || "transcribe"}
                       onChange={(e) => {
+                        const operation = e.target.value;
                         setSelectedNode({
                         ...selectedNode,
                         data: {
                           ...selectedNode.data,
-                            config: { ...selectedNode.data.config, operation: e.target.value },
+                            config: { ...selectedNode.data.config, operation },
                           },
                         });
+                        updateNodeConfiguration(selectedNode.id, { config: { ...selectedNode.data.config, operation } });
                       }}
                       className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm"
                     >
@@ -2300,14 +2302,16 @@ function FlowCanvas({
                         <select
                           value={selectedNode.data.config?.voice_model || "tts-1"}
                           onChange={(e) => {
-                            setSelectedNode({
-                              ...selectedNode,
-                              data: {
-                                ...selectedNode.data,
-                                config: { ...selectedNode.data.config, voice_model: e.target.value },
-                              },
-                            });
-                          }}
+                        const voice_model = e.target.value;
+                        setSelectedNode({
+                          ...selectedNode,
+                          data: {
+                            ...selectedNode.data,
+                            config: { ...selectedNode.data.config, voice_model },
+                          },
+                        });
+                        updateNodeConfiguration(selectedNode.id, { config: { ...selectedNode.data.config, voice_model } });
+                      }}
                           className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm"
                         >
                           <option value="tts-1">OpenAI TTS-1</option>
@@ -2347,13 +2351,15 @@ function FlowCanvas({
                       type="text"
                       value={selectedNode.data.config?.audio_source || ""}
                       onChange={(e) => {
+                        const audio_source = e.target.value;
                         setSelectedNode({
                           ...selectedNode,
                           data: {
                             ...selectedNode.data,
-                            config: { ...selectedNode.data.config, audio_source: e.target.value },
+                            config: { ...selectedNode.data.config, audio_source },
                           },
                         });
+                        updateNodeConfiguration(selectedNode.id, { config: { ...selectedNode.data.config, audio_source } });
                       }}
                       className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm"
                       placeholder="URL, base64, or variable name"
@@ -2373,13 +2379,15 @@ function FlowCanvas({
                     <select
                       value={selectedNode.data.config?.language || "python"}
                       onChange={(e) => {
+                        const language = e.target.value;
                         setSelectedNode({
                           ...selectedNode,
                           data: {
                             ...selectedNode.data,
-                            config: { ...selectedNode.data.config, language: e.target.value },
+                            config: { ...selectedNode.data.config, language },
                           },
                         });
+                        updateNodeConfiguration(selectedNode.id, { config: { ...selectedNode.data.config, language } });
                       }}
                       className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm"
                     >
@@ -2397,13 +2405,15 @@ function FlowCanvas({
                     <textarea
                       value={selectedNode.data.config?.prompt || ""}
                       onChange={(e) => {
+                        const prompt = e.target.value;
                         setSelectedNode({
                           ...selectedNode,
                           data: {
                             ...selectedNode.data,
-                            config: { ...selectedNode.data.config, prompt: e.target.value },
+                            config: { ...selectedNode.data.config, prompt },
                           },
                         });
+                        updateNodeConfiguration(selectedNode.id, { config: { ...selectedNode.data.config, prompt } });
                       }}
                       className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm font-mono"
                       rows={4}
@@ -2434,16 +2444,18 @@ function FlowCanvas({
                         type="number"
                         value={selectedNode.data.config?.execution_timeout || 30}
                         onChange={(e) => {
+                          const execution_timeout = parseInt(e.target.value);
                           setSelectedNode({
                             ...selectedNode,
                             data: {
                               ...selectedNode.data,
                               config: {
                                 ...selectedNode.data.config,
-                                execution_timeout: parseInt(e.target.value),
+                                execution_timeout,
                               },
                             },
                           });
+                          updateNodeConfiguration(selectedNode.id, { config: { ...selectedNode.data.config, execution_timeout } });
                         }}
                         className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm"
                         min="1"
@@ -2460,21 +2472,23 @@ function FlowCanvas({
                 <h4 className="text-sm font-semibold text-white mb-3">RAG (Retrieval Augmented Generation)</h4>
                 <div className="space-y-3">
                   <div>
-                    <label className="block text-xs text-white/70 mb-1">Knowledge Base</label>
+                    <label className="block text-xs text-white/70 mb-1">Knowledge Base ID</label>
                     <input
                       type="text"
-                      value={selectedNode.data.config?.knowledge_base || ""}
+                      value={selectedNode.data.config?.knowledge_base_id || ""}
                       onChange={(e) => {
+                        const knowledge_base_id = e.target.value;
                         setSelectedNode({
-                        ...selectedNode,
-                        data: {
-                          ...selectedNode.data,
-                            config: { ...selectedNode.data.config, knowledge_base: e.target.value },
+                          ...selectedNode,
+                          data: {
+                            ...selectedNode.data,
+                            config: { ...selectedNode.data.config, knowledge_base_id },
                           },
                         });
+                        updateNodeConfiguration(selectedNode.id, { config: { ...selectedNode.data.config, knowledge_base_id } });
                       }}
                       className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm"
-                      placeholder="Knowledge base ID or name"
+                      placeholder="Knowledge base ID"
                     />
                   </div>
                   <div>
@@ -2482,13 +2496,15 @@ function FlowCanvas({
                     <textarea
                       value={selectedNode.data.config?.query || ""}
                       onChange={(e) => {
+                        const query = e.target.value;
                         setSelectedNode({
                           ...selectedNode,
                           data: {
                             ...selectedNode.data,
-                            config: { ...selectedNode.data.config, query: e.target.value },
+                            config: { ...selectedNode.data.config, query },
                           },
                         });
+                        updateNodeConfiguration(selectedNode.id, { config: { ...selectedNode.data.config, query } });
                       }}
                       className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm"
                       rows={3}
@@ -2502,13 +2518,15 @@ function FlowCanvas({
                         type="number"
                         value={selectedNode.data.config?.top_k || 5}
                         onChange={(e) => {
+                          const top_k = parseInt(e.target.value);
                           setSelectedNode({
                             ...selectedNode,
                             data: {
                               ...selectedNode.data,
-                              config: { ...selectedNode.data.config, top_k: parseInt(e.target.value) },
+                              config: { ...selectedNode.data.config, top_k },
                             },
                           });
+                          updateNodeConfiguration(selectedNode.id, { config: { ...selectedNode.data.config, top_k } });
                         }}
                         className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm"
                         min="1"
@@ -2524,16 +2542,18 @@ function FlowCanvas({
                         max="1"
                         value={selectedNode.data.config?.similarity_threshold || 0.7}
                         onChange={(e) => {
+                          const similarity_threshold = parseFloat(e.target.value);
                           setSelectedNode({
                             ...selectedNode,
                             data: {
                               ...selectedNode.data,
                               config: {
                                 ...selectedNode.data.config,
-                                similarity_threshold: parseFloat(e.target.value),
+                                similarity_threshold,
                               },
                             },
                           });
+                          updateNodeConfiguration(selectedNode.id, { config: { ...selectedNode.data.config, similarity_threshold } });
                         }}
                         className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm"
                       />
@@ -2544,13 +2564,15 @@ function FlowCanvas({
                       type="checkbox"
                       checked={selectedNode.data.config?.generate_response || false}
                       onChange={(e) => {
+                        const generate_response = e.target.checked;
                         setSelectedNode({
                           ...selectedNode,
                           data: {
                             ...selectedNode.data,
-                            config: { ...selectedNode.data.config, generate_response: e.target.checked },
+                            config: { ...selectedNode.data.config, generate_response },
                           },
                         });
+                        updateNodeConfiguration(selectedNode.id, { config: { ...selectedNode.data.config, generate_response } });
                       }}
                       className="w-4 h-4"
                     />
@@ -2570,13 +2592,15 @@ function FlowCanvas({
                     <select
                       value={selectedNode.data.config?.model || "text-embedding-3-small"}
                       onChange={(e) => {
+                        const model = e.target.value;
                         setSelectedNode({
                           ...selectedNode,
                           data: {
                             ...selectedNode.data,
-                            config: { ...selectedNode.data.config, model: e.target.value },
+                            config: { ...selectedNode.data.config, model },
                           },
                         });
+                        updateNodeConfiguration(selectedNode.id, { config: { ...selectedNode.data.config, model } });
                       }}
                       className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm"
                     >
@@ -2591,13 +2615,15 @@ function FlowCanvas({
                     <textarea
                       value={selectedNode.data.config?.text || ""}
                       onChange={(e) => {
+                        const text = e.target.value;
                         setSelectedNode({
                           ...selectedNode,
                           data: {
                             ...selectedNode.data,
-                            config: { ...selectedNode.data.config, text: e.target.value },
+                            config: { ...selectedNode.data.config, text },
                           },
                         });
+                        updateNodeConfiguration(selectedNode.id, { config: { ...selectedNode.data.config, text } });
                       }}
                       className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm"
                       rows={3}
@@ -2610,13 +2636,15 @@ function FlowCanvas({
                       type="text"
                       value={selectedNode.data.config?.output_variable || "embedding"}
                       onChange={(e) => {
+                        const output_variable = e.target.value;
                         setSelectedNode({
                           ...selectedNode,
                           data: {
                             ...selectedNode.data,
-                            config: { ...selectedNode.data.config, output_variable: e.target.value },
+                            config: { ...selectedNode.data.config, output_variable },
                           },
                         });
+                        updateNodeConfiguration(selectedNode.id, { config: { ...selectedNode.data.config, output_variable } });
                       }}
                       className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm"
                       placeholder="embedding"
@@ -2636,13 +2664,15 @@ function FlowCanvas({
                     <select
                       value={selectedNode.data.config?.vector_db || "pinecone"}
                       onChange={(e) => {
+                        const vector_db = e.target.value;
                         setSelectedNode({
                           ...selectedNode,
                           data: {
                             ...selectedNode.data,
-                            config: { ...selectedNode.data.config, vector_db: e.target.value },
+                            config: { ...selectedNode.data.config, vector_db },
                           },
                         });
+                        updateNodeConfiguration(selectedNode.id, { config: { ...selectedNode.data.config, vector_db } });
                       }}
                       className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm"
                     >
@@ -2659,13 +2689,15 @@ function FlowCanvas({
                       type="text"
                       value={selectedNode.data.config?.index_name || ""}
                       onChange={(e) => {
+                        const index_name = e.target.value;
                         setSelectedNode({
                           ...selectedNode,
                           data: {
                             ...selectedNode.data,
-                            config: { ...selectedNode.data.config, index_name: e.target.value },
+                            config: { ...selectedNode.data.config, index_name },
                           },
                         });
+                        updateNodeConfiguration(selectedNode.id, { config: { ...selectedNode.data.config, index_name } });
                       }}
                       className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm"
                       placeholder="my-index"
@@ -2676,13 +2708,15 @@ function FlowCanvas({
                     <textarea
                       value={selectedNode.data.config?.query_vector || ""}
                       onChange={(e) => {
+                        const query_vector = e.target.value;
                         setSelectedNode({
                         ...selectedNode,
                         data: {
                           ...selectedNode.data,
-                            config: { ...selectedNode.data.config, query_vector: e.target.value },
+                            config: { ...selectedNode.data.config, query_vector },
                           },
                         });
+                        updateNodeConfiguration(selectedNode.id, { config: { ...selectedNode.data.config, query_vector } });
                       }}
                       className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm font-mono"
                       rows={2}
@@ -2696,13 +2730,15 @@ function FlowCanvas({
                         type="number"
                         value={selectedNode.data.config?.top_k || 10}
                         onChange={(e) => {
+                          const top_k = parseInt(e.target.value);
                           setSelectedNode({
                             ...selectedNode,
                             data: {
                               ...selectedNode.data,
-                              config: { ...selectedNode.data.config, top_k: parseInt(e.target.value) },
+                              config: { ...selectedNode.data.config, top_k },
                             },
                           });
+                          updateNodeConfiguration(selectedNode.id, { config: { ...selectedNode.data.config, top_k } });
                         }}
                       className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm"
                         min="1"
@@ -2717,16 +2753,18 @@ function FlowCanvas({
                         max="1"
                         value={selectedNode.data.config?.min_similarity || 0.7}
                         onChange={(e) => {
+                          const min_similarity = parseFloat(e.target.value);
                           setSelectedNode({
                             ...selectedNode,
                             data: {
                               ...selectedNode.data,
                               config: {
                                 ...selectedNode.data.config,
-                                min_similarity: parseFloat(e.target.value),
+                                min_similarity,
                               },
                             },
                           });
+                          updateNodeConfiguration(selectedNode.id, { config: { ...selectedNode.data.config, min_similarity } });
                         }}
                         className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm"
                       />
@@ -2755,6 +2793,7 @@ function FlowCanvas({
                               config: { ...selectedNode.data.config, functions },
                             },
                           });
+                          updateNodeConfiguration(selectedNode.id, { config: { ...selectedNode.data.config, functions } });
                         } catch {}
                       }}
                       className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-xs font-mono"
@@ -2768,13 +2807,15 @@ function FlowCanvas({
                       type="text"
                       value={selectedNode.data.config?.handler_url || ""}
                       onChange={(e) => {
+                        const handler_url = e.target.value;
                         setSelectedNode({
                           ...selectedNode,
                           data: {
                             ...selectedNode.data,
-                            config: { ...selectedNode.data.config, handler_url: e.target.value },
+                            config: { ...selectedNode.data.config, handler_url },
                           },
                         });
+                        updateNodeConfiguration(selectedNode.id, { config: { ...selectedNode.data.config, handler_url } });
                       }}
                       className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm"
                       placeholder="https://api.example.com/functions or internal://function_name"
@@ -2794,13 +2835,15 @@ function FlowCanvas({
                     <select
                       value={selectedNode.data.config?.operation || "store"}
                       onChange={(e) => {
+                        const operation = e.target.value;
                         setSelectedNode({
                           ...selectedNode,
                           data: {
                             ...selectedNode.data,
-                            config: { ...selectedNode.data.config, operation: e.target.value },
+                            config: { ...selectedNode.data.config, operation },
                           },
                         });
+                        updateNodeConfiguration(selectedNode.id, { config: { ...selectedNode.data.config, operation } });
                       }}
                       className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm"
                     >
@@ -2817,13 +2860,15 @@ function FlowCanvas({
                       type="text"
                       value={selectedNode.data.config?.memory_key || ""}
                       onChange={(e) => {
+                        const memory_key = e.target.value;
                         setSelectedNode({
                           ...selectedNode,
                           data: {
                             ...selectedNode.data,
-                            config: { ...selectedNode.data.config, memory_key: e.target.value },
+                            config: { ...selectedNode.data.config, memory_key },
                           },
                         });
+                        updateNodeConfiguration(selectedNode.id, { config: { ...selectedNode.data.config, memory_key } });
                       }}
                       className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm"
                       placeholder="user_preference, conversation_context, etc."
@@ -2854,13 +2899,15 @@ function FlowCanvas({
                     <select
                       value={selectedNode.data.config?.memory_type || "episodic"}
                       onChange={(e) => {
+                        const memory_type = e.target.value;
                         setSelectedNode({
                           ...selectedNode,
                           data: {
                             ...selectedNode.data,
-                            config: { ...selectedNode.data.config, memory_type: e.target.value },
+                            config: { ...selectedNode.data.config, memory_type },
                           },
                         });
+                        updateNodeConfiguration(selectedNode.id, { config: { ...selectedNode.data.config, memory_type } });
                       }}
                       className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm"
                     >
@@ -2892,6 +2939,7 @@ function FlowCanvas({
                               config: { ...selectedNode.data.config, criteria },
                             },
                           });
+                          updateNodeConfiguration(selectedNode.id, { config: { ...selectedNode.data.config, criteria } });
                         } catch {}
                       }}
                       className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-xs font-mono"
@@ -2904,13 +2952,15 @@ function FlowCanvas({
                     <select
                       value={selectedNode.data.config?.model || "weighted"}
                       onChange={(e) => {
+                        const model = e.target.value;
                         setSelectedNode({
                           ...selectedNode,
                           data: {
                             ...selectedNode.data,
-                            config: { ...selectedNode.data.config, model: e.target.value },
+                            config: { ...selectedNode.data.config, model },
                           },
                         });
+                        updateNodeConfiguration(selectedNode.id, { config: { ...selectedNode.data.config, model } });
                       }}
                       className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm"
                     >
@@ -2926,13 +2976,15 @@ function FlowCanvas({
                       type="text"
                       value={selectedNode.data.config?.output_variable || "decision"}
                       onChange={(e) => {
+                        const output_variable = e.target.value;
                         setSelectedNode({
                           ...selectedNode,
                           data: {
                             ...selectedNode.data,
-                            config: { ...selectedNode.data.config, output_variable: e.target.value },
+                            config: { ...selectedNode.data.config, output_variable },
                           },
                         });
+                        updateNodeConfiguration(selectedNode.id, { config: { ...selectedNode.data.config, output_variable } });
                       }}
                       className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm"
                       placeholder="decision"
@@ -2952,14 +3004,15 @@ function FlowCanvas({
                     <select
                       value={selectedNode.data.config?.agent_id || ""}
                       onChange={(e) => {
-                        const agentId = parseInt(e.target.value);
+                        const agent_id = parseInt(e.target.value);
                         setSelectedNode({
                           ...selectedNode,
                           data: {
                             ...selectedNode.data,
-                            config: { ...selectedNode.data.config, agent_id: agentId },
+                            config: { ...selectedNode.data.config, agent_id },
                           },
                         });
+                        updateNodeConfiguration(selectedNode.id, { config: { ...selectedNode.data.config, agent_id } });
                       }}
                       className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm"
                     >
@@ -2982,13 +3035,15 @@ function FlowCanvas({
                       id="pass_context_delegate"
                       checked={selectedNode.data.config?.pass_context !== false}
                       onChange={(e) => {
+                        const pass_context = e.target.checked;
                         setSelectedNode({
                           ...selectedNode,
                           data: {
                             ...selectedNode.data,
-                            config: { ...selectedNode.data.config, pass_context: e.target.checked },
+                            config: { ...selectedNode.data.config, pass_context },
                           },
                         });
+                        updateNodeConfiguration(selectedNode.id, { config: { ...selectedNode.data.config, pass_context } });
                       }}
                       className="w-4 h-4"
                     />
@@ -3002,13 +3057,15 @@ function FlowCanvas({
                       id="merge_response_delegate"
                       checked={selectedNode.data.config?.merge_response !== false}
                       onChange={(e) => {
+                        const merge_response = e.target.checked;
                         setSelectedNode({
                           ...selectedNode,
                           data: {
                             ...selectedNode.data,
-                            config: { ...selectedNode.data.config, merge_response: e.target.checked },
+                            config: { ...selectedNode.data.config, merge_response },
                           },
                         });
+                        updateNodeConfiguration(selectedNode.id, { config: { ...selectedNode.data.config, merge_response } });
                       }}
                       className="w-4 h-4"
                     />
@@ -3031,13 +3088,15 @@ function FlowCanvas({
                       type="text"
                       value={selectedNode.data.config?.agent_ids || ""}
                       onChange={(e) => {
+                        const agent_ids = e.target.value;
                         setSelectedNode({
                           ...selectedNode,
                           data: {
                             ...selectedNode.data,
-                            config: { ...selectedNode.data.config, agent_ids: e.target.value },
+                            config: { ...selectedNode.data.config, agent_ids },
                           },
                         });
+                        updateNodeConfiguration(selectedNode.id, { config: { ...selectedNode.data.config, agent_ids } });
                       }}
                       className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm"
                       placeholder="1, 2, 3"
@@ -3048,13 +3107,15 @@ function FlowCanvas({
                     <select
                       value={selectedNode.data.config?.strategy || "parallel"}
                       onChange={(e) => {
+                        const strategy = e.target.value;
                         setSelectedNode({
                           ...selectedNode,
                           data: {
                             ...selectedNode.data,
-                            config: { ...selectedNode.data.config, strategy: e.target.value },
+                            config: { ...selectedNode.data.config, strategy },
                           },
                         });
+                        updateNodeConfiguration(selectedNode.id, { config: { ...selectedNode.data.config, strategy } });
                       }}
                       className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm"
                     >
@@ -3078,6 +3139,7 @@ function FlowCanvas({
                               config: { ...selectedNode.data.config, task_distribution },
                             },
                           });
+                          updateNodeConfiguration(selectedNode.id, { config: { ...selectedNode.data.config, task_distribution } });
                         } catch {}
                       }}
                       className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-xs font-mono"
@@ -3099,13 +3161,15 @@ function FlowCanvas({
                     <select
                       value={selectedNode.data.config?.db_type || "postgresql"}
                       onChange={(e) => {
+                        const db_type = e.target.value;
                         setSelectedNode({
                         ...selectedNode,
                         data: {
                           ...selectedNode.data,
-                            config: { ...selectedNode.data.config, db_type: e.target.value },
+                            config: { ...selectedNode.data.config, db_type },
                           },
                         });
+                        updateNodeConfiguration(selectedNode.id, { config: { ...selectedNode.data.config, db_type } });
                       }}
                       className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm"
                     >
@@ -3122,13 +3186,15 @@ function FlowCanvas({
                       type="text"
                       value={selectedNode.data.config?.connection_string || ""}
                       onChange={(e) => {
+                        const connection_string = e.target.value;
                         setSelectedNode({
                           ...selectedNode,
                           data: {
                             ...selectedNode.data,
-                            config: { ...selectedNode.data.config, connection_string: e.target.value },
+                            config: { ...selectedNode.data.config, connection_string },
                           },
                         });
+                        updateNodeConfiguration(selectedNode.id, { config: { ...selectedNode.data.config, connection_string } });
                       }}
                       className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm font-mono"
                       placeholder="postgresql://user:pass@host:port/db"
@@ -3139,13 +3205,15 @@ function FlowCanvas({
                     <textarea
                       value={selectedNode.data.config?.query || ""}
                       onChange={(e) => {
+                        const query = e.target.value;
                         setSelectedNode({
                           ...selectedNode,
                           data: {
                             ...selectedNode.data,
-                            config: { ...selectedNode.data.config, query: e.target.value },
+                            config: { ...selectedNode.data.config, query },
                           },
                         });
+                        updateNodeConfiguration(selectedNode.id, { config: { ...selectedNode.data.config, query } });
                       }}
                       className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm font-mono"
                       rows={4}
@@ -3166,6 +3234,7 @@ function FlowCanvas({
                               config: { ...selectedNode.data.config, params },
                             },
                           });
+                          updateNodeConfiguration(selectedNode.id, { config: { ...selectedNode.data.config, params } });
                         } catch {}
                       }}
                       className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-xs font-mono"
@@ -3188,13 +3257,15 @@ function FlowCanvas({
                       type="text"
                       value={selectedNode.data.config?.url || ""}
                       onChange={(e) => {
+                        const url = e.target.value;
                         setSelectedNode({
                           ...selectedNode,
                           data: {
                             ...selectedNode.data,
-                            config: { ...selectedNode.data.config, url: e.target.value },
+                            config: { ...selectedNode.data.config, url },
                           },
                         });
+                        updateNodeConfiguration(selectedNode.id, { config: { ...selectedNode.data.config, url } });
                       }}
                       className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm"
                       placeholder="https://api.example.com/webhook"
@@ -3205,13 +3276,15 @@ function FlowCanvas({
                     <select
                       value={selectedNode.data.config?.webhook_type || "outgoing"}
                       onChange={(e) => {
+                        const webhook_type = e.target.value;
                         setSelectedNode({
                           ...selectedNode,
                           data: {
                             ...selectedNode.data,
-                            config: { ...selectedNode.data.config, webhook_type: e.target.value },
+                            config: { ...selectedNode.data.config, webhook_type },
                           },
                         });
+                        updateNodeConfiguration(selectedNode.id, { config: { ...selectedNode.data.config, webhook_type } });
                       }}
                       className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm"
                     >
@@ -3246,13 +3319,15 @@ function FlowCanvas({
                       type="password"
                       value={selectedNode.data.config?.secret || ""}
                       onChange={(e) => {
+                        const secret = e.target.value;
                         setSelectedNode({
                           ...selectedNode,
                           data: {
                             ...selectedNode.data,
-                            config: { ...selectedNode.data.config, secret: e.target.value },
+                            config: { ...selectedNode.data.config, secret },
                           },
                         });
+                        updateNodeConfiguration(selectedNode.id, { config: { ...selectedNode.data.config, secret } });
                       }}
                       className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm"
                       placeholder="Webhook secret for verification"
@@ -3273,13 +3348,15 @@ function FlowCanvas({
                       type="text"
                       value={selectedNode.data.config?.data_source || ""}
                       onChange={(e) => {
+                        const data_source = e.target.value;
                         setSelectedNode({
                         ...selectedNode,
                         data: {
                           ...selectedNode.data,
-                            config: { ...selectedNode.data.config, data_source: e.target.value },
+                            config: { ...selectedNode.data.config, data_source },
                           },
                         });
+                        updateNodeConfiguration(selectedNode.id, { config: { ...selectedNode.data.config, data_source } });
                       }}
                       className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm"
                       placeholder="Variable name, URL, or JSON"
@@ -3290,13 +3367,15 @@ function FlowCanvas({
                     <select
                       value={selectedNode.data.config?.analysis_type || "insights"}
                       onChange={(e) => {
+                        const analysis_type = e.target.value;
                         setSelectedNode({
                           ...selectedNode,
                           data: {
                             ...selectedNode.data,
-                            config: { ...selectedNode.data.config, analysis_type: e.target.value },
+                            config: { ...selectedNode.data.config, analysis_type },
                           },
                         });
+                        updateNodeConfiguration(selectedNode.id, { config: { ...selectedNode.data.config, analysis_type } });
                       }}
                       className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm"
                     >
@@ -3312,13 +3391,15 @@ function FlowCanvas({
                     <textarea
                       value={selectedNode.data.config?.prompt || ""}
                       onChange={(e) => {
+                        const prompt = e.target.value;
                         setSelectedNode({
                           ...selectedNode,
                           data: {
                             ...selectedNode.data,
-                            config: { ...selectedNode.data.config, prompt: e.target.value },
+                            config: { ...selectedNode.data.config, prompt },
                           },
                         });
+                        updateNodeConfiguration(selectedNode.id, { config: { ...selectedNode.data.config, prompt } });
                       }}
                       className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm"
                       rows={3}
@@ -3340,13 +3421,15 @@ function FlowCanvas({
                       type="text"
                       value={selectedNode.data.config?.document_source || ""}
                       onChange={(e) => {
+                        const document_source = e.target.value;
                         setSelectedNode({
                           ...selectedNode,
                           data: {
                             ...selectedNode.data,
-                            config: { ...selectedNode.data.config, document_source: e.target.value },
+                            config: { ...selectedNode.data.config, document_source },
                           },
                         });
+                        updateNodeConfiguration(selectedNode.id, { config: { ...selectedNode.data.config, document_source } });
                       }}
                       className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm"
                       placeholder="URL, file path, or variable"
@@ -3379,13 +3462,15 @@ function FlowCanvas({
                     <select
                       value={selectedNode.data.config?.task || "extract"}
                       onChange={(e) => {
+                        const task = e.target.value;
                         setSelectedNode({
                           ...selectedNode,
                           data: {
                             ...selectedNode.data,
-                            config: { ...selectedNode.data.config, task: e.target.value },
+                            config: { ...selectedNode.data.config, task },
                           },
                         });
+                        updateNodeConfiguration(selectedNode.id, { config: { ...selectedNode.data.config, task } });
                       }}
                       className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm"
                     >
@@ -3401,13 +3486,15 @@ function FlowCanvas({
                     <textarea
                       value={selectedNode.data.config?.prompt || ""}
                       onChange={(e) => {
+                        const prompt = e.target.value;
                         setSelectedNode({
                           ...selectedNode,
                           data: {
                             ...selectedNode.data,
-                            config: { ...selectedNode.data.config, prompt: e.target.value },
+                            config: { ...selectedNode.data.config, prompt },
                           },
                         });
+                        updateNodeConfiguration(selectedNode.id, { config: { ...selectedNode.data.config, prompt } });
                       }}
                       className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm"
                       rows={3}
@@ -3429,13 +3516,15 @@ function FlowCanvas({
                       type="text"
                       value={selectedNode.data.config?.file_source || ""}
                       onChange={(e) => {
+                        const file_source = e.target.value;
                         setSelectedNode({
                           ...selectedNode,
                           data: {
                             ...selectedNode.data,
-                            config: { ...selectedNode.data.config, file_source: e.target.value },
+                            config: { ...selectedNode.data.config, file_source },
                           },
                         });
+                        updateNodeConfiguration(selectedNode.id, { config: { ...selectedNode.data.config, file_source } });
                       }}
                       className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm"
                       placeholder="File path, URL, or variable"
@@ -3446,13 +3535,15 @@ function FlowCanvas({
                     <select
                       value={selectedNode.data.config?.file_type || "auto"}
                       onChange={(e) => {
+                        const file_type = e.target.value;
                         setSelectedNode({
-                        ...selectedNode,
-                        data: {
-                          ...selectedNode.data,
-                            config: { ...selectedNode.data.config, file_type: e.target.value },
+                          ...selectedNode,
+                          data: {
+                            ...selectedNode.data,
+                            config: { ...selectedNode.data.config, file_type },
                           },
                         });
+                        updateNodeConfiguration(selectedNode.id, { config: { ...selectedNode.data.config, file_type } });
                       }}
                       className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm"
                     >
@@ -3470,13 +3561,15 @@ function FlowCanvas({
                     <select
                       value={selectedNode.data.config?.action || "read"}
                       onChange={(e) => {
+                        const action = e.target.value;
                         setSelectedNode({
                           ...selectedNode,
                           data: {
                             ...selectedNode.data,
-                            config: { ...selectedNode.data.config, action: e.target.value },
+                            config: { ...selectedNode.data.config, action },
                           },
                         });
+                        updateNodeConfiguration(selectedNode.id, { config: { ...selectedNode.data.config, action } });
                       }}
                       className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm"
                     >
@@ -3501,13 +3594,15 @@ function FlowCanvas({
                       type="text"
                       value={selectedNode.data.config?.url || ""}
                       onChange={(e) => {
+                        const url = e.target.value;
                         setSelectedNode({
                           ...selectedNode,
                           data: {
                             ...selectedNode.data,
-                            config: { ...selectedNode.data.config, url: e.target.value },
+                            config: { ...selectedNode.data.config, url },
                           },
                         });
+                        updateNodeConfiguration(selectedNode.id, { config: { ...selectedNode.data.config, url } });
                       }}
                       className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm"
                       placeholder="https://example.com"
@@ -3518,13 +3613,15 @@ function FlowCanvas({
                     <select
                       value={selectedNode.data.config?.mode || "intelligent"}
                       onChange={(e) => {
+                        const mode = e.target.value;
                         setSelectedNode({
                           ...selectedNode,
                           data: {
                             ...selectedNode.data,
-                            config: { ...selectedNode.data.config, mode: e.target.value },
+                            config: { ...selectedNode.data.config, mode },
                           },
                         });
+                        updateNodeConfiguration(selectedNode.id, { config: { ...selectedNode.data.config, mode } });
                       }}
                       className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm"
                     >
@@ -3539,13 +3636,15 @@ function FlowCanvas({
                     <textarea
                       value={selectedNode.data.config?.prompt || ""}
                       onChange={(e) => {
+                        const prompt = e.target.value;
                         setSelectedNode({
                           ...selectedNode,
                           data: {
                             ...selectedNode.data,
-                            config: { ...selectedNode.data.config, prompt: e.target.value },
+                            config: { ...selectedNode.data.config, prompt },
                           },
                         });
+                        updateNodeConfiguration(selectedNode.id, { config: { ...selectedNode.data.config, prompt } });
                       }}
                       className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm"
                       rows={3}
@@ -3557,13 +3656,15 @@ function FlowCanvas({
                       type="checkbox"
                       checked={selectedNode.data.config?.follow_links || false}
                       onChange={(e) => {
+                        const follow_links = e.target.checked;
                         setSelectedNode({
                           ...selectedNode,
                           data: {
                             ...selectedNode.data,
-                            config: { ...selectedNode.data.config, follow_links: e.target.checked },
+                            config: { ...selectedNode.data.config, follow_links },
                           },
                         });
+                        updateNodeConfiguration(selectedNode.id, { config: { ...selectedNode.data.config, follow_links } });
                       }}
                       className="w-4 h-4"
                     />
@@ -3584,13 +3685,15 @@ function FlowCanvas({
                       type="text"
                       value={selectedNode.data.config?.email_source || ""}
                       onChange={(e) => {
+                        const email_source = e.target.value;
                         setSelectedNode({
                           ...selectedNode,
                           data: {
                             ...selectedNode.data,
-                            config: { ...selectedNode.data.config, email_source: e.target.value },
+                            config: { ...selectedNode.data.config, email_source },
                           },
                         });
+                        updateNodeConfiguration(selectedNode.id, { config: { ...selectedNode.data.config, email_source } });
                       }}
                       className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm"
                       placeholder="Email ID, variable, or IMAP connection"
@@ -3601,13 +3704,15 @@ function FlowCanvas({
                     <select
                       value={selectedNode.data.config?.task || "analyze"}
                       onChange={(e) => {
+                        const task = e.target.value;
                         setSelectedNode({
                           ...selectedNode,
                           data: {
                             ...selectedNode.data,
-                            config: { ...selectedNode.data.config, task: e.target.value },
+                            config: { ...selectedNode.data.config, task },
                           },
                         });
+                        updateNodeConfiguration(selectedNode.id, { config: { ...selectedNode.data.config, task } });
                       }}
                       className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm"
                     >
@@ -3623,13 +3728,15 @@ function FlowCanvas({
                     <textarea
                       value={selectedNode.data.config?.prompt || ""}
                       onChange={(e) => {
+                        const prompt = e.target.value;
                         setSelectedNode({
                           ...selectedNode,
                           data: {
                             ...selectedNode.data,
-                            config: { ...selectedNode.data.config, prompt: e.target.value },
+                            config: { ...selectedNode.data.config, prompt },
                           },
                         });
+                        updateNodeConfiguration(selectedNode.id, { config: { ...selectedNode.data.config, prompt } });
                       }}
                       className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm"
                       rows={3}
@@ -3650,13 +3757,15 @@ function FlowCanvas({
                     <select
                       value={selectedNode.data.config?.ivr_agent_id || ""}
                       onChange={(e) => {
+                        const ivr_agent_id = parseInt(e.target.value) || null;
                         setSelectedNode({
                           ...selectedNode,
                           data: {
                             ...selectedNode.data,
-                            config: { ...selectedNode.data.config, ivr_agent_id: parseInt(e.target.value) || null },
+                            config: { ...selectedNode.data.config, ivr_agent_id },
                           },
                         });
+                        updateNodeConfiguration(selectedNode.id, { config: { ...selectedNode.data.config, ivr_agent_id } });
                       }}
                       className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm"
                     >
@@ -3681,13 +3790,15 @@ function FlowCanvas({
                       type="text"
                       value={selectedNode.data.config?.phone_number || ""}
                       onChange={(e) => {
+                        const phone_number = e.target.value;
                         setSelectedNode({
                           ...selectedNode,
                           data: {
                             ...selectedNode.data,
-                            config: { ...selectedNode.data.config, phone_number: e.target.value },
+                            config: { ...selectedNode.data.config, phone_number },
                           },
                         });
+                        updateNodeConfiguration(selectedNode.id, { config: { ...selectedNode.data.config, phone_number } });
                       }}
                       className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm"
                       placeholder="+1234567890 or {{entities.phone_number}}"
@@ -3715,13 +3826,15 @@ function FlowCanvas({
                     <select
                       value={selectedNode.data.config?.channel || "email"}
                       onChange={(e) => {
+                        const channel = e.target.value;
                         setSelectedNode({
                           ...selectedNode,
                           data: {
                             ...selectedNode.data,
-                            config: { ...selectedNode.data.config, channel: e.target.value },
+                            config: { ...selectedNode.data.config, channel },
                           },
                         });
+                        updateNodeConfiguration(selectedNode.id, { config: { ...selectedNode.data.config, channel } });
                       }}
                       className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm"
                     >
@@ -3739,13 +3852,15 @@ function FlowCanvas({
                       type="text"
                       value={selectedNode.data.config?.recipient || ""}
                       onChange={(e) => {
+                        const recipient = e.target.value;
                         setSelectedNode({
                           ...selectedNode,
                           data: {
                             ...selectedNode.data,
-                            config: { ...selectedNode.data.config, recipient: e.target.value },
+                            config: { ...selectedNode.data.config, recipient },
                           },
                         });
+                        updateNodeConfiguration(selectedNode.id, { config: { ...selectedNode.data.config, recipient } });
                       }}
                       className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm"
                       placeholder="email@example.com, phone number, or channel ID"
@@ -3756,13 +3871,15 @@ function FlowCanvas({
                     <textarea
                       value={selectedNode.data.config?.message || ""}
                       onChange={(e) => {
+                        const message = e.target.value;
                         setSelectedNode({
                           ...selectedNode,
                           data: {
                             ...selectedNode.data,
-                            config: { ...selectedNode.data.config, message: e.target.value },
+                            config: { ...selectedNode.data.config, message },
                           },
                         });
+                        updateNodeConfiguration(selectedNode.id, { config: { ...selectedNode.data.config, message } });
                       }}
                       className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm"
                       rows={3}
@@ -3774,13 +3891,15 @@ function FlowCanvas({
                     <select
                       value={selectedNode.data.config?.priority || "normal"}
                       onChange={(e) => {
+                        const priority = e.target.value;
                         setSelectedNode({
                           ...selectedNode,
                           data: {
                             ...selectedNode.data,
-                            config: { ...selectedNode.data.config, priority: e.target.value },
+                            config: { ...selectedNode.data.config, priority },
                           },
                         });
+                        updateNodeConfiguration(selectedNode.id, { config: { ...selectedNode.data.config, priority } });
                       }}
                       className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm"
                     >
@@ -3804,13 +3923,15 @@ function FlowCanvas({
                     <select
                       value={selectedNode.data.config?.provider || "google"}
                       onChange={(e) => {
+                        const provider = e.target.value;
                         setSelectedNode({
                           ...selectedNode,
                           data: {
                             ...selectedNode.data,
-                            config: { ...selectedNode.data.config, provider: e.target.value },
+                            config: { ...selectedNode.data.config, provider },
                           },
                         });
+                        updateNodeConfiguration(selectedNode.id, { config: { ...selectedNode.data.config, provider } });
                       }}
                       className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm"
                     >
@@ -3824,13 +3945,15 @@ function FlowCanvas({
                     <select
                       value={selectedNode.data.config?.action || "create"}
                       onChange={(e) => {
+                        const action = e.target.value;
                         setSelectedNode({
                           ...selectedNode,
                           data: {
                             ...selectedNode.data,
-                            config: { ...selectedNode.data.config, action: e.target.value },
+                            config: { ...selectedNode.data.config, action },
                           },
                         });
+                        updateNodeConfiguration(selectedNode.id, { config: { ...selectedNode.data.config, action } });
                       }}
                       className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm"
                     >
@@ -3855,6 +3978,7 @@ function FlowCanvas({
                               config: { ...selectedNode.data.config, event_details },
                             },
                           });
+                          updateNodeConfiguration(selectedNode.id, { config: { ...selectedNode.data.config, event_details } });
                         } catch {}
                       }}
                       className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-xs font-mono"
@@ -3876,13 +4000,15 @@ function FlowCanvas({
                     <select
                       value={selectedNode.data.config?.stream_type || "sse"}
                       onChange={(e) => {
+                        const stream_type = e.target.value;
                         setSelectedNode({
                           ...selectedNode,
                           data: {
                             ...selectedNode.data,
-                            config: { ...selectedNode.data.config, stream_type: e.target.value },
+                            config: { ...selectedNode.data.config, stream_type },
                           },
                         });
+                        updateNodeConfiguration(selectedNode.id, { config: { ...selectedNode.data.config, stream_type } });
                       }}
                       className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm"
                     >
@@ -3897,13 +4023,15 @@ function FlowCanvas({
                       type="text"
                       value={selectedNode.data.config?.endpoint || ""}
                       onChange={(e) => {
+                        const endpoint = e.target.value;
                         setSelectedNode({
                           ...selectedNode,
                           data: {
                             ...selectedNode.data,
-                            config: { ...selectedNode.data.config, endpoint: e.target.value },
+                            config: { ...selectedNode.data.config, endpoint },
                           },
                         });
+                        updateNodeConfiguration(selectedNode.id, { config: { ...selectedNode.data.config, endpoint } });
                       }}
                       className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm"
                       placeholder="https://api.example.com/stream"
@@ -3914,13 +4042,15 @@ function FlowCanvas({
                     <textarea
                       value={selectedNode.data.config?.data || ""}
                       onChange={(e) => {
+                        const data = e.target.value;
                         setSelectedNode({
                           ...selectedNode,
                           data: {
                             ...selectedNode.data,
-                            config: { ...selectedNode.data.config, data: e.target.value },
+                            config: { ...selectedNode.data.config, data },
                           },
                         });
+                        updateNodeConfiguration(selectedNode.id, { config: { ...selectedNode.data.config, data } });
                       }}
                       className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm"
                       rows={3}
@@ -3950,6 +4080,7 @@ function FlowCanvas({
                               config: { ...selectedNode.data.config, workflow },
                             },
                           });
+                          updateNodeConfiguration(selectedNode.id, { config: { ...selectedNode.data.config, workflow } });
                         } catch {}
                       }}
                       className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-xs font-mono"
@@ -3962,13 +4093,15 @@ function FlowCanvas({
                     <select
                       value={selectedNode.data.config?.trigger || "manual"}
                       onChange={(e) => {
+                        const trigger = e.target.value;
                         setSelectedNode({
                           ...selectedNode,
                           data: {
                             ...selectedNode.data,
-                            config: { ...selectedNode.data.config, trigger: e.target.value },
+                            config: { ...selectedNode.data.config, trigger },
                           },
                         });
+                        updateNodeConfiguration(selectedNode.id, { config: { ...selectedNode.data.config, trigger } });
                       }}
                       className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm"
                     >
@@ -3992,13 +4125,15 @@ function FlowCanvas({
                     <select
                       value={selectedNode.data.config?.schedule_type || "cron"}
                       onChange={(e) => {
+                        const schedule_type = e.target.value;
                         setSelectedNode({
                           ...selectedNode,
                           data: {
                             ...selectedNode.data,
-                            config: { ...selectedNode.data.config, schedule_type: e.target.value },
+                            config: { ...selectedNode.data.config, schedule_type },
                           },
                         });
+                        updateNodeConfiguration(selectedNode.id, { config: { ...selectedNode.data.config, schedule_type } });
                       }}
                       className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm"
                     >
@@ -4019,13 +4154,15 @@ function FlowCanvas({
                       type="text"
                       value={selectedNode.data.config?.schedule_value || ""}
                       onChange={(e) => {
+                        const schedule_value = e.target.value;
                         setSelectedNode({
                           ...selectedNode,
                           data: {
                             ...selectedNode.data,
-                            config: { ...selectedNode.data.config, schedule_value: e.target.value },
+                            config: { ...selectedNode.data.config, schedule_value },
                           },
                         });
+                        updateNodeConfiguration(selectedNode.id, { config: { ...selectedNode.data.config, schedule_value } });
                       }}
                       className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm font-mono"
                       placeholder={
@@ -4043,13 +4180,15 @@ function FlowCanvas({
                       type="text"
                       value={selectedNode.data.config?.task || ""}
                       onChange={(e) => {
+                        const task = e.target.value;
                         setSelectedNode({
                           ...selectedNode,
                           data: {
                             ...selectedNode.data,
-                            config: { ...selectedNode.data.config, task: e.target.value },
+                            config: { ...selectedNode.data.config, task },
                           },
                         });
+                        updateNodeConfiguration(selectedNode.id, { config: { ...selectedNode.data.config, task } });
                       }}
                       className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm"
                       placeholder="Node ID, workflow ID, or function name"
@@ -4070,13 +4209,15 @@ function FlowCanvas({
                       type="text"
                       value={selectedNode.data.config?.image_url || ""}
                       onChange={(e) => {
+                        const image_url = e.target.value;
                         setSelectedNode({
                           ...selectedNode,
                           data: {
                             ...selectedNode.data,
-                            config: { ...selectedNode.data.config, image_url: e.target.value },
+                            config: { ...selectedNode.data.config, image_url },
                           },
                         });
+                        updateNodeConfiguration(selectedNode.id, { config: { ...selectedNode.data.config, image_url } });
                       }}
                       className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm"
                       placeholder="https://example.com/image.jpg or data:image/..."
@@ -4087,13 +4228,15 @@ function FlowCanvas({
                     <select
                       value={selectedNode.data.config?.task || "analyze"}
                       onChange={(e) => {
+                        const task = e.target.value;
                         setSelectedNode({
                           ...selectedNode,
                           data: {
                             ...selectedNode.data,
-                            config: { ...selectedNode.data.config, task: e.target.value },
+                            config: { ...selectedNode.data.config, task },
                           },
                         });
+                        updateNodeConfiguration(selectedNode.id, { config: { ...selectedNode.data.config, task } });
                       }}
                       className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm"
                     >
@@ -4109,13 +4252,15 @@ function FlowCanvas({
                     <textarea
                       value={selectedNode.data.config?.prompt || ""}
                       onChange={(e) => {
+                        const prompt = e.target.value;
                         setSelectedNode({
                           ...selectedNode,
                           data: {
                             ...selectedNode.data,
-                            config: { ...selectedNode.data.config, prompt: e.target.value },
+                            config: { ...selectedNode.data.config, prompt },
                           },
                         });
+                        updateNodeConfiguration(selectedNode.id, { config: { ...selectedNode.data.config, prompt } });
                       }}
                       className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm"
                       rows={2}
@@ -4136,13 +4281,15 @@ function FlowCanvas({
                     <select
                       value={selectedNode.data.config?.task || "transcribe"}
                       onChange={(e) => {
+                        const task = e.target.value;
                         setSelectedNode({
                           ...selectedNode,
                           data: {
                             ...selectedNode.data,
-                            config: { ...selectedNode.data.config, task: e.target.value },
+                            config: { ...selectedNode.data.config, task },
                           },
                         });
+                        updateNodeConfiguration(selectedNode.id, { config: { ...selectedNode.data.config, task } });
                       }}
                       className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm"
                     >
@@ -4159,13 +4306,15 @@ function FlowCanvas({
                       value={selectedNode.data.config?.audio_url || selectedNode.data.config?.text || ""}
                       onChange={(e) => {
                         const key = selectedNode.data.config?.task === "synthesize" ? "text" : "audio_url";
+                        const value = e.target.value;
                         setSelectedNode({
                           ...selectedNode,
                           data: {
                             ...selectedNode.data,
-                            config: { ...selectedNode.data.config, [key]: e.target.value },
+                            config: { ...selectedNode.data.config, [key]: value },
                           },
                         });
+                        updateNodeConfiguration(selectedNode.id, { config: { ...selectedNode.data.config, [key]: value } });
                       }}
                       className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm"
                       placeholder={selectedNode.data.config?.task === "synthesize" ? "Text to convert to speech..." : "https://example.com/audio.mp3"}
@@ -4177,13 +4326,15 @@ function FlowCanvas({
                       <select
                         value={selectedNode.data.config?.voice_model || "alloy"}
                         onChange={(e) => {
+                          const voice_model = e.target.value;
                           setSelectedNode({
                             ...selectedNode,
                             data: {
                               ...selectedNode.data,
-                              config: { ...selectedNode.data.config, voice_model: e.target.value },
+                              config: { ...selectedNode.data.config, voice_model },
                             },
                           });
+                          updateNodeConfiguration(selectedNode.id, { config: { ...selectedNode.data.config, voice_model } });
                         }}
                         className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm"
                       >
@@ -4210,13 +4361,15 @@ function FlowCanvas({
                     <select
                       value={selectedNode.data.config?.language || "python"}
                       onChange={(e) => {
+                        const language = e.target.value;
                         setSelectedNode({
                           ...selectedNode,
                           data: {
                             ...selectedNode.data,
-                            config: { ...selectedNode.data.config, language: e.target.value },
+                            config: { ...selectedNode.data.config, language },
                           },
                         });
+                        updateNodeConfiguration(selectedNode.id, { config: { ...selectedNode.data.config, language } });
                       }}
                       className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm"
                     >
@@ -4235,13 +4388,15 @@ function FlowCanvas({
                     <textarea
                       value={selectedNode.data.config?.prompt || ""}
                       onChange={(e) => {
+                        const prompt = e.target.value;
                         setSelectedNode({
                           ...selectedNode,
                           data: {
                             ...selectedNode.data,
-                            config: { ...selectedNode.data.config, prompt: e.target.value },
+                            config: { ...selectedNode.data.config, prompt },
                           },
                         });
+                        updateNodeConfiguration(selectedNode.id, { config: { ...selectedNode.data.config, prompt } });
                       }}
                       className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm"
                       rows={4}
@@ -4253,16 +4408,18 @@ function FlowCanvas({
                       type="checkbox"
                       checked={selectedNode.data.config?.include_tests || false}
                       onChange={(e) => {
+                        const include_tests = e.target.checked;
                         setSelectedNode({
                           ...selectedNode,
                           data: {
                             ...selectedNode.data,
                             config: {
                               ...selectedNode.data.config,
-                              include_tests: e.target.checked,
+                              include_tests,
                             },
                           },
                         });
+                        updateNodeConfiguration(selectedNode.id, { config: { ...selectedNode.data.config, include_tests } });
                       }}
                       className="w-4 h-4"
                     />
@@ -4273,16 +4430,18 @@ function FlowCanvas({
                       type="checkbox"
                       checked={selectedNode.data.config?.include_docs || false}
                       onChange={(e) => {
+                        const include_docs = e.target.checked;
                         setSelectedNode({
                           ...selectedNode,
                           data: {
                             ...selectedNode.data,
                             config: {
                               ...selectedNode.data.config,
-                              include_docs: e.target.checked,
+                              include_docs,
                             },
                           },
                         });
+                        updateNodeConfiguration(selectedNode.id, { config: { ...selectedNode.data.config, include_docs } });
                       }}
                       className="w-4 h-4"
                     />
@@ -4303,13 +4462,15 @@ function FlowCanvas({
                       type="text"
                       value={selectedNode.data.config?.knowledge_base_id || ""}
                       onChange={(e) => {
+                        const knowledge_base_id = e.target.value;
                         setSelectedNode({
                           ...selectedNode,
                           data: {
                             ...selectedNode.data,
-                            config: { ...selectedNode.data.config, knowledge_base_id: e.target.value },
+                            config: { ...selectedNode.data.config, knowledge_base_id },
                           },
                         });
+                        updateNodeConfiguration(selectedNode.id, { config: { ...selectedNode.data.config, knowledge_base_id } });
                       }}
                       className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm"
                       placeholder="KB ID or name"
@@ -4320,13 +4481,15 @@ function FlowCanvas({
                     <textarea
                       value={selectedNode.data.config?.query || ""}
                       onChange={(e) => {
+                        const query = e.target.value;
                         setSelectedNode({
                           ...selectedNode,
                           data: {
                             ...selectedNode.data,
-                            config: { ...selectedNode.data.config, query: e.target.value },
+                            config: { ...selectedNode.data.config, query },
                           },
                         });
+                        updateNodeConfiguration(selectedNode.id, { config: { ...selectedNode.data.config, query } });
                       }}
                       className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm"
                       rows={3}
@@ -4340,17 +4503,19 @@ function FlowCanvas({
                         type="number"
                         value={selectedNode.data.config?.top_k || 5}
                         onChange={(e) => {
-                          setSelectedNode({
+                        const top_k = parseInt(e.target.value);
+                        setSelectedNode({
                           ...selectedNode,
                           data: {
                             ...selectedNode.data,
                               config: {
                                 ...selectedNode.data.config,
-                                top_k: parseInt(e.target.value),
+                                top_k,
                               },
                             },
                           });
-                        }}
+                        updateNodeConfiguration(selectedNode.id, { config: { ...selectedNode.data.config, top_k } });
+                      }}
                         className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm"
                         min="1"
                         max="20"
@@ -4365,16 +4530,18 @@ function FlowCanvas({
                         max="1"
                         value={selectedNode.data.config?.similarity_threshold || 0.7}
                         onChange={(e) => {
+                          const similarity_threshold = parseFloat(e.target.value);
                           setSelectedNode({
                             ...selectedNode,
                             data: {
                               ...selectedNode.data,
                               config: {
                                 ...selectedNode.data.config,
-                                similarity_threshold: parseFloat(e.target.value),
+                                similarity_threshold,
                               },
                             },
                           });
+                          updateNodeConfiguration(selectedNode.id, { config: { ...selectedNode.data.config, similarity_threshold } });
                         }}
                         className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm"
                       />
@@ -4394,13 +4561,15 @@ function FlowCanvas({
                     <textarea
                       value={selectedNode.data.config?.text || ""}
                       onChange={(e) => {
+                        const text = e.target.value;
                         setSelectedNode({
                           ...selectedNode,
                           data: {
                             ...selectedNode.data,
-                            config: { ...selectedNode.data.config, text: e.target.value },
+                            config: { ...selectedNode.data.config, text },
                           },
                         });
+                        updateNodeConfiguration(selectedNode.id, { config: { ...selectedNode.data.config, text } });
                       }}
                       className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm"
                       rows={3}
@@ -4412,13 +4581,15 @@ function FlowCanvas({
                     <select
                       value={selectedNode.data.config?.model || "text-embedding-ada-002"}
                       onChange={(e) => {
+                        const model = e.target.value;
                         setSelectedNode({
                           ...selectedNode,
                           data: {
                             ...selectedNode.data,
-                            config: { ...selectedNode.data.config, model: e.target.value },
+                            config: { ...selectedNode.data.config, model },
                           },
                         });
+                        updateNodeConfiguration(selectedNode.id, { config: { ...selectedNode.data.config, model } });
                       }}
                       className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm"
                     >
@@ -4442,13 +4613,15 @@ function FlowCanvas({
                         type="text"
                       value={selectedNode.data.config?.collection || ""}
                       onChange={(e) => {
+                        const collection = e.target.value;
                         setSelectedNode({
                           ...selectedNode,
                           data: {
                             ...selectedNode.data,
-                            config: { ...selectedNode.data.config, collection: e.target.value },
+                            config: { ...selectedNode.data.config, collection },
                           },
                         });
+                        updateNodeConfiguration(selectedNode.id, { config: { ...selectedNode.data.config, collection } });
                       }}
                       className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm"
                       placeholder="Collection name"
@@ -4460,13 +4633,15 @@ function FlowCanvas({
                       type="text"
                       value={selectedNode.data.config?.query_vector || ""}
                       onChange={(e) => {
+                        const query_vector = e.target.value;
                         setSelectedNode({
                           ...selectedNode,
                           data: {
                             ...selectedNode.data,
-                            config: { ...selectedNode.data.config, query_vector: e.target.value },
+                            config: { ...selectedNode.data.config, query_vector },
                           },
                         });
+                        updateNodeConfiguration(selectedNode.id, { config: { ...selectedNode.data.config, query_vector } });
                       }}
                         className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm font-mono"
                       placeholder="embedding or [0.1, 0.2, ...]"
@@ -4478,16 +4653,18 @@ function FlowCanvas({
                       type="number"
                       value={selectedNode.data.config?.top_k || 5}
                       onChange={(e) => {
+                        const top_k = parseInt(e.target.value);
                         setSelectedNode({
                           ...selectedNode,
                           data: {
                             ...selectedNode.data,
                             config: {
                               ...selectedNode.data.config,
-                              top_k: parseInt(e.target.value),
+                              top_k,
                             },
                           },
                         });
+                        updateNodeConfiguration(selectedNode.id, { config: { ...selectedNode.data.config, top_k } });
                       }}
                       className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm"
                       min="1"
@@ -4509,13 +4686,15 @@ function FlowCanvas({
                       type="text"
                       value={selectedNode.data.config?.function_name || ""}
                       onChange={(e) => {
+                        const function_name = e.target.value;
                         setSelectedNode({
                           ...selectedNode,
                           data: {
                             ...selectedNode.data,
-                            config: { ...selectedNode.data.config, function_name: e.target.value },
+                            config: { ...selectedNode.data.config, function_name },
                           },
                         });
+                        updateNodeConfiguration(selectedNode.id, { config: { ...selectedNode.data.config, function_name } });
                       }}
                       className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm"
                       placeholder="function_name"
@@ -4535,6 +4714,7 @@ function FlowCanvas({
                               config: { ...selectedNode.data.config, functions },
                             },
                           });
+                          updateNodeConfiguration(selectedNode.id, { config: { ...selectedNode.data.config, functions } });
                         } catch {}
                       }}
                       className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-xs font-mono"
@@ -4556,13 +4736,15 @@ function FlowCanvas({
                     <select
                       value={selectedNode.data.config?.operation || "store"}
                       onChange={(e) => {
+                        const operation = e.target.value;
                         setSelectedNode({
                           ...selectedNode,
                           data: {
                             ...selectedNode.data,
-                            config: { ...selectedNode.data.config, operation: e.target.value },
+                            config: { ...selectedNode.data.config, operation },
                           },
                         });
+                        updateNodeConfiguration(selectedNode.id, { config: { ...selectedNode.data.config, operation } });
                       }}
                       className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm"
                     >
@@ -4578,13 +4760,15 @@ function FlowCanvas({
                       type="text"
                       value={selectedNode.data.config?.key || ""}
                       onChange={(e) => {
+                        const key = e.target.value;
                         setSelectedNode({
                           ...selectedNode,
                           data: {
                             ...selectedNode.data,
-                            config: { ...selectedNode.data.config, key: e.target.value },
+                            config: { ...selectedNode.data.config, key },
                           },
                         });
+                        updateNodeConfiguration(selectedNode.id, { config: { ...selectedNode.data.config, key } });
                       }}
                       className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm"
                       placeholder="memory_key"
@@ -4654,6 +4838,7 @@ function FlowCanvas({
                               config: { ...selectedNode.data.config, options },
                             },
                           });
+                          updateNodeConfiguration(selectedNode.id, { config: { ...selectedNode.data.config, options } });
                         } catch {}
                       }}
                       className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-xs font-mono"
@@ -4675,13 +4860,15 @@ function FlowCanvas({
                     <select
                       value={selectedNode.data.config?.strategy || "sequential"}
                       onChange={(e) => {
+                        const strategy = e.target.value;
                         setSelectedNode({
                           ...selectedNode,
                           data: {
                             ...selectedNode.data,
-                            config: { ...selectedNode.data.config, strategy: e.target.value },
+                            config: { ...selectedNode.data.config, strategy },
                           },
                         });
+                        updateNodeConfiguration(selectedNode.id, { config: { ...selectedNode.data.config, strategy } });
                       }}
                       className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm"
                     >
@@ -4705,6 +4892,7 @@ function FlowCanvas({
                             config: { ...selectedNode.data.config, agents },
                           },
                         });
+                        updateNodeConfiguration(selectedNode.id, { config: { ...selectedNode.data.config, agents } });
                       }}
                       className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm"
                       placeholder="1, 2, 3"
@@ -4725,13 +4913,15 @@ function FlowCanvas({
                       type="text"
                       value={selectedNode.data.config?.data_source || ""}
                       onChange={(e) => {
+                        const data_source = e.target.value;
                         setSelectedNode({
                           ...selectedNode,
                           data: {
                             ...selectedNode.data,
-                            config: { ...selectedNode.data.config, data_source: e.target.value },
+                            config: { ...selectedNode.data.config, data_source },
                           },
                         });
+                        updateNodeConfiguration(selectedNode.id, { config: { ...selectedNode.data.config, data_source } });
                       }}
                       className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm"
                       placeholder="URL, file path, or context variable"
@@ -4774,13 +4964,15 @@ function FlowCanvas({
                       type="text"
                       value={selectedNode.data.config?.document_url || ""}
                       onChange={(e) => {
+                        const document_url = e.target.value;
                         setSelectedNode({
                           ...selectedNode,
                           data: {
                             ...selectedNode.data,
-                            config: { ...selectedNode.data.config, document_url: e.target.value },
+                            config: { ...selectedNode.data.config, document_url },
                           },
                         });
+                        updateNodeConfiguration(selectedNode.id, { config: { ...selectedNode.data.config, document_url } });
                       }}
                       className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm"
                       placeholder="https://example.com/document.pdf"
@@ -4791,13 +4983,15 @@ function FlowCanvas({
                     <select
                       value={selectedNode.data.config?.operation || "extract"}
                       onChange={(e) => {
+                        const operation = e.target.value;
                         setSelectedNode({
                           ...selectedNode,
                           data: {
                             ...selectedNode.data,
-                            config: { ...selectedNode.data.config, operation: e.target.value },
+                            config: { ...selectedNode.data.config, operation },
                           },
                         });
+                        updateNodeConfiguration(selectedNode.id, { config: { ...selectedNode.data.config, operation } });
                       }}
                       className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm"
                     >
@@ -4823,13 +5017,15 @@ function FlowCanvas({
                       type="text"
                       value={selectedNode.data.config?.file_url || ""}
                       onChange={(e) => {
+                        const file_url = e.target.value;
                         setSelectedNode({
                           ...selectedNode,
                           data: {
                             ...selectedNode.data,
-                            config: { ...selectedNode.data.config, file_url: e.target.value },
+                            config: { ...selectedNode.data.config, file_url },
                           },
                         });
+                        updateNodeConfiguration(selectedNode.id, { config: { ...selectedNode.data.config, file_url } });
                       }}
                       className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm"
                       placeholder="https://example.com/file.ext"
@@ -4840,13 +5036,15 @@ function FlowCanvas({
                     <select
                       value={selectedNode.data.config?.operation || "read"}
                       onChange={(e) => {
+                        const operation = e.target.value;
                         setSelectedNode({
                           ...selectedNode,
                           data: {
                             ...selectedNode.data,
-                            config: { ...selectedNode.data.config, operation: e.target.value },
+                            config: { ...selectedNode.data.config, operation },
                           },
                         });
+                        updateNodeConfiguration(selectedNode.id, { config: { ...selectedNode.data.config, operation } });
                       }}
                       className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm"
                     >
@@ -4898,6 +5096,7 @@ function FlowCanvas({
                               config: { ...selectedNode.data.config, selectors },
                             },
                           });
+                          updateNodeConfiguration(selectedNode.id, { config: { ...selectedNode.data.config, selectors } });
                         } catch {}
                       }}
                       className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-xs font-mono"
@@ -4919,13 +5118,15 @@ function FlowCanvas({
                     <select
                       value={selectedNode.data.config?.operation || "read"}
                       onChange={(e) => {
+                        const operation = e.target.value;
                         setSelectedNode({
                           ...selectedNode,
                           data: {
                             ...selectedNode.data,
-                            config: { ...selectedNode.data.config, operation: e.target.value },
+                            config: { ...selectedNode.data.config, operation },
                           },
                         });
+                        updateNodeConfiguration(selectedNode.id, { config: { ...selectedNode.data.config, operation } });
                       }}
                       className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm"
                     >
@@ -4942,13 +5143,15 @@ function FlowCanvas({
                       value={selectedNode.data.config?.email_id || selectedNode.data.config?.to || ""}
                       onChange={(e) => {
                         const key = selectedNode.data.config?.operation === "send" ? "to" : "email_id";
+                        const value = e.target.value;
                         setSelectedNode({
                           ...selectedNode,
                           data: {
                             ...selectedNode.data,
-                            config: { ...selectedNode.data.config, [key]: e.target.value },
+                            config: { ...selectedNode.data.config, [key]: value },
                           },
                         });
+                        updateNodeConfiguration(selectedNode.id, { config: { ...selectedNode.data.config, [key]: value } });
                       }}
                       className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm"
                       placeholder={selectedNode.data.config?.operation === "send" ? "recipient@example.com" : "email_id"}
@@ -4962,14 +5165,16 @@ function FlowCanvas({
                           type="text"
                           value={selectedNode.data.config?.subject || ""}
                           onChange={(e) => {
-                            setSelectedNode({
-                              ...selectedNode,
-                              data: {
-                                ...selectedNode.data,
-                                config: { ...selectedNode.data.config, subject: e.target.value },
-                              },
-                            });
-                          }}
+                        const subject = e.target.value;
+                        setSelectedNode({
+                          ...selectedNode,
+                          data: {
+                            ...selectedNode.data,
+                            config: { ...selectedNode.data.config, subject },
+                          },
+                        });
+                        updateNodeConfiguration(selectedNode.id, { config: { ...selectedNode.data.config, subject } });
+                      }}
                           className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm"
                           placeholder="Email subject"
                         />
@@ -4979,14 +5184,16 @@ function FlowCanvas({
                         <textarea
                           value={selectedNode.data.config?.body || ""}
                           onChange={(e) => {
-                            setSelectedNode({
-                              ...selectedNode,
-                              data: {
-                                ...selectedNode.data,
-                                config: { ...selectedNode.data.config, body: e.target.value },
-                              },
-                            });
-                          }}
+                        const body = e.target.value;
+                        setSelectedNode({
+                          ...selectedNode,
+                          data: {
+                            ...selectedNode.data,
+                            config: { ...selectedNode.data.config, body },
+                          },
+                        });
+                        updateNodeConfiguration(selectedNode.id, { config: { ...selectedNode.data.config, body } });
+                      }}
                           className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm"
                           rows={4}
                           placeholder="Email body"
@@ -5008,13 +5215,15 @@ function FlowCanvas({
                     <select
                       value={selectedNode.data.config?.channel || "email"}
                       onChange={(e) => {
+                        const channel = e.target.value;
                         setSelectedNode({
                           ...selectedNode,
                           data: {
                             ...selectedNode.data,
-                            config: { ...selectedNode.data.config, channel: e.target.value },
+                            config: { ...selectedNode.data.config, channel },
                           },
                         });
+                        updateNodeConfiguration(selectedNode.id, { config: { ...selectedNode.data.config, channel } });
                       }}
                       className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm"
                     >
@@ -5032,13 +5241,15 @@ function FlowCanvas({
                       type="text"
                       value={selectedNode.data.config?.recipient || ""}
                       onChange={(e) => {
+                        const recipient = e.target.value;
                         setSelectedNode({
                           ...selectedNode,
                           data: {
                             ...selectedNode.data,
-                            config: { ...selectedNode.data.config, recipient: e.target.value },
+                            config: { ...selectedNode.data.config, recipient },
                           },
                         });
+                        updateNodeConfiguration(selectedNode.id, { config: { ...selectedNode.data.config, recipient } });
                       }}
                       className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm"
                       placeholder="email@example.com or phone number"
@@ -5049,13 +5260,15 @@ function FlowCanvas({
                     <textarea
                       value={selectedNode.data.config?.message || ""}
                       onChange={(e) => {
+                        const message = e.target.value;
                         setSelectedNode({
                           ...selectedNode,
                           data: {
                             ...selectedNode.data,
-                            config: { ...selectedNode.data.config, message: e.target.value },
+                            config: { ...selectedNode.data.config, message },
                           },
                         });
+                        updateNodeConfiguration(selectedNode.id, { config: { ...selectedNode.data.config, message } });
                       }}
                       className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm"
                       rows={3}
@@ -5076,13 +5289,15 @@ function FlowCanvas({
                     <select
                       value={selectedNode.data.config?.operation || "create"}
                       onChange={(e) => {
+                        const operation = e.target.value;
                         setSelectedNode({
                           ...selectedNode,
                           data: {
                             ...selectedNode.data,
-                            config: { ...selectedNode.data.config, operation: e.target.value },
+                            config: { ...selectedNode.data.config, operation },
                           },
                         });
+                        updateNodeConfiguration(selectedNode.id, { config: { ...selectedNode.data.config, operation } });
                       }}
                       className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm"
                     >
@@ -5107,6 +5322,7 @@ function FlowCanvas({
                               config: { ...selectedNode.data.config, event_data },
                             },
                           });
+                          updateNodeConfiguration(selectedNode.id, { config: { ...selectedNode.data.config, event_data } });
                         } catch {}
                       }}
                       className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-xs font-mono"
@@ -5128,13 +5344,15 @@ function FlowCanvas({
                     <select
                       value={selectedNode.data.config?.stream_type || "response"}
                       onChange={(e) => {
+                        const stream_type = e.target.value;
                         setSelectedNode({
                           ...selectedNode,
                           data: {
                             ...selectedNode.data,
-                            config: { ...selectedNode.data.config, stream_type: e.target.value },
+                            config: { ...selectedNode.data.config, stream_type },
                           },
                         });
+                        updateNodeConfiguration(selectedNode.id, { config: { ...selectedNode.data.config, stream_type } });
                       }}
                       className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm"
                     >
@@ -5149,13 +5367,15 @@ function FlowCanvas({
                       type="text"
                       value={selectedNode.data.config?.endpoint || ""}
                       onChange={(e) => {
+                        const endpoint = e.target.value;
                         setSelectedNode({
                           ...selectedNode,
                           data: {
                             ...selectedNode.data,
-                            config: { ...selectedNode.data.config, endpoint: e.target.value },
+                            config: { ...selectedNode.data.config, endpoint },
                           },
                         });
+                        updateNodeConfiguration(selectedNode.id, { config: { ...selectedNode.data.config, endpoint } });
                       }}
                       className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm"
                       placeholder="ws://example.com/stream"
@@ -5176,13 +5396,15 @@ function FlowCanvas({
                       type="text"
                       value={selectedNode.data.config?.workflow_id || ""}
                       onChange={(e) => {
+                        const workflow_id = e.target.value;
                         setSelectedNode({
                           ...selectedNode,
                           data: {
                             ...selectedNode.data,
-                            config: { ...selectedNode.data.config, workflow_id: e.target.value },
+                            config: { ...selectedNode.data.config, workflow_id },
                           },
                         });
+                        updateNodeConfiguration(selectedNode.id, { config: { ...selectedNode.data.config, workflow_id } });
                       }}
                       className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm"
                       placeholder="Workflow identifier"
@@ -5194,13 +5416,15 @@ function FlowCanvas({
                       type="text"
                       value={selectedNode.data.config?.trigger || ""}
                       onChange={(e) => {
+                        const trigger = e.target.value;
                         setSelectedNode({
                           ...selectedNode,
                           data: {
                             ...selectedNode.data,
-                            config: { ...selectedNode.data.config, trigger: e.target.value },
+                            config: { ...selectedNode.data.config, trigger },
                           },
                         });
+                        updateNodeConfiguration(selectedNode.id, { config: { ...selectedNode.data.config, trigger } });
                       }}
                       className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm"
                       placeholder="Trigger event or condition"
@@ -5221,13 +5445,15 @@ function FlowCanvas({
                       type="number"
                       value={selectedNode.data.timeout || 30}
                       onChange={(e) => {
+                        const timeout = parseInt(e.target.value);
                         setSelectedNode({
                           ...selectedNode,
                           data: {
                             ...selectedNode.data,
-                            timeout: parseInt(e.target.value),
+                            timeout,
                           },
                         });
+                        updateNodeConfiguration(selectedNode.id, { timeout });
                       }}
                       className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm"
                       min="1"
@@ -5239,13 +5465,15 @@ function FlowCanvas({
                       type="number"
                       value={selectedNode.data.retry_count || 0}
                       onChange={(e) => {
+                        const retry_count = parseInt(e.target.value);
                         setSelectedNode({
                           ...selectedNode,
                           data: {
                             ...selectedNode.data,
-                            retry_count: parseInt(e.target.value),
+                            retry_count,
                           },
                         });
+                        updateNodeConfiguration(selectedNode.id, { retry_count });
                       }}
                       className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm"
                       min="0"
@@ -5257,17 +5485,18 @@ function FlowCanvas({
                   <textarea
                     value={JSON.stringify(selectedNode.data.error_handling || {}, null, 2)}
                     onChange={(e) => {
-                      try {
-                        const errorHandling = JSON.parse(e.target.value);
-                        setSelectedNode({
-                          ...selectedNode,
-                          data: {
-                            ...selectedNode.data,
-                            error_handling: errorHandling,
-                          },
-                        });
-                      } catch {}
-                    }}
+                        try {
+                          const error_handling = JSON.parse(e.target.value);
+                          setSelectedNode({
+                            ...selectedNode,
+                            data: {
+                              ...selectedNode.data,
+                              error_handling,
+                            },
+                          });
+                          updateNodeConfiguration(selectedNode.id, { error_handling });
+                        } catch {}
+                      }}
                     className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-xs font-mono"
                     rows={3}
                     placeholder='{"on_error": "continue", "fallback_node": null}'
@@ -5279,15 +5508,16 @@ function FlowCanvas({
                     type="text"
                     value={Array.isArray(selectedNode.data.tags) ? selectedNode.data.tags.join(", ") : ""}
                     onChange={(e) => {
-                      const tags = e.target.value.split(",").map((t) => t.trim()).filter(Boolean);
-                      setSelectedNode({
-                        ...selectedNode,
-                        data: {
-                          ...selectedNode.data,
-                          tags: tags,
-                        },
-                      });
-                    }}
+                        const tags = e.target.value.split(",").map((t) => t.trim()).filter(Boolean);
+                        setSelectedNode({
+                          ...selectedNode,
+                          data: {
+                            ...selectedNode.data,
+                            tags: tags,
+                          },
+                        });
+                        updateNodeConfiguration(selectedNode.id, { tags });
+                      }}
                     className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm"
                     placeholder="tag1, tag2, tag3"
                   />
@@ -5565,6 +5795,7 @@ export default function AgentBuilderPage() {
     analytics: false,
     settings: false,
   });
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
 
   useEffect(() => {
     if (!isAuthenticated) {
@@ -5775,10 +6006,11 @@ export default function AgentBuilderPage() {
         <div className="flex-1 min-h-0 overflow-hidden flex">
           {/* Left Sidebar - Vertical Accordion */}
           <div 
-            className="w-80 border-r border-white/10 bg-[#0a0f1a]/80 backdrop-blur-xl flex flex-col flex-shrink-0 no-drag overflow-y-auto"
+            className={`${isSidebarCollapsed ? 'w-16' : 'w-80'} transition-all duration-300 ease-[cubic-bezier(0.23,1,0.32,1)] border-r border-white/5 bg-[#03060b]/95 backdrop-blur-2xl flex flex-col flex-shrink-0 no-drag overflow-y-auto shadow-[10px_0_40px_rgba(0,0,0,0.6)] relative group/sidebar`}
             style={{
               userSelect: 'none',
               WebkitUserSelect: 'none',
+              backgroundImage: 'radial-gradient(circle at 0% 0%, rgba(255,255,255,0.03) 0%, transparent 50%), linear-gradient(180deg, rgba(255,255,255,0.02) 0%, transparent 100%)',
             }}
             onDragStart={(e) => {
               // Allow drag events from draggable node buttons
@@ -5804,28 +6036,56 @@ export default function AgentBuilderPage() {
               return false;
             }}
           >
+            {/* Sidebar Toggle Header */}
+            <div className={`flex items-center ${isSidebarCollapsed ? 'justify-center' : 'justify-end'} p-3 border-b border-white/5`}>
+               <button 
+                 onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
+                 className="text-white/40 hover:text-blue-400 transition-colors p-1 rounded-md hover:bg-white/5"
+                 title={isSidebarCollapsed ? "Expand Sidebar" : "Collapse Sidebar"}
+               >
+                 {isSidebarCollapsed ? (
+                   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                     <polyline points="13 17 18 12 13 7"></polyline>
+                     <polyline points="6 17 11 12 6 7"></polyline>
+                   </svg>
+                 ) : (
+                   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                     <polyline points="11 17 6 12 11 7"></polyline>
+                     <polyline points="18 17 13 12 18 7"></polyline>
+                   </svg>
+                 )}
+               </button>
+            </div>
+
             {/* Dialogs (Nodes) Section */}
-            <div className="border-b border-white/10">
+            <div className="border-b border-white/5">
               <button
                 onClick={() => {
+                  if (isSidebarCollapsed) setIsSidebarCollapsed(false);
                   setActiveTab("dialogs");
                   setExpandedSections(prev => ({ ...prev, dialogs: !prev.dialogs }));
                 }}
-                className={`w-full px-4 py-3 flex items-center justify-between transition-all ${
+                className={`w-full ${isSidebarCollapsed ? 'px-0 justify-center' : 'px-4 justify-between'} py-4 flex items-center transition-all group relative overflow-hidden ${
                   activeTab === "dialogs"
-                    ? "bg-blue-500/20 text-blue-300"
-                    : "text-white/70 hover:text-white hover:bg-white/5"
+                    ? "bg-blue-500/10 text-blue-300 border-l-2 border-blue-500"
+                    : "text-white/60 hover:text-white hover:bg-white/5 border-l-2 border-transparent"
                 }`}
+                title="Dialogs (Nodes)"
               >
-                <div className="flex items-center gap-2">
-                  <span>💬</span>
-                  <span className="font-medium">Dialogs (Nodes)</span>
-        </div>
-                <span className={`transform transition-transform ${expandedSections.dialogs ? 'rotate-180' : ''}`}>
-                  ▼
-                </span>
+                {/* Futuristic Hover Glow */}
+                <div className="absolute inset-0 bg-gradient-to-r from-blue-500/0 via-blue-500/5 to-blue-500/0 translate-x-[-100%] group-hover:translate-x-[100%] transition-transform duration-1000" />
+                
+                <div className={`flex items-center gap-3`}>
+                  <span className="text-xl filter drop-shadow-[0_0_8px_rgba(59,130,246,0.5)]">💬</span>
+                  {!isSidebarCollapsed && <span className="font-medium tracking-wide text-sm">Dialogs</span>}
+                </div>
+                {!isSidebarCollapsed && (
+                  <span className={`transform transition-transform duration-300 text-xs opacity-50 ${expandedSections.dialogs ? 'rotate-180' : ''}`}>
+                    ▼
+                  </span>
+                )}
               </button>
-              {expandedSections.dialogs && (
+              {expandedSections.dialogs && !isSidebarCollapsed && (
                 <div 
                   className="bg-[#0f1419]/60 p-2 max-h-[calc(100vh-300px)] overflow-y-auto"
                   style={{ pointerEvents: 'auto' }}
@@ -5848,7 +6108,7 @@ export default function AgentBuilderPage() {
                           </h4>
                           <div className="space-y-1">
                             {categoryNodes.map((nodeType) => (
-                <button
+                              <button
                                 key={nodeType.type}
                                 draggable={true}
                                 onDragStart={(e) => {
@@ -5877,10 +6137,11 @@ export default function AgentBuilderPage() {
                                   e.stopPropagation();
                                 }}
                                 title={nodeType.description || ""}
-                                className="w-full px-3 py-2 rounded-lg text-left transition-all duration-200 hover:scale-[1.02] active:scale-95 group relative cursor-grab active:cursor-grabbing node-draggable-button"
+                                className="w-full px-3 py-2.5 rounded-lg text-left transition-all duration-300 hover:scale-[1.02] active:scale-95 group relative cursor-grab active:cursor-grabbing node-draggable-button overflow-hidden backdrop-blur-md"
                                 style={{
-                                  background: `linear-gradient(135deg, ${nodeType.color}20 0%, ${nodeType.color}10 100%)`,
-                                  border: `1px solid ${nodeType.color}40`,
+                                  background: `linear-gradient(135deg, ${nodeType.color}15 0%, rgba(0,0,0,0.4) 100%)`,
+                                  border: `1px solid ${nodeType.color}30`,
+                                  boxShadow: `0 0 0 1px transparent`,
                                   color: "#fff",
                                   userSelect: 'none',
                                   WebkitUserSelect: 'none',
@@ -5890,17 +6151,52 @@ export default function AgentBuilderPage() {
                                   pointerEvents: 'auto',
                                   cursor: 'grab',
                                 }}
+                                onMouseEnter={(e) => {
+                                  e.currentTarget.style.borderColor = `${nodeType.color}80`;
+                                  e.currentTarget.style.boxShadow = `0 0 15px ${nodeType.color}20, inset 0 0 10px ${nodeType.color}10`;
+                                  e.currentTarget.style.background = `linear-gradient(135deg, ${nodeType.color}25 0%, rgba(0,0,0,0.6) 100%)`;
+                                }}
+                                onMouseLeave={(e) => {
+                                  e.currentTarget.style.borderColor = `${nodeType.color}30`;
+                                  e.currentTarget.style.boxShadow = `0 0 0 1px transparent`;
+                                  e.currentTarget.style.background = `linear-gradient(135deg, ${nodeType.color}15 0%, rgba(0,0,0,0.4) 100%)`;
+                                }}
                               >
-                                <div className="flex items-center gap-2">
-                                  <span className="text-sm">{nodeType.icon}</span>
-                                  <span className="text-xs font-medium flex-1">{nodeType.label}</span>
+                                {/* Tech overlay pattern */}
+                                <div className="absolute inset-0 opacity-10 pointer-events-none" 
+                                  style={{ backgroundImage: `radial-gradient(circle at 2px 2px, ${nodeType.color} 1px, transparent 0)`, backgroundSize: '8px 8px' }} 
+                                />
+                                
+                                <div className="flex items-center gap-3 relative z-10">
+                                  <div 
+                                    className="w-8 h-8 rounded flex items-center justify-center text-lg shadow-lg border border-white/10"
+                                    style={{ 
+                                      background: `linear-gradient(135deg, ${nodeType.color}40, ${nodeType.color}10)`,
+                                      textShadow: `0 0 10px ${nodeType.color}`
+                                    }}
+                                  >
+                                    {nodeType.icon}
+                                  </div>
+                                  <span className="text-xs font-semibold tracking-wide flex-1 text-white/90 group-hover:text-white transition-colors uppercase">
+                                    {nodeType.label}
+                                  </span>
                                   {nodeType.description && (
-                                    <span className="text-xs text-white/40 group-hover:text-white/60 transition-colors" title={nodeType.description}>
-                                      ℹ️
+                                    <span className="text-[10px] text-white/30 group-hover:text-white/60 transition-colors opacity-0 group-hover:opacity-100 transform translate-x-2 group-hover:translate-x-0 duration-300">
+                                      INFO
                                     </span>
                                   )}
                                 </div>
-                </button>
+                                
+                                {/* Active corner accent */}
+                                <div 
+                                  className="absolute top-0 right-0 w-2 h-2 border-t border-r transition-all duration-300 opacity-0 group-hover:opacity-100"
+                                  style={{ borderColor: nodeType.color }}
+                                />
+                                <div 
+                                  className="absolute bottom-0 left-0 w-2 h-2 border-b border-l transition-all duration-300 opacity-0 group-hover:opacity-100"
+                                  style={{ borderColor: nodeType.color }}
+                                />
+                              </button>
                             ))}
                           </div>
                         </div>
@@ -5912,27 +6208,33 @@ export default function AgentBuilderPage() {
             </div>
 
             {/* GenAI Tools Section */}
-            <div className="border-b border-white/10">
+            <div className="border-b border-white/5">
                 <button
                 onClick={() => {
+                  if (isSidebarCollapsed) setIsSidebarCollapsed(false);
                   setActiveTab("genai");
                   setExpandedSections(prev => ({ ...prev, genai: !prev.genai }));
                 }}
-                className={`w-full px-4 py-3 flex items-center justify-between transition-all ${
+                className={`w-full ${isSidebarCollapsed ? 'px-0 justify-center' : 'px-4 justify-between'} py-4 flex items-center transition-all group relative overflow-hidden ${
                   activeTab === "genai"
-                    ? "bg-purple-500/20 text-purple-300"
-                    : "text-white/70 hover:text-white hover:bg-white/5"
+                    ? "bg-purple-500/10 text-purple-300 border-l-2 border-purple-500"
+                    : "text-white/60 hover:text-white hover:bg-white/5 border-l-2 border-transparent"
                 }`}
+                title="GenAI Tools"
               >
-                <div className="flex items-center gap-2">
-                  <span>✨</span>
-                  <span className="font-medium">GenAI Tools</span>
+                <div className="absolute inset-0 bg-gradient-to-r from-purple-500/0 via-purple-500/5 to-purple-500/0 translate-x-[-100%] group-hover:translate-x-[100%] transition-transform duration-1000" />
+
+                <div className="flex items-center gap-3">
+                  <span className="text-xl filter drop-shadow-[0_0_8px_rgba(168,85,247,0.5)]">✨</span>
+                  {!isSidebarCollapsed && <span className="font-medium tracking-wide text-sm">GenAI Tools</span>}
                 </div>
-                <span className={`transform transition-transform ${expandedSections.genai ? 'rotate-180' : ''}`}>
-                  ▼
-                </span>
+                {!isSidebarCollapsed && (
+                  <span className={`transform transition-transform duration-300 text-xs opacity-50 ${expandedSections.genai ? 'rotate-180' : ''}`}>
+                    ▼
+                  </span>
+                )}
                 </button>
-              {expandedSections.genai && (
+              {expandedSections.genai && !isSidebarCollapsed && (
                 <div className="bg-[#0f1419]/60 p-2">
                   <Link href={`/agents/${agentId}/genai/models`} className="block px-3 py-2 text-sm rounded hover:bg-white/5 transition-colors text-white/80">
                     🤖 Models Library
@@ -5954,27 +6256,33 @@ export default function AgentBuilderPage() {
             </div>
 
             {/* Analytics Section */}
-            <div className="border-b border-white/10">
+            <div className="border-b border-white/5">
               <button
                 onClick={() => {
+                  if (isSidebarCollapsed) setIsSidebarCollapsed(false);
                   setActiveTab("analytics");
                   setExpandedSections(prev => ({ ...prev, analytics: !prev.analytics }));
                 }}
-                className={`w-full px-4 py-3 flex items-center justify-between transition-all ${
+                className={`w-full ${isSidebarCollapsed ? 'px-0 justify-center' : 'px-4 justify-between'} py-4 flex items-center transition-all group relative overflow-hidden ${
                   activeTab === "analytics"
-                    ? "bg-green-500/20 text-green-300"
-                    : "text-white/70 hover:text-white hover:bg-white/5"
+                    ? "bg-green-500/10 text-green-300 border-l-2 border-green-500"
+                    : "text-white/60 hover:text-white hover:bg-white/5 border-l-2 border-transparent"
                 }`}
+                title="Analytics"
               >
-                <div className="flex items-center gap-2">
-                  <span>📊</span>
-                  <span className="font-medium">Analytics</span>
+                <div className="absolute inset-0 bg-gradient-to-r from-green-500/0 via-green-500/5 to-green-500/0 translate-x-[-100%] group-hover:translate-x-[100%] transition-transform duration-1000" />
+
+                <div className="flex items-center gap-3">
+                  <span className="text-xl filter drop-shadow-[0_0_8px_rgba(34,197,94,0.5)]">📊</span>
+                  {!isSidebarCollapsed && <span className="font-medium tracking-wide text-sm">Analytics</span>}
                 </div>
-                <span className={`transform transition-transform ${expandedSections.analytics ? 'rotate-180' : ''}`}>
-                  ▼
-                </span>
+                {!isSidebarCollapsed && (
+                  <span className={`transform transition-transform duration-300 text-xs opacity-50 ${expandedSections.analytics ? 'rotate-180' : ''}`}>
+                    ▼
+                  </span>
+                )}
               </button>
-              {expandedSections.analytics && (
+              {expandedSections.analytics && !isSidebarCollapsed && (
                 <div className="bg-[#0f1419]/60 p-2">
                   <Link 
                     href={`/agents/${agentId}/analytics/summary`} 
@@ -6064,27 +6372,33 @@ export default function AgentBuilderPage() {
             </div>
 
             {/* App Settings Section */}
-            <div className="border-b border-white/10">
+            <div className="border-b border-white/5">
               <button
                 onClick={() => {
+                  if (isSidebarCollapsed) setIsSidebarCollapsed(false);
                   setActiveTab("settings");
                   setExpandedSections(prev => ({ ...prev, settings: !prev.settings }));
                 }}
-                className={`w-full px-4 py-3 flex items-center justify-between transition-all ${
+                className={`w-full ${isSidebarCollapsed ? 'px-0 justify-center' : 'px-4 justify-between'} py-4 flex items-center transition-all group relative overflow-hidden ${
                   activeTab === "settings"
-                    ? "bg-yellow-500/20 text-yellow-300"
-                    : "text-white/70 hover:text-white hover:bg-white/5"
+                    ? "bg-yellow-500/10 text-yellow-300 border-l-2 border-yellow-500"
+                    : "text-white/60 hover:text-white hover:bg-white/5 border-l-2 border-transparent"
                 }`}
+                title="App Settings"
               >
-                <div className="flex items-center gap-2">
-                  <span>⚙️</span>
-                  <span className="font-medium">App Settings</span>
-                    </div>
-                <span className={`transform transition-transform ${expandedSections.settings ? 'rotate-180' : ''}`}>
-                  ▼
-                </span>
+                <div className="absolute inset-0 bg-gradient-to-r from-yellow-500/0 via-yellow-500/5 to-yellow-500/0 translate-x-[-100%] group-hover:translate-x-[100%] transition-transform duration-1000" />
+
+                <div className="flex items-center gap-3">
+                  <span className="text-xl filter drop-shadow-[0_0_8px_rgba(234,179,8,0.5)]">⚙️</span>
+                  {!isSidebarCollapsed && <span className="font-medium tracking-wide text-sm">App Settings</span>}
+                </div>
+                {!isSidebarCollapsed && (
+                  <span className={`transform transition-transform duration-300 text-xs opacity-50 ${expandedSections.settings ? 'rotate-180' : ''}`}>
+                    ▼
+                  </span>
+                )}
               </button>
-              {expandedSections.settings && (
+              {expandedSections.settings && !isSidebarCollapsed && (
                 <div className="bg-[#0f1419]/60 p-2 max-h-[400px] overflow-y-auto">
                   <Link href={`/agents/${agentId}/settings/profile`} className="block px-3 py-2 text-sm rounded hover:bg-white/5 transition-colors text-white/80">
                     👤 App Profile

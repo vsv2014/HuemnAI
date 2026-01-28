@@ -3,10 +3,11 @@
 import { useEffect, useState, useRef } from "react";
 import { useRouter, useParams } from "next/navigation";
 import { useAuthStore } from "@/store/authStore";
-import { getAgent, processAgentMessage, getConversation } from "@/services/api";
+import { getAgent, processAgentMessage } from "@/services/api";
 import Link from "next/link";
 import LoadingSpinner from "@/components/LoadingSpinner";
 import ErrorBoundary from "@/components/ErrorBoundary";
+import DebugPanel, { DebugTraceEntry } from "@/components/DebugPanel";
 
 interface Message {
   role: "user" | "assistant" | "system";
@@ -25,6 +26,8 @@ export default function AgentTestPage() {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [sessionId, setSessionId] = useState<string | null>(null);
+  const [debugTrace, setDebugTrace] = useState<DebugTraceEntry[]>([]);
+  const [isDebugOpen, setIsDebugOpen] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -351,6 +354,12 @@ export default function AgentTestPage() {
           </div>
         </div>
       )}
+      
+      <DebugPanel
+        isOpen={isDebugOpen}
+        onClose={() => setIsDebugOpen(false)}
+        debugTrace={debugTrace}
+      />
       </div>
     </ErrorBoundary>
   );
