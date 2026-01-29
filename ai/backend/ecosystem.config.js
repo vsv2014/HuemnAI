@@ -9,8 +9,8 @@ module.exports = {
     cwd: process.cwd(),
     env: {
       ENV: 'production',
-      PORT: 8001,
-      BACKEND_PORT: 8001,
+      PORT: 8000,
+      BACKEND_PORT: 8000,
       BACKEND_HOST: '0.0.0.0',
     },
     instances: 1,

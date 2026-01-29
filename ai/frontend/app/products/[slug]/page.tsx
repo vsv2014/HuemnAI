@@ -15,7 +15,7 @@ export default function ProductPage({ params }: { params: { slug: string } }) {
   const router = useRouter();
   const { isAuthenticated, subscriptionStatus, trialDaysRemaining } = useAuthStore();
   const [product, setProduct] = useState<any>(null);
-  const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "http://127.0.0.1:8001";
+  const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "http://127.0.0.1:8000";
 
   useEffect(() => {
     // Require authentication

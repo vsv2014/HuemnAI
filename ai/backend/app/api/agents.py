@@ -84,6 +84,12 @@ class ConnectionCreate(BaseModel):
     label: Optional[str] = None
 
 
+class ConnectionUpdate(BaseModel):
+    condition: Optional[Dict[str, Any]] = None
+    priority: Optional[int] = None
+    label: Optional[str] = None
+
+
 class ConversationRequest(BaseModel):
     agent_id: int
     message: str
@@ -374,6 +380,29 @@ async def create_connection(conn_data: ConnectionCreate, db: Session = Depends(g
         label=conn_data.label
     )
     db.add(connection)
+    db.commit()
+    db.refresh(connection)
+    
+    return {
+        "id": connection.id,
+        "source_node_id": connection.source_node_id,
+        "target_node_id": connection.target_node_id,
+        "condition": connection.condition,
+        "label": connection.label
+    }
+
+
+@router.put("/connections/{connection_id}", response_model=Dict[str, Any])
+async def update_connection(connection_id: int, conn_data: ConnectionUpdate, db: Session = Depends(get_db)):
+    """Update a connection"""
+    connection = db.query(AgentConnection).filter(AgentConnection.id == connection_id).first()
+    if not connection:
+        raise HTTPException(status_code=404, detail="Connection not found")
+    
+    update_data = conn_data.dict(exclude_unset=True)
+    for key, value in update_data.items():
+        setattr(connection, key, value)
+    
     db.commit()
     db.refresh(connection)
     

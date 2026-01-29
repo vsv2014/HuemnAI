@@ -77,7 +77,7 @@ export default function StatusWidget() {
     if (!token || (!user?.id && !user?.email)) return;
     try {
       const userId = user.id?.toString() || user.email || "user1";
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_BASE || "http://127.0.0.1:8001"}/api/status/${userId}`, {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_BASE || "http://127.0.0.1:8000"}/api/status/${userId}`, {
         headers: {
           "Authorization": `Bearer ${token}`,
         },

@@ -46,7 +46,7 @@ export default function AgentIntegratePage() {
   };
 
   const getEmbedCode = () => {
-    const apiBase = process.env.NEXT_PUBLIC_API_BASE || "http://127.0.0.1:8001";
+    const apiBase = process.env.NEXT_PUBLIC_API_BASE || "http://127.0.0.1:8000";
     const agentName = agent?.name || "AI Assistant";
     const welcomeMessage = agent?.welcome_message || "Hello! How can I help you today?";
     

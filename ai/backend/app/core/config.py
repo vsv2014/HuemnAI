@@ -82,7 +82,7 @@ class Settings:
     TWILIO_ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID")
     TWILIO_AUTH_TOKEN = os.getenv("TWILIO_AUTH_TOKEN")
     TWILIO_PHONE_NUMBER = os.getenv("TWILIO_PHONE_NUMBER")
-    API_BASE_URL = os.getenv("API_BASE_URL", "http://localhost:8001")  # Base URL for webhooks
+    API_BASE_URL = os.getenv("API_BASE_URL", "http://localhost:8000")  # Base URL for webhooks
 
     # Sentry / Logging
     SENTRY_DSN = os.getenv("SENTRY_DSN", "")

@@ -198,6 +198,59 @@ export default function EnhancedAgentBuilder() {
     }
   };
 
+  const updateNodeConfiguration = async (nodeId: string, updates: any) => {
+    // Optimistic update
+    setNodes(nds => nds.map(n => {
+        if (n.id === nodeId) {
+            const newConfig = { ...n.data.config, ...updates };
+            return { ...n, data: { ...n.data, config: newConfig } };
+        }
+        return n;
+    }));
+
+    // Update selected node state if it matches
+    if (selectedNode && selectedNode.id === nodeId) {
+        setSelectedNode(prev => {
+            if (!prev) return null;
+            const newConfig = { ...prev.data.config, ...updates };
+            return { ...prev, data: { ...prev.data, config: newConfig } };
+        });
+    }
+
+    // Backend update
+    const node = nodes.find(n => n.id === nodeId);
+    if (node?.data?.backendId && token) {
+        try {
+            // We need to construct the full config since backend replaces it
+            const currentConfig = node.data.config || {};
+            const newConfig = { ...currentConfig, ...updates };
+            await updateNode(node.data.backendId, { config: newConfig }, token);
+        } catch (err) {
+            console.error("Failed to update node config:", err);
+        }
+    }
+  };
+
+  const updateEdgeCondition = async (edgeId: string, condition: any) => {
+    // Optimistic update
+    setEdges(eds => eds.map(e => {
+        if (e.id === edgeId) {
+            return { ...e, data: { ...e.data, condition } };
+        }
+        return e;
+    }));
+
+    // Backend update
+    const edge = edges.find(e => e.id === edgeId);
+    if (edge?.data?.backendId && token) {
+        try {
+            await updateConnection(edge.data.backendId, { condition }, token);
+        } catch (err) {
+            console.error("Failed to update connection:", err);
+        }
+    }
+  };
+
   const handleAddNode = async (nodeType: string) => {
     if (!token) return;
     
@@ -422,20 +475,472 @@ export default function EnhancedAgentBuilder() {
                 />
               </div>
 
+              {selectedNode.data.nodeType === "start" && (
+                <div className="space-y-4">
+                  <div className="p-3 bg-blue-500/10 border border-blue-500/20 rounded-lg">
+                    <p className="text-xs text-blue-300">
+                      💡 <strong>Entry Point:</strong> This node marks the beginning of the flow.
+                    </p>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm text-white/70 mb-1">Trigger Type</label>
+                    <select
+                      value={selectedNode.data.config?.trigger_type || "message"}
+                      onChange={(e) => updateNodeConfiguration(selectedNode.id, { trigger_type: e.target.value })}
+                      className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white"
+                    >
+                      <option value="message">Incoming Message</option>
+                      <option value="webhook">Webhook</option>
+                      <option value="schedule">Schedule</option>
+                      <option value="manual">Manual Trigger</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm text-white/70 mb-1">Input Variables (JSON Schema)</label>
+                    <textarea
+                      value={JSON.stringify(selectedNode.data.config?.input_schema || {}, null, 2)}
+                      onChange={(e) => {
+                        try {
+                          const schema = JSON.parse(e.target.value);
+                          updateNodeConfiguration(selectedNode.id, { input_schema: schema });
+                        } catch {}
+                      }}
+                      className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white font-mono text-xs"
+                      rows={6}
+                      placeholder={
+`{
+  "userId": "string",
+  "message": "string"
+}`
+                      }
+                    />
+                  </div>
+                </div>
+              )}
+
+              {selectedNode.data.nodeType === "branch" && (
+                <div className="space-y-4">
+                  <div className="p-3 bg-blue-500/10 border border-blue-500/20 rounded-lg">
+                    <p className="text-xs text-blue-300">
+                      💡 <strong>Logic:</strong> Evaluates conditions in priority order. First match wins. Use <strong>Advanced</strong> for complex logic (AND/OR).
+                    </p>
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="block text-sm text-white/70">Paths & Conditions</label>
+                    {edges.filter(e => e.source === selectedNode.id).length === 0 ? (
+                      <p className="text-xs text-white/50 italic">No outgoing connections.</p>
+                    ) : (
+                      edges.filter(e => e.source === selectedNode.id).map((edge, index) => {
+                        const targetNode = nodes.find(n => n.id === edge.target);
+                        const condition = edge.data?.condition || {};
+                        const isGroup = condition.type === "group";
+                        
+                        return (
+                          <div key={edge.id} className="p-2 bg-white/5 border border-white/10 rounded-lg space-y-2">
+                            <div className="flex items-center justify-between">
+                              <span className="text-xs font-medium text-white">To: {targetNode?.data?.label || "Unknown Node"}</span>
+                              <span className="text-[10px] bg-white/10 px-1.5 py-0.5 rounded text-white/50">Priority {index + 1}</span>
+                            </div>
+                            
+                            {/* Advanced Group Logic */}
+                            {isGroup ? (
+                              <div className="space-y-2">
+                                <div className="flex items-center gap-2">
+                                  <span className="text-xs text-white/70">Match</span>
+                                  <select
+                                    value={condition.logic || "and"}
+                                    onChange={(e) => updateEdgeCondition(edge.id, { ...condition, logic: e.target.value })}
+                                    className="px-2 py-0.5 bg-black/20 border border-white/10 rounded text-[10px] text-white"
+                                  >
+                                    <option value="and">ALL (AND)</option>
+                                    <option value="or">ANY (OR)</option>
+                                  </select>
+                                  <span className="text-xs text-white/70">of:</span>
+                                </div>
+
+                                <div className="space-y-2 pl-2 border-l border-white/10">
+                                  {(condition.conditions || []).map((subCond: any, subIdx: number) => (
+                                    <div key={subIdx} className="grid grid-cols-[1fr_auto_1fr_auto] gap-1 items-center">
+                                      <input 
+                                        placeholder="Field"
+                                        value={subCond.field || ""}
+                                        onChange={(e) => {
+                                          const newConditions = [...(condition.conditions || [])];
+                                          newConditions[subIdx] = { ...subCond, field: e.target.value };
+                                          updateEdgeCondition(edge.id, { ...condition, conditions: newConditions });
+                                        }}
+                                        className="w-full px-2 py-1 bg-black/20 border border-white/10 rounded text-xs text-white"
+                                      />
+                                      <select
+                                        value={subCond.operator || "equals"}
+                                        onChange={(e) => {
+                                          const newConditions = [...(condition.conditions || [])];
+                                          newConditions[subIdx] = { ...subCond, operator: e.target.value };
+                                          updateEdgeCondition(edge.id, { ...condition, conditions: newConditions });
+                                        }}
+                                        className="px-1 py-1 bg-black/20 border border-white/10 rounded text-xs text-white max-w-[80px]"
+                                      >
+                                        <option value="equals">=</option>
+                                        <option value="not_equals">!=</option>
+                                        <option value="contains">In</option>
+                                        <option value="not_contains">!In</option>
+                                        <option value="greater_than">&gt;</option>
+                                        <option value="less_than">&lt;</option>
+                                        <option value="exists">Ex</option>
+                                        <option value="not_exists">!Ex</option>
+                                      </select>
+                                      <input 
+                                    placeholder="Value or {{var}}"
+                                    value={subCond.value || ""}
+                                    onChange={(e) => {
+                                      const newConditions = [...(condition.conditions || [])];
+                                          newConditions[subIdx] = { ...subCond, value: e.target.value };
+                                          updateEdgeCondition(edge.id, { ...condition, conditions: newConditions });
+                                        }}
+                                        className="w-full px-2 py-1 bg-black/20 border border-white/10 rounded text-xs text-white"
+                                      />
+                                      <button 
+                                        onClick={() => {
+                                          const newConditions = condition.conditions.filter((_: any, i: number) => i !== subIdx);
+                                          updateEdgeCondition(edge.id, { ...condition, conditions: newConditions });
+                                        }}
+                                        className="text-white/30 hover:text-red-400"
+                                      >
+                                        ×
+                                      </button>
+                                    </div>
+                                  ))}
+                                  <button
+                                    onClick={() => {
+                                      const newConditions = [...(condition.conditions || []), { field: "", operator: "equals", value: "" }];
+                                      updateEdgeCondition(edge.id, { ...condition, conditions: newConditions });
+                                    }}
+                                    className="text-[10px] text-blue-300 hover:text-blue-200 flex items-center gap-1"
+                                  >
+                                    + Add Condition
+                                  </button>
+                                </div>
+                              </div>
+                            ) : (
+                              /* Simple Logic */
+                              <div className="space-y-2">
+                                <div className="grid grid-cols-1 gap-2">
+                                  <input 
+                                    placeholder="Field (e.g. intent)"
+                                    value={condition.field || ""}
+                                    onChange={(e) => updateEdgeCondition(edge.id, { ...condition, field: e.target.value })}
+                                    className="w-full px-2 py-1 bg-black/20 border border-white/10 rounded text-xs text-white"
+                                  />
+                                  <select
+                                    value={condition.operator || "equals"}
+                                    onChange={(e) => updateEdgeCondition(edge.id, { ...condition, operator: e.target.value })}
+                                    className="w-full px-2 py-1 bg-black/20 border border-white/10 rounded text-xs text-white"
+                                  >
+                                    <option value="equals">Equals</option>
+                                    <option value="not_equals">Not Equals</option>
+                                    <option value="contains">Contains</option>
+                                    <option value="not_contains">Not Contains</option>
+                                    <option value="greater_than">Greater Than</option>
+                                    <option value="less_than">Less Than</option>
+                                    <option value="exists">Exists</option>
+                                    <option value="not_exists">Not Exists</option>
+                                  </select>
+                                  <input 
+                                placeholder="Value or {{var}}"
+                                value={condition.value || ""}
+                                onChange={(e) => updateEdgeCondition(edge.id, { ...condition, value: e.target.value })}
+                                className="w-full px-2 py-1 bg-black/20 border border-white/10 rounded text-xs text-white"
+                              />
+                                </div>
+                                <div className="flex justify-end">
+                                   <button
+                                    onClick={() => {
+                                      // Convert to group
+                                      updateEdgeCondition(edge.id, { 
+                                        type: "group", 
+                                        logic: "and", 
+                                        conditions: [
+                                          { field: condition.field, operator: condition.operator, value: condition.value }
+                                        ] 
+                                      });
+                                    }}
+                                    className="text-[10px] text-amber-300/70 hover:text-amber-300"
+                                  >
+                                    Switch to Advanced Mode
+                                  </button>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {selectedNode.data.nodeType === "merge" && (
+                <div className="space-y-4">
+                  <div className="p-3 bg-blue-500/10 border border-blue-500/20 rounded-lg">
+                    <p className="text-xs text-blue-300">
+                      💡 <strong>Logic:</strong> Unifies flow from multiple branches. Configure how data should be merged or cleaned up.
+                    </p>
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="block text-sm text-white/70">Merge Mode</label>
+                    <select
+                      value={selectedNode.data.config?.strategy || "pass_through"}
+                      onChange={(e) => updateNodeConfiguration(selectedNode.id, { strategy: e.target.value })}
+                      className="w-full px-2 py-1 bg-black/20 border border-white/10 rounded text-xs text-white"
+                    >
+                      <option value="pass_through">Pass Through (No Changes)</option>
+                      <option value="unify">Unify Variables (Data Mapping)</option>
+                    </select>
+                  </div>
+
+                  {selectedNode.data.config?.strategy === "unify" && (
+                    <div className="space-y-3">
+                       <div className="flex items-center justify-between">
+                          <label className="block text-sm text-white/70">Variable Mapping</label>
+                          <button
+                            onClick={() => {
+                              const mappings = selectedNode.data.config?.mappings || [];
+                              updateNodeConfiguration(selectedNode.id, { mappings: [...mappings, { target: "", sources: [""] }] });
+                            }}
+                            className="text-[10px] text-blue-300 hover:text-blue-200"
+                          >
+                            + Add Map
+                          </button>
+                       </div>
+                       
+                       {(selectedNode.data.config?.mappings || []).map((map: any, idx: number) => (
+                         <div key={idx} className="p-2 bg-white/5 border border-white/10 rounded-lg space-y-2">
+                            <div className="flex items-center gap-2">
+                              <span className="text-[10px] text-white/50">Set</span>
+                              <input
+                                placeholder="Target Var (e.g. final_output)"
+                                value={map.target}
+                                onChange={(e) => {
+                                  const newMappings = [...(selectedNode.data.config?.mappings || [])];
+                                  newMappings[idx] = { ...map, target: e.target.value };
+                                  updateNodeConfiguration(selectedNode.id, { mappings: newMappings });
+                                }}
+                                className="flex-1 px-2 py-1 bg-black/20 border border-white/10 rounded text-xs text-white"
+                              />
+                              <button
+                                onClick={() => {
+                                   const newMappings = selectedNode.data.config?.mappings.filter((_: any, i: number) => i !== idx);
+                                   updateNodeConfiguration(selectedNode.id, { mappings: newMappings });
+                                }}
+                                className="text-white/30 hover:text-red-400"
+                              >
+                                ×
+                              </button>
+                            </div>
+                            <div className="pl-4 border-l border-white/10 space-y-1">
+                              <span className="text-[10px] text-white/50 block">From First Available:</span>
+                              {(map.sources || []).map((source: string, sIdx: number) => (
+                                 <div key={sIdx} className="flex items-center gap-1">
+                                    <input
+                                      placeholder="Source Var (e.g. branch_a_out)"
+                                      value={source}
+                                      onChange={(e) => {
+                                        const newMappings = [...(selectedNode.data.config?.mappings || [])];
+                                        const newSources = [...(map.sources || [])];
+                                        newSources[sIdx] = e.target.value;
+                                        newMappings[idx] = { ...map, sources: newSources };
+                                        updateNodeConfiguration(selectedNode.id, { mappings: newMappings });
+                                      }}
+                                      className="w-full px-2 py-0.5 bg-black/20 border border-white/10 rounded text-xs text-white"
+                                    />
+                                    {sIdx === (map.sources || []).length - 1 ? (
+                                      <button
+                                        onClick={() => {
+                                          const newMappings = [...(selectedNode.data.config?.mappings || [])];
+                                          const newSources = [...(map.sources || []), ""];
+                                          newMappings[idx] = { ...map, sources: newSources };
+                                          updateNodeConfiguration(selectedNode.id, { mappings: newMappings });
+                                        }}
+                                        className="text-blue-300 hover:text-blue-200 px-1"
+                                      >
+                                        +
+                                      </button>
+                                    ) : (
+                                      <button
+                                        onClick={() => {
+                                          const newMappings = [...(selectedNode.data.config?.mappings || [])];
+                                          const newSources = map.sources.filter((_: any, i: number) => i !== sIdx);
+                                          newMappings[idx] = { ...map, sources: newSources };
+                                          updateNodeConfiguration(selectedNode.id, { mappings: newMappings });
+                                        }}
+                                        className="text-white/30 hover:text-red-400 px-1"
+                                      >
+                                        -
+                                      </button>
+                                    )}
+                                 </div>
+                              ))}
+                            </div>
+                         </div>
+                       ))}
+                    </div>
+                  )}
+                  
+                  <div className="space-y-2 pt-2 border-t border-white/10">
+                     <label className="block text-sm text-white/70">Context Cleanup</label>
+                     <div className="p-2 bg-white/5 border border-white/10 rounded-lg">
+                        <p className="text-[10px] text-white/50 mb-2">Variables to remove (comma separated):</p>
+                        <textarea
+                          placeholder="temp_var1, temp_var2"
+                          value={selectedNode.data.config?.cleanup_keys || ""}
+                          onChange={(e) => {
+                            setSelectedNode({
+                              ...selectedNode,
+                              data: {
+                                ...selectedNode.data,
+                                config: { ...selectedNode.data.config, cleanup_keys: e.target.value }
+                              }
+                            });
+                          }}
+                          className="w-full px-2 py-1 bg-black/20 border border-white/10 rounded text-xs text-white min-h-[40px]"
+                        />
+                     </div>
+                  </div>
+                </div>
+              )}
+
+              {selectedNode.data.nodeType === "variable" && (
+                <div className="space-y-4">
+                  <div className="p-3 bg-lime-500/10 border border-lime-500/20 rounded-lg">
+                    <p className="text-xs text-lime-300">
+                      💡 <strong>Logic:</strong> Manage context variables. Set values, perform math, or manipulate lists.
+                    </p>
+                  </div>
+
+                  <div className="space-y-3">
+                     <div className="flex items-center justify-between">
+                        <label className="block text-sm text-white/70">Operations</label>
+                        <button
+                          onClick={() => {
+                            const operations = selectedNode.data.config?.operations || [];
+                            updateNodeConfiguration(selectedNode.id, { operations: [...operations, { type: "set", variable: "", value: "" }] });
+                          }}
+                          className="text-[10px] text-lime-300 hover:text-lime-200"
+                        >
+                          + Add Op
+                        </button>
+                     </div>
+                     
+                     {(selectedNode.data.config?.operations || []).map((op: any, idx: number) => (
+                       <div key={idx} className="p-2 bg-white/5 border border-white/10 rounded-lg space-y-2">
+                          <div className="flex items-center justify-between gap-2">
+                             <select
+                               value={op.type || "set"}
+                               onChange={(e) => {
+                                 const newOps = [...(selectedNode.data.config?.operations || [])];
+                                 newOps[idx] = { ...op, type: e.target.value };
+                                 updateNodeConfiguration(selectedNode.id, { operations: newOps });
+                               }}
+                               className="px-2 py-1 bg-black/20 border border-white/10 rounded text-xs text-white max-w-[80px]"
+                             >
+                               <option value="set">Set</option>
+                               <option value="append">Append</option>
+                               <option value="increment">Inc (+)</option>
+                               <option value="decrement">Dec (-)</option>
+                             </select>
+
+                             {op.type === "set" && (
+                               <select
+                                 value={op.cast_type || "string"}
+                                 onChange={(e) => {
+                                   const newOps = [...(selectedNode.data.config?.operations || [])];
+                                   newOps[idx] = { ...op, cast_type: e.target.value };
+                                   updateNodeConfiguration(selectedNode.id, { operations: newOps });
+                                 }}
+                                 className="px-2 py-1 bg-black/20 border border-white/10 rounded text-xs text-white max-w-[70px]"
+                                 title="Cast Type"
+                               >
+                                 <option value="string">Str</option>
+                                 <option value="number">Num</option>
+                                 <option value="boolean">Bool</option>
+                                 <option value="json">JSON</option>
+                               </select>
+                             )}
+                             <button
+                               onClick={() => {
+                                  const newOps = selectedNode.data.config?.operations.filter((_: any, i: number) => i !== idx);
+                                  updateNodeConfiguration(selectedNode.id, { operations: newOps });
+                               }}
+                               className="text-white/30 hover:text-red-400"
+                             >
+                               ×
+                             </button>
+                          </div>
+                          
+                          <div className="grid grid-cols-2 gap-2">
+                            <input
+                              placeholder="Variable Name"
+                              value={op.variable || ""}
+                              onChange={(e) => {
+                                const newOps = [...(selectedNode.data.config?.operations || [])];
+                                newOps[idx] = { ...op, variable: e.target.value };
+                                updateNodeConfiguration(selectedNode.id, { operations: newOps });
+                              }}
+                              className="px-2 py-1 bg-black/20 border border-white/10 rounded text-xs text-white"
+                            />
+                            <input
+                              placeholder="Value"
+                              value={op.value || ""}
+                              onChange={(e) => {
+                                const newOps = [...(selectedNode.data.config?.operations || [])];
+                                newOps[idx] = { ...op, value: e.target.value };
+                                updateNodeConfiguration(selectedNode.id, { operations: newOps });
+                              }}
+                              className="px-2 py-1 bg-black/20 border border-white/10 rounded text-xs text-white"
+                            />
+                          </div>
+
+                          {op.type === "set" && (
+                            <div className="flex items-center gap-2">
+                              <span className="text-[10px] text-white/50">Cast as:</span>
+                              <select
+                                value={op.cast_type || "string"}
+                                onChange={(e) => {
+                                  const newOps = [...(selectedNode.data.config?.operations || [])];
+                                  newOps[idx] = { ...op, cast_type: e.target.value };
+                                  updateNodeConfiguration(selectedNode.id, { operations: newOps });
+                                }}
+                                className="px-2 py-0.5 bg-black/20 border border-white/10 rounded text-[10px] text-white"
+                              >
+                                <option value="string">String</option>
+                                <option value="number">Number</option>
+                                <option value="boolean">Boolean</option>
+                                <option value="json">JSON</option>
+                              </select>
+                            </div>
+                          )}
+                       </div>
+                     ))}
+                     
+                     {(selectedNode.data.config?.operations || []).length === 0 && (
+                        <div className="text-center p-4 border border-dashed border-white/10 rounded-lg text-white/30 text-xs">
+                           No operations defined. Click "+ Add Op" to start.
+                        </div>
+                     )}
+                  </div>
+                </div>
+              )}
+
               {selectedNode.data.nodeType === "llm" && (
                 <div>
                   <label className="block text-sm text-white/70 mb-1">Prompt</label>
                   <textarea
                     value={selectedNode.data.config?.prompt || ""}
-                    onChange={(e) => {
-                      setSelectedNode({
-                        ...selectedNode,
-                        data: {
-                          ...selectedNode.data,
-                          config: { ...selectedNode.data.config, prompt: e.target.value }
-                        }
-                      });
-                    }}
+                    onChange={(e) => updateNodeConfiguration(selectedNode.id, { prompt: e.target.value })}
                     className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white"
                     rows={4}
                   />
@@ -447,15 +952,7 @@ export default function EnhancedAgentBuilder() {
                   <label className="block text-sm text-white/70 mb-1">Response Message</label>
                   <textarea
                     value={selectedNode.data.config?.response || ""}
-                    onChange={(e) => {
-                      setSelectedNode({
-                        ...selectedNode,
-                        data: {
-                          ...selectedNode.data,
-                          config: { ...selectedNode.data.config, response: e.target.value }
-                        }
-                      });
-                    }}
+                    onChange={(e) => updateNodeConfiguration(selectedNode.id, { response: e.target.value })}
                     className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white"
                     rows={4}
                   />
@@ -467,15 +964,7 @@ export default function EnhancedAgentBuilder() {
                   <label className="block text-sm text-white/70 mb-1">Connector Type</label>
                   <select
                     value={selectedNode.data.config?.connector_type || ""}
-                    onChange={(e) => {
-                      setSelectedNode({
-                        ...selectedNode,
-                        data: {
-                          ...selectedNode.data,
-                          config: { ...selectedNode.data.config, connector_type: e.target.value }
-                        }
-                      });
-                    }}
+                    onChange={(e) => updateNodeConfiguration(selectedNode.id, { connector_type: e.target.value })}
                     className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white"
                   >
                     <option value="">Select...</option>
@@ -489,15 +978,7 @@ export default function EnhancedAgentBuilder() {
                   <label className="block text-sm text-white/70 mb-1 mt-4">Action</label>
                   <select
                     value={selectedNode.data.config?.action || ""}
-                    onChange={(e) => {
-                      setSelectedNode({
-                        ...selectedNode,
-                        data: {
-                          ...selectedNode.data,
-                          config: { ...selectedNode.data.config, action: e.target.value }
-                        }
-                      });
-                    }}
+                    onChange={(e) => updateNodeConfiguration(selectedNode.id, { action: e.target.value })}
                     className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white"
                   >
                     <option value="">Select...</option>
@@ -506,6 +987,175 @@ export default function EnhancedAgentBuilder() {
                     <option value="get_ticket">Get Ticket</option>
                     <option value="update_ticket">Update Ticket</option>
                   </select>
+                </div>
+              )}
+
+              {selectedNode.data.nodeType === "api" && (
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm text-white/70 mb-1">URL</label>
+                    <input
+                      value={selectedNode.data.config?.url || ""}
+                      onChange={(e) => updateNodeConfiguration(selectedNode.id, { url: e.target.value })}
+                      placeholder="https://api.example.com/v1/resource"
+                      className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white"
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm text-white/70 mb-1">Method</label>
+                      <select
+                        value={selectedNode.data.config?.method || "GET"}
+                        onChange={(e) => updateNodeConfiguration(selectedNode.id, { method: e.target.value })}
+                        className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white"
+                      >
+                        <option value="GET">GET</option>
+                        <option value="POST">POST</option>
+                        <option value="PUT">PUT</option>
+                        <option value="DELETE">DELETE</option>
+                        <option value="PATCH">PATCH</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-sm text-white/70 mb-1">Timeout (s)</label>
+                      <input
+                        type="number"
+                        value={selectedNode.data.config?.timeout || 10}
+                        onChange={(e) => updateNodeConfiguration(selectedNode.id, { timeout: parseInt(e.target.value) })}
+                        className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white"
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-sm text-white/70 mb-1">Headers (JSON)</label>
+                    <textarea
+                      value={JSON.stringify(selectedNode.data.config?.headers || {}, null, 2)}
+                      onChange={(e) => {
+                        try {
+                          const headers = JSON.parse(e.target.value);
+                          updateNodeConfiguration(selectedNode.id, { headers });
+                        } catch {}
+                      }}
+                      className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white font-mono text-xs"
+                      rows={3}
+                      placeholder='{"Content-Type": "application/json"}'
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm text-white/70 mb-1">Body (JSON)</label>
+                    <textarea
+                      value={JSON.stringify(selectedNode.data.config?.body || {}, null, 2)}
+                      onChange={(e) => {
+                        try {
+                          const body = JSON.parse(e.target.value);
+                          updateNodeConfiguration(selectedNode.id, { body });
+                        } catch {}
+                      }}
+                      className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white font-mono text-xs"
+                      rows={5}
+                      placeholder='{"key": "value"}'
+                    />
+                  </div>
+                </div>
+              )}
+
+              {selectedNode.data.nodeType === "loop" && (
+                <div className="space-y-4">
+                  <div className="p-3 bg-purple-500/10 border border-purple-500/20 rounded-lg">
+                    <p className="text-xs text-purple-300">
+                      💡 <strong>Loop:</strong> Iterates over a list of items.
+                    </p>
+                  </div>
+                  <div>
+                    <label className="block text-sm text-white/70 mb-1">Items (Variable Path)</label>
+                    <input
+                      value={selectedNode.data.config?.items || ""}
+                      onChange={(e) => updateNodeConfiguration(selectedNode.id, { items: e.target.value })}
+                      placeholder="e.g. api_result.users"
+                      className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm text-white/70 mb-1">Loop Variable Name</label>
+                    <input
+                      value={selectedNode.data.config?.loop_variable || "item"}
+                      onChange={(e) => updateNodeConfiguration(selectedNode.id, { loop_variable: e.target.value })}
+                      placeholder="e.g. user"
+                      className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {selectedNode.data.nodeType === "delay" && (
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm text-white/70 mb-1">Delay (Seconds)</label>
+                    <input
+                      type="number"
+                      value={selectedNode.data.config?.delay_seconds || 1}
+                      onChange={(e) => updateNodeConfiguration(selectedNode.id, { delay_seconds: parseInt(e.target.value) })}
+                      className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {selectedNode.data.nodeType === "end" && (
+                <div className="space-y-4">
+                  <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-lg">
+                     <p className="text-xs text-red-300">
+                        💡 <strong>End:</strong> Terminates the flow.
+                     </p>
+                  </div>
+                  <div>
+                    <label className="block text-sm text-white/70 mb-1">Final Message</label>
+                    <textarea
+                      value={selectedNode.data.config?.message || ""}
+                      onChange={(e) => updateNodeConfiguration(selectedNode.id, { message: e.target.value })}
+                      className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white"
+                      rows={4}
+                      placeholder="Thank you for using our service!"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {selectedNode.data.nodeType === "service" && (
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm text-white/70 mb-1">Service Name</label>
+                    <select
+                      value={selectedNode.data.config?.service || ""}
+                      onChange={(e) => updateNodeConfiguration(selectedNode.id, { service: e.target.value })}
+                      className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white"
+                    >
+                      <option value="">Select Service...</option>
+                      <option value="knowledge_search">Knowledge Search</option>
+                      <option value="ticket_create">Create Ticket</option>
+                      <option value="ticket_template">Ticket Template</option>
+                      <option value="hr_post_job">HR: Post Job</option>
+                      <option value="hr_shortlist">HR: Shortlist Candidates</option>
+                      <option value="search_flights">Travel: Search Flights</option>
+                      <option value="search_hotels">Travel: Search Hotels</option>
+                      <option value="search_restaurants">Travel: Search Restaurants</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm text-white/70 mb-1">Parameters (JSON)</label>
+                    <textarea
+                      value={JSON.stringify(selectedNode.data.config?.params || {}, null, 2)}
+                      onChange={(e) => {
+                        try {
+                          const params = JSON.parse(e.target.value);
+                          updateNodeConfiguration(selectedNode.id, { params });
+                        } catch {}
+                      }}
+                      className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white font-mono text-xs"
+                      rows={6}
+                      placeholder='{"query": "..."}'
+                    />
+                  </div>
                 </div>
               )}
 

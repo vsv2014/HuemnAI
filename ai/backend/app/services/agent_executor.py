@@ -658,12 +658,26 @@ class AgentExecutor:
         config = node.config or {}
         welcome_message = config.get("message", "Hello! How can I help you?")
         
+        # Apply initial context
+        initial_context = config.get("initial_context", {})
+        if initial_context:
+            context.update(initial_context)
+            
+        # Validate input variables
+        input_variables = config.get("input_variables", [])
+        if input_variables:
+            # Check for required variables (if we add 'required' field later, for now just log presence)
+            present_vars = [var.get("name") for var in input_variables if var.get("name") in context]
+            # We don't block execution for missing vars in start node usually, as they might come later
+            
         return {
             "response": welcome_message,
             "next_node_id": None,  # Will be determined by connections
             "context": context,
             "metadata": {
-                "has_welcome_message": bool(welcome_message)
+                "has_welcome_message": bool(welcome_message),
+                "trigger_type": config.get("trigger_type", "message"),
+                "initial_context_applied": bool(initial_context)
             }
         }
     
@@ -786,11 +800,22 @@ class AgentExecutor:
             }
     
     async def _execute_entity_extraction_node(self, node: AgentNode, context: Dict[str, Any]) -> Dict[str, Any]:
-        """Execute entity extraction node"""
+        """Execute entity extraction node with UI options support"""
         config = node.config or {}
+        # Support both list of entities and single entity name
         entities_to_extract = config.get("entities", [])
+        if config.get("entity_name"):
+            entities_to_extract.append(config.get("entity_name"))
+        
+        # Remove duplicates
+        entities_to_extract = list(set(entities_to_extract))
+            
         model = config.get("model", "gpt-3.5-turbo")
         user_message = context.get("last_user_message", "")
+        ui_options = config.get("ui_options", [])
+        required = config.get("required", False)
+        prompt = config.get("prompt", f"Please provide: {', '.join(entities_to_extract)}")
+        pattern = config.get("pattern")
         
         if not entities_to_extract:
              return {
@@ -800,54 +825,120 @@ class AgentExecutor:
                 "metadata": {"warning": "No entities configured to extract"}
             }
 
-        # Use LLM to extract entities
-        extraction_prompt = f"""Extract the following entities from this message: {', '.join(entities_to_extract)}
+        extracted_data = {}
         
+        # 1. Try Direct Option Match (if options exist)
+        if ui_options:
+            for option in ui_options:
+                val = option.get("value")
+                label = option.get("label")
+                # Check exact match with value or label
+                if (val and user_message.strip().lower() == val.lower()) or \
+                   (label and user_message.strip().lower() == label.lower()):
+                    # Assuming single entity target for UI options mode
+                    target_entity = config.get("entity_name") or entities_to_extract[0]
+                    extracted_data[target_entity] = val or label
+                    break
+        
+        # 2. Try Regex Match (if pattern exists and not already found)
+        if not extracted_data and pattern:
+            import re
+            try:
+                match = re.search(pattern, user_message, re.IGNORECASE)
+                if match:
+                    target_entity = config.get("entity_name") or entities_to_extract[0]
+                    extracted_data[target_entity] = match.group(0)
+            except Exception as e:
+                logger.error(f"Regex error: {e}")
+
+        # 3. LLM Extraction (if still needed)
+        # Check what's missing
+        missing_entities = [e for e in entities_to_extract if e not in extracted_data]
+        
+        if missing_entities:
+            # Use LLM to extract remaining entities
+            extraction_prompt = f"""Extract the following entities from this message: {', '.join(missing_entities)}
+            
 Message: {user_message}
 
 Return a JSON object with the extracted entities as keys. If an entity is not found, use null.
 Do not include any markdown formatting, just the raw JSON."""
-        
-        try:
-            llm = get_llm(model.split("-")[0] if "-" in model else "openai")
-            response_text = ""
-            async for token in llm.stream(extraction_prompt):
-                response_text += token
             
-            # Parse JSON response with robust cleanup
-            import json
-            clean_response = response_text.strip()
-            if clean_response.startswith("```json"):
-                clean_response = clean_response[7:]
-            if clean_response.startswith("```"):
-                clean_response = clean_response[3:]
-            if clean_response.endswith("```"):
-                clean_response = clean_response[:-3]
+            try:
+                llm = get_llm(model.split("-")[0] if "-" in model else "openai")
+                response_text = ""
+                async for token in llm.stream(extraction_prompt):
+                    response_text += token
                 
-            entities = json.loads(clean_response.strip() or "{}")
-            
-            # Update context with extracted entities
-            # Store in 'entities' dict and also flat if needed? 
-            # Standard pattern: context['entities'][entity_name]
-            context["entities"] = {**context.get("entities", {}), **entities}
+                # Parse JSON response with robust cleanup
+                import json
+                clean_response = response_text.strip()
+                if clean_response.startswith("```json"):
+                    clean_response = clean_response[7:]
+                if clean_response.startswith("```"):
+                    clean_response = clean_response[3:]
+                if clean_response.endswith("```"):
+                    clean_response = clean_response[:-3]
+                    
+                llm_extracted = json.loads(clean_response.strip() or "{}")
+                
+                # Merge LLM results
+                for k, v in llm_extracted.items():
+                    if v is not None: # Only add if found
+                        extracted_data[k] = v
+                        
+            except Exception as e:
+                logger.error(f"Entity extraction error: {str(e)}")
+
+        # 4. Check results
+        # Clean up nulls
+        final_extracted = {k: v for k, v in extracted_data.items() if v is not None}
+        
+        # Check if we found everything needed
+        # (For now, if we found ANY entity, we consider it progress, but if required is True, we might be strict)
+        # Let's be strict if 'required' is True: ALL entities must be found
+        all_found = all(e in final_extracted for e in entities_to_extract)
+        
+        if all_found or (final_extracted and not required):
+            # Success! Update context and move on
+            context["entities"] = {**context.get("entities", {}), **final_extracted}
             
             return {
                 "response": "",
-                "next_node_id": None,
+                "next_node_id": None, # Continue flow
                 "context": context,
                 "metadata": {
-                    "extracted_entities": entities,
+                    "extracted_entities": final_extracted,
                     "model": model
                 }
             }
-        except Exception as e:
-            logger.error(f"Entity extraction error: {str(e)}")
+        
+        # 5. Handle Missing / Required
+        if required:
+            # We are missing entities and they are required.
+            # Ask the user.
             return {
-                "response": "",
-                "next_node_id": None,
+                "response": prompt,
+                "next_node_id": node.id, # Stay on this node
+                "prevent_default_connection": True,
                 "context": context,
-                "metadata": {"error": str(e)}
+                "metadata": {
+                    "ui_options": ui_options, # Frontend will render buttons
+                    "missing_entities": [e for e in entities_to_extract if e not in final_extracted]
+                }
             }
+            
+        # Not required, just move on
+        context["entities"] = {**context.get("entities", {}), **final_extracted}
+        return {
+            "response": "",
+            "next_node_id": None,
+            "context": context,
+            "metadata": {
+                "extracted_entities": final_extracted,
+                "warning": "Some entities not found"
+            }
+        }
     
     async def _execute_intent_node(self, node: AgentNode, context: Dict[str, Any]) -> Dict[str, Any]:
         """Execute intent detection node"""
@@ -1385,27 +1476,134 @@ Return only the intent name that best matches."""
             "metadata": {}
         }
     
+    def _set_nested_value(self, context: Dict[str, Any], path: str, value: Any) -> None:
+        """Set a value in a nested dictionary using dot notation"""
+        keys = path.split('.')
+        current = context
+        
+        for i, key in enumerate(keys[:-1]):
+            if key not in current:
+                current[key] = {}
+            elif not isinstance(current[key], dict):
+                # If we hit a non-dict, we can't traverse further
+                # Strategy: Convert to dict if possible or stop? 
+                # For now, we'll overwrite if it's not a dict, unless it's a list we could append to?
+                # Safest is to overwrite with empty dict to allow path creation
+                current[key] = {}
+            
+            current = current[key]
+            
+        current[keys[-1]] = value
+
     async def _execute_variable_node(self, node: AgentNode, context: Dict[str, Any]) -> Dict[str, Any]:
-        """Execute variable node - sets or gets variables"""
+        """Execute variable node - sets or gets variables with advanced operations"""
         config = node.config or {}
-        operation = config.get("operation", "set")  # set or get
-        variable_name = config.get("variable")
-        value = config.get("value")
         
-        if operation == "set" and variable_name:
-            # Replace variables in value
+        # Support legacy single operation
+        operations = config.get("operations", [])
+        if not operations:
+            # Fallback to legacy
+            if config.get("variable"):
+                operations = [{
+                    "type": config.get("operation", "set"),
+                    "variable": config.get("variable"),
+                    "value": config.get("value")
+                }]
+            # Fallback to variables dict (legacy page.tsx)
+            elif config.get("variables"):
+                 for k, v in config.get("variables", {}).items():
+                    operations.append({
+                        "type": "set",
+                        "variable": k,
+                        "value": v
+                    })
+            
+        for op in operations:
+            op_type = op.get("type", "set")
+            variable_name = op.get("variable")
+            value = op.get("value")
+            
+            if not variable_name:
+                continue
+                
+            # Resolve value (basic string substitution)
+            resolved_value = value
             if isinstance(value, str):
-                value = self._replace_variables(value, context)
-            context[variable_name] = value
-        elif operation == "get" and variable_name:
-            # Get variable value (already in context)
-            pass
-        
+                resolved_value = self._replace_variables(value, context)
+                
+            # Get current value (for modification ops)
+            # Use _get_nested_value if dot notation is present
+            if "." in variable_name:
+                current_value = self._get_nested_value(context, variable_name)
+            else:
+                current_value = context.get(variable_name)
+            
+            if op_type == "set":
+                # Check for explicit casting
+                cast_type = op.get("cast_type") # string, number, boolean, json
+                if cast_type == "number":
+                    try:
+                        if "." in str(resolved_value):
+                            resolved_value = float(resolved_value)
+                        else:
+                            resolved_value = int(resolved_value)
+                    except:
+                        pass # Keep as string if fail
+                elif cast_type == "boolean":
+                    resolved_value = str(resolved_value).lower() in ("true", "1", "yes")
+                elif cast_type == "json":
+                    try:
+                        import json
+                        resolved_value = json.loads(resolved_value)
+                    except:
+                        pass
+                
+                if "." in variable_name:
+                    self._set_nested_value(context, variable_name, resolved_value)
+                else:
+                    context[variable_name] = resolved_value
+                
+            elif op_type == "append":
+                if not isinstance(current_value, list):
+                    current_value = [current_value] if current_value is not None else []
+                current_value.append(resolved_value)
+                
+                if "." in variable_name:
+                    self._set_nested_value(context, variable_name, current_value)
+                else:
+                    context[variable_name] = current_value
+                
+            elif op_type == "increment":
+                try:
+                    inc_val = float(resolved_value) if resolved_value else 1
+                    curr_val = float(current_value) if current_value is not None else 0
+                    result = curr_val + inc_val
+                    
+                    if "." in variable_name:
+                        self._set_nested_value(context, variable_name, result)
+                    else:
+                        context[variable_name] = result
+                except:
+                    pass # Fail safely
+                    
+            elif op_type == "decrement":
+                try:
+                    dec_val = float(resolved_value) if resolved_value else 1
+                    curr_val = float(current_value) if current_value is not None else 0
+                    result = curr_val - dec_val
+                    
+                    if "." in variable_name:
+                        self._set_nested_value(context, variable_name, result)
+                    else:
+                        context[variable_name] = result
+                except:
+                    pass
+
         return {
             "response": "",
             "next_node_id": None,
             "context": context,
-            "metadata": {}
+            "metadata": {"operations_count": len(operations)}
         }
     
     async def _execute_end_node(self, node: AgentNode, context: Dict[str, Any]) -> Dict[str, Any]:
@@ -1501,18 +1699,53 @@ Return only the intent name that best matches."""
         }
     
     async def _execute_merge_node(self, node: AgentNode, context: Dict[str, Any]) -> Dict[str, Any]:
-        """Execute merge node - merges multiple flow paths"""
+        """Execute merge node - merges multiple flow paths and unifies data"""
         config = node.config or {}
-        merge_strategy = config.get("strategy", "all")  # all, first, last
+        strategy = config.get("strategy", "pass_through")  # pass_through, unify
         
-        # Merge node waits for all incoming paths (if strategy is "all")
-        # For now, just pass through
+        # Merge Node Logic:
+        # Since the engine is currently sequential (XOR split), "Merge" acts as a convergence point.
+        # Its primary job is to normalize data from different potential paths.
+        
+        new_context = context.copy()
+        
+        if strategy == "unify":
+            mappings = config.get("mappings", [])
+            for mapping in mappings:
+                target_var = mapping.get("target")
+                source_vars = mapping.get("sources", [])
+                
+                if not target_var:
+                    continue
+                    
+                # Find the first source variable that exists and is not None
+                found_value = None
+                for source in source_vars:
+                    val = self._get_nested_value(new_context, source)
+                    if val is not None:
+                        found_value = val
+                        break
+                
+                # Set the target variable
+                if found_value is not None:
+                    # Basic support for top-level setting. 
+                    # For nested setting, we'd need a _set_nested_value helper.
+                    # For now, just set top-level.
+                    new_context[target_var] = found_value
+        
+        # Context Cleanup
+        cleanup_keys = config.get("cleanup_keys", "")
+        if cleanup_keys:
+            keys_to_remove = [k.strip() for k in cleanup_keys.split(",") if k.strip()]
+            for key in keys_to_remove:
+                if key in new_context:
+                    del new_context[key]
         
         return {
             "response": "",
-            "next_node_id": None,
-            "context": context,
-            "metadata": {"merged": True}
+            "next_node_id": None, # Connections will determine next node
+            "context": new_context,
+            "metadata": {"merged": True, "strategy": strategy}
         }
     
 
@@ -1547,14 +1780,41 @@ Return only the intent name that best matches."""
             if self._evaluate_condition(conn.condition, context):
                 return conn.target_node_id
         
-        # No condition matched, return first connection (or None)
-        return connections[0].target_node_id if connections else None
+        # No condition matched
+        # STRICT ROUTING: Do NOT default to the first connection if conditions failed.
+        # If the user wants a default path, they must add a connection with NO condition (Else path).
+        return None
     
     def _evaluate_condition(self, condition: Dict[str, Any], context: Dict[str, Any]) -> bool:
         """Evaluate a condition against context"""
+        # Handle Condition Groups (Advanced Logic)
+        if condition.get("type") == "group":
+            logic = condition.get("logic", "and").lower()
+            sub_conditions = condition.get("conditions", [])
+            
+            if not sub_conditions:
+                return True  # Empty group is considered match (Else path)
+            
+            results = [self._evaluate_condition(sub, context) for sub in sub_conditions]
+            
+            if logic == "or":
+                return any(results)
+            else:  # default to AND
+                return all(results)
+
+        # Handle Single Condition
         field = condition.get("field")
+        # If no field is specified and it's not a group, it might be an empty condition (Else path)
+        if not field:
+            return True
+
         operator = condition.get("operator", "equals")
-        value = condition.get("value")
+        raw_value = condition.get("value")
+        
+        # Resolve variables in value if present (e.g. {{context.var}})
+        value = raw_value
+        if isinstance(raw_value, str) and "{{" in raw_value:
+             value = self._replace_variables(raw_value, context)
         
         # Get field value from context
         field_value = self._get_nested_value(context, field)
@@ -1569,9 +1829,15 @@ Return only the intent name that best matches."""
         elif operator == "not_contains":
             return str(value) not in str(field_value)
         elif operator == "greater_than":
-            return float(field_value) > float(value)
+            try:
+                return float(field_value) > float(value)
+            except (ValueError, TypeError):
+                return False
         elif operator == "less_than":
-            return float(field_value) < float(value)
+            try:
+                return float(field_value) < float(value)
+            except (ValueError, TypeError):
+                return False
         elif operator == "exists":
             return field_value is not None
         elif operator == "not_exists":

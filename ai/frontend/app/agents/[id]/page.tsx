@@ -11,6 +11,7 @@ import {
   updateNode,
   deleteNode,
   createConnection,
+  updateConnection,
   deleteConnection,
   processAgentMessage,
   getAgents,
@@ -98,6 +99,7 @@ const NODE_TYPES = [
   { type: "delay", label: "Delay", icon: "⏱️", color: "#64748b", category: "basic", description: "Pauses execution for a specified duration. Useful for rate limiting, waiting, or scheduling delays." },
   { type: "branch", label: "Branch", icon: "🌿", color: "#f59e0b", category: "basic", description: "Splits the flow into multiple parallel paths. Allows concurrent execution of different branches." },
   { type: "merge", label: "Merge", icon: "🔀", color: "#06b6d4", category: "basic", description: "Combines multiple flow paths back into a single path. Use after branch nodes to reunite parallel flows." },
+  { type: "variable", label: "Variable", icon: "📦", color: "#84cc16", category: "basic", description: "Sets or modifies variables in the flow context. Use this to store data for later use." },
   
   // AI & ML Nodes
   { type: "llm", label: "LLM", icon: "🧠", color: "#3b82f6", category: "ai", description: "Large Language Model node for generating text, answering questions, or performing language tasks. Supports OpenAI, Anthropic, and Azure." },
@@ -163,7 +165,7 @@ const CustomNode = ({ data, selected }: { data: any; selected: boolean }) => {
 
   return (
     <div 
-      className={`organic-membrane group flex items-center justify-center p-6 min-w-[140px] min-h-[140px] transition-all duration-500 ${selected ? 'selected' : ''}`}
+      className={`organic-membrane group flex flex-col items-center justify-center p-4 min-w-[140px] min-h-[140px] transition-all duration-500 ${selected ? 'selected' : ''}`}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
       style={{
@@ -223,7 +225,7 @@ const CustomNode = ({ data, selected }: { data: any; selected: boolean }) => {
 
       {/* Node Content - Draggable Area (Restricted) */}
       <div 
-        className="node-drag-zone relative z-30 flex flex-col items-center justify-center text-center cursor-grab active:cursor-grabbing"
+        className="node-drag-zone relative z-30 flex flex-col items-center justify-center text-center cursor-grab active:cursor-grabbing w-full"
         style={{ pointerEvents: 'auto' }} 
       >
         <div 
@@ -244,6 +246,26 @@ const CustomNode = ({ data, selected }: { data: any; selected: boolean }) => {
           <div className="mt-1 text-[10px] text-white/50 max-w-[100px] truncate">
             {data.config.prompt}
           </div>
+        )}
+
+        {/* Merge Node Preview */}
+        {data.nodeType === 'merge' && (
+          <div className="mt-2 pt-2 border-t border-white/10 w-full">
+            <div className="flex items-center justify-center text-[10px] gap-1">
+              <span className={`px-1.5 py-0.5 rounded ${data.config?.strategy === 'unify' ? 'bg-purple-500/20 text-purple-300 border border-purple-500/30' : 'bg-gray-700/50 text-gray-400'}`}>
+                {data.config?.strategy === 'unify' ? 'Unify' : 'Pass'}
+              </span>
+            </div>
+          </div>
+        )}
+
+        {/* Variable Node Preview */}
+        {data.nodeType === 'variable' && (
+           <div className="mt-2 pt-2 border-t border-white/10 w-full">
+             <div className="text-[10px] text-lime-300">
+               {data.config?.operations?.length || 0} Ops
+             </div>
+           </div>
         )}
       </div>
 
@@ -281,6 +303,7 @@ const CustomNode = ({ data, selected }: { data: any; selected: boolean }) => {
 
 const nodeTypes: NodeTypes = {
   default: CustomNode,
+  custom: CustomNode,
 };
 
 // ============================================================================
@@ -469,6 +492,7 @@ function FlowCanvas({
   const { screenToFlowPosition, getViewport } = useReactFlow();
   const positionUpdateTimeout = useRef<NodeJS.Timeout | null>(null);
   const nodeUpdateTimeout = useRef<NodeJS.Timeout | null>(null);
+  const edgeUpdateTimeout = useRef<NodeJS.Timeout | null>(null);
   
   // Test panel state
   const [testMessages, setTestMessages] = useState<Message[]>([]);
@@ -534,9 +558,9 @@ function FlowCanvas({
       // Convert backend nodes to ReactFlow nodes
     const flowNodes: Node[] = agent.nodes.map((node: AgentNode) => ({
       id: node.id.toString(),
-      type: "default",
+      type: "custom", // Using our enhanced CustomNode
       position: { x: node.position_x || 0, y: node.position_y || 0 },
-      dragHandle: '.node-drag-zone', // Only the icon/text area is draggable
+      dragHandle: undefined, // Allow dragging entire node
       data: {
         label: node.label || node.name,
         nodeType: node.node_type,
@@ -548,8 +572,8 @@ function FlowCanvas({
         retry_count: (node as any).retry_count || 0,
         error_handling: (node as any).error_handling || {},
         tags: (node as any).tags || [],
-          },
-          draggable: true,
+      },
+      draggable: true,
     }));
       
       // Convert backend connections to ReactFlow edges
@@ -563,7 +587,7 @@ function FlowCanvas({
         source: conn.source_node_id.toString(),
         target: conn.target_node_id.toString(),
         label: conn.label || "",
-        data: { backendId: conn.id },
+        data: { backendId: conn.id, condition: conn.condition },
         type: "smoothstep",
         animated: true,
         deletable: true,
@@ -639,6 +663,37 @@ function FlowCanvas({
       }, 1000);
     },
     [setNodes, token]
+  );
+
+  // Handle edge configuration updates
+  const updateEdgeConfiguration = useCallback(
+    (edgeId: string, dataUpdates: any) => {
+      // Update edges state
+      setEdges((eds) =>
+        eds.map((e) => {
+          if (e.id === edgeId) {
+            return { ...e, data: { ...e.data, ...dataUpdates } };
+          }
+          return e;
+        })
+      );
+
+      // Debounced backend update
+      if (edgeUpdateTimeout.current) {
+        clearTimeout(edgeUpdateTimeout.current);
+      }
+
+      edgeUpdateTimeout.current = setTimeout(() => {
+        if (!token) return;
+        const edge = edges.find((e) => e.id === edgeId);
+        if (edge?.data?.backendId) {
+          updateConnection(edge.data.backendId, dataUpdates, token).catch((err) =>
+            console.error("Failed to update connection configuration:", err)
+          );
+        }
+      }, 1000);
+    },
+    [edges, setEdges, token]
   );
 
   // Handle edge deletions
@@ -723,7 +778,7 @@ function FlowCanvas({
         // Add to ReactFlow
         const newNode: Node = {
           id: response.id.toString(),
-          type: "default",
+          type: "custom",
           position: { x: response.position_x, y: response.position_y },
           data: {
             label: response.label || response.name,
@@ -1381,6 +1436,509 @@ function FlowCanvas({
                 </div>
               </div>
 
+              {/* Start Node Configuration */}
+              {selectedNode.data.nodeType === "start" && (
+                <div className="p-3 bg-emerald-500/10 rounded-lg border border-emerald-500/20">
+                  <h4 className="text-sm font-semibold text-white mb-3">Start Configuration</h4>
+                  <div className="space-y-3">
+                    <div className="p-3 bg-blue-500/10 border border-blue-500/20 rounded-lg">
+                      <p className="text-xs text-blue-300">
+                        💡 <strong>Entry Point:</strong> This node marks the beginning of the flow. You can define input variables that this flow expects.
+                      </p>
+                    </div>
+                    <div>
+                      <label className="block text-xs text-white/70 mb-1">Input Variables (JSON Schema)</label>
+                      <textarea
+                        value={JSON.stringify(selectedNode.data.config?.input_schema || {}, null, 2)}
+                        onChange={(e) => {
+                          try {
+                            const schema = JSON.parse(e.target.value);
+                            updateNodeConfiguration(selectedNode.id, {
+                              config: { ...selectedNode.data.config, input_schema: schema }
+                            });
+                          } catch {}
+                        }}
+                        className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-xs font-mono"
+                        rows={6}
+                        placeholder={
+`{
+  "userId": "string",
+  "message": "string"
+}`
+                        }
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* End Node Configuration */}
+              {selectedNode.data.nodeType === "end" && (
+                <div className="p-3 bg-red-500/10 rounded-lg border border-red-500/20">
+                  <h4 className="text-sm font-semibold text-white mb-3">End Configuration</h4>
+                  <div className="space-y-3">
+                    <div className="p-3 bg-blue-500/10 border border-blue-500/20 rounded-lg">
+                      <p className="text-xs text-blue-300">
+                        💡 <strong>Termination Point:</strong> This node ends the flow. You can define output values to return to the caller.
+                      </p>
+                    </div>
+                    <div>
+                      <label className="block text-xs text-white/70 mb-1">Output Values (JSON)</label>
+                      <textarea
+                        value={JSON.stringify(selectedNode.data.config?.output_values || {}, null, 2)}
+                        onChange={(e) => {
+                          try {
+                            const values = JSON.parse(e.target.value);
+                            updateNodeConfiguration(selectedNode.id, {
+                              config: { ...selectedNode.data.config, output_values: values }
+                            });
+                          } catch {}
+                        }}
+                        className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-xs font-mono"
+                        rows={6}
+                        placeholder={
+`{
+  "status": "success",
+  "result": "{{last_step.result}}"
+}`
+                        }
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Variable Node Configuration */}
+              {selectedNode.data.nodeType === "variable" && (
+                <div className="space-y-4">
+                  <div className="p-3 bg-lime-500/10 border border-lime-500/20 rounded-lg">
+                    <p className="text-xs text-lime-300">
+                      💡 <strong>Logic:</strong> Manage context variables. Set values, perform math, or manipulate lists.
+                    </p>
+                  </div>
+
+                  <div className="space-y-3">
+                     <div className="flex items-center justify-between">
+                        <label className="block text-sm text-white/70">Operations</label>
+                        <button
+                          onClick={() => {
+                            const operations = selectedNode.data.config?.operations || [];
+                            updateNodeConfiguration(selectedNode.id, { config: { ...selectedNode.data.config, operations: [...operations, { type: "set", variable: "", value: "" }] } });
+                          }}
+                          className="text-[10px] text-lime-300 hover:text-lime-200"
+                        >
+                          + Add Op
+                        </button>
+                     </div>
+                     
+                     {(selectedNode.data.config?.operations || []).map((op: any, idx: number) => (
+                       <div key={idx} className="p-2 bg-white/5 border border-white/10 rounded-lg space-y-2">
+                          <div className="flex items-center justify-between gap-2">
+                             <select
+                               value={op.type || "set"}
+                               onChange={(e) => {
+                                 const newOps = [...(selectedNode.data.config?.operations || [])];
+                                 newOps[idx] = { ...op, type: e.target.value };
+                                 updateNodeConfiguration(selectedNode.id, { config: { ...selectedNode.data.config, operations: newOps } });
+                               }}
+                               className="px-2 py-1 bg-black/20 border border-white/10 rounded text-xs text-white max-w-[80px]"
+                             >
+                               <option value="set">Set</option>
+                               <option value="append">Append</option>
+                               <option value="increment">Inc (+)</option>
+                               <option value="decrement">Dec (-)</option>
+                             </select>
+
+                             {op.type === "set" && (
+                               <select
+                                 value={op.cast_type || "string"}
+                                 onChange={(e) => {
+                                   const newOps = [...(selectedNode.data.config?.operations || [])];
+                                   newOps[idx] = { ...op, cast_type: e.target.value };
+                                   updateNodeConfiguration(selectedNode.id, { config: { ...selectedNode.data.config, operations: newOps } });
+                                 }}
+                                 className="px-2 py-1 bg-black/20 border border-white/10 rounded text-xs text-white max-w-[70px]"
+                                 title="Cast Type"
+                               >
+                                 <option value="string">Str</option>
+                                 <option value="number">Num</option>
+                                 <option value="boolean">Bool</option>
+                                 <option value="json">JSON</option>
+                               </select>
+                             )}
+                             <button
+                               onClick={() => {
+                                  const newOps = selectedNode.data.config?.operations.filter((_: any, i: number) => i !== idx);
+                                  updateNodeConfiguration(selectedNode.id, { config: { ...selectedNode.data.config, operations: newOps } });
+                               }}
+                               className="text-white/30 hover:text-red-400"
+                             >
+                               ×
+                             </button>
+                          </div>
+                          
+                          <div className="grid grid-cols-2 gap-2">
+                            <input
+                              placeholder="Variable Name"
+                              value={op.variable || ""}
+                              onChange={(e) => {
+                                const newOps = [...(selectedNode.data.config?.operations || [])];
+                                newOps[idx] = { ...op, variable: e.target.value };
+                                updateNodeConfiguration(selectedNode.id, { config: { ...selectedNode.data.config, operations: newOps } });
+                              }}
+                              className="px-2 py-1 bg-black/20 border border-white/10 rounded text-xs text-white"
+                            />
+                            <input
+                              placeholder="Value"
+                              value={op.value || ""}
+                              onChange={(e) => {
+                                const newOps = [...(selectedNode.data.config?.operations || [])];
+                                newOps[idx] = { ...op, value: e.target.value };
+                                updateNodeConfiguration(selectedNode.id, { config: { ...selectedNode.data.config, operations: newOps } });
+                              }}
+                              className="px-2 py-1 bg-black/20 border border-white/10 rounded text-xs text-white"
+                            />
+                          </div>
+
+                          {op.type === "set" && (
+                            <div className="flex items-center gap-2">
+                              <span className="text-[10px] text-white/50">Cast as:</span>
+                              <select
+                                value={op.cast_type || "string"}
+                                onChange={(e) => {
+                                  const newOps = [...(selectedNode.data.config?.operations || [])];
+                                  newOps[idx] = { ...op, cast_type: e.target.value };
+                                  updateNodeConfiguration(selectedNode.id, { config: { ...selectedNode.data.config, operations: newOps } });
+                                }}
+                                className="px-2 py-0.5 bg-black/20 border border-white/10 rounded text-[10px] text-white"
+                              >
+                                <option value="string">String</option>
+                                <option value="number">Number</option>
+                                <option value="boolean">Boolean</option>
+                                <option value="json">JSON</option>
+                              </select>
+                            </div>
+                          )}
+                       </div>
+                     ))}
+                     
+                     {(selectedNode.data.config?.operations || []).length === 0 && (
+                        <div className="text-center p-4 border border-dashed border-white/10 rounded-lg text-white/30 text-xs">
+                           No operations defined. Click "+ Add Op" to start.
+                        </div>
+                     )}
+                  </div>
+                </div>
+              )}
+
+              {/* Branch Node Configuration */}
+              {selectedNode.data.nodeType === "branch" && (
+                <div className="p-3 bg-amber-500/10 rounded-lg border border-amber-500/20">
+                  <h4 className="text-sm font-semibold text-white mb-3">Branch Logic</h4>
+                  <div className="space-y-3">
+                    <div className="p-3 bg-blue-500/10 border border-blue-500/20 rounded-lg">
+                      <p className="text-xs text-blue-300">
+                        💡 <strong>Logic:</strong> Evaluates conditions in priority order. First match wins. Use <strong>Advanced</strong> for complex logic (AND/OR). Leave condition empty for "Else" path.
+                      </p>
+                    </div>
+
+                    <div className="space-y-2">
+                      <label className="block text-xs text-white/70">Paths & Conditions</label>
+                      {edges.filter(e => e.source === selectedNode.id).length === 0 ? (
+                        <p className="text-xs text-white/50 italic">No outgoing connections. Connect this node to others to define paths.</p>
+                      ) : (
+                        edges.filter(e => e.source === selectedNode.id).map((edge, index) => {
+                          const targetNode = nodes.find(n => n.id === edge.target);
+                          const condition = edge.data?.condition || {};
+                          const isGroup = condition.type === "group";
+                          
+                          return (
+                            <div key={edge.id} className="p-2 bg-white/5 border border-white/10 rounded-lg space-y-2">
+                              <div className="flex items-center justify-between">
+                                <span className="text-xs font-medium text-white">To: {targetNode?.data?.label || "Unknown Node"}</span>
+                                <span className="text-[10px] bg-white/10 px-1.5 py-0.5 rounded text-white/50">Priority {index + 1}</span>
+                              </div>
+                              
+                              {/* Advanced Group Logic */}
+                              {isGroup ? (
+                                <div className="space-y-2">
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-xs text-white/70">Match</span>
+                                    <select
+                                      value={condition.logic || "and"}
+                                      onChange={(e) => updateEdgeConfiguration(edge.id, { 
+                                        condition: { ...condition, logic: e.target.value } 
+                                      })}
+                                      className="px-2 py-0.5 bg-black/20 border border-white/10 rounded text-[10px] text-white"
+                                    >
+                                      <option value="and">ALL (AND)</option>
+                                      <option value="or">ANY (OR)</option>
+                                    </select>
+                                    <span className="text-xs text-white/70">of:</span>
+                                  </div>
+
+                                  <div className="space-y-2 pl-2 border-l border-white/10">
+                                    {(condition.conditions || []).map((subCond: any, subIdx: number) => (
+                                      <div key={subIdx} className="grid grid-cols-[1fr_auto_1fr_auto] gap-1 items-center">
+                                        <input 
+                                          placeholder="Field"
+                                          value={subCond.field || ""}
+                                          onChange={(e) => {
+                                            const newConditions = [...(condition.conditions || [])];
+                                            newConditions[subIdx] = { ...subCond, field: e.target.value };
+                                            updateEdgeConfiguration(edge.id, { condition: { ...condition, conditions: newConditions } });
+                                          }}
+                                          className="w-full px-2 py-1 bg-black/20 border border-white/10 rounded text-xs text-white"
+                                        />
+                                        <select
+                                          value={subCond.operator || "equals"}
+                                          onChange={(e) => {
+                                            const newConditions = [...(condition.conditions || [])];
+                                            newConditions[subIdx] = { ...subCond, operator: e.target.value };
+                                            updateEdgeConfiguration(edge.id, { condition: { ...condition, conditions: newConditions } });
+                                          }}
+                                          className="px-1 py-1 bg-black/20 border border-white/10 rounded text-xs text-white max-w-[80px]"
+                                        >
+                                          <option value="equals">=</option>
+                                          <option value="not_equals">!=</option>
+                                          <option value="contains">In</option>
+                                          <option value="not_contains">!In</option>
+                                          <option value="greater_than">&gt;</option>
+                                          <option value="less_than">&lt;</option>
+                                          <option value="exists">Ex</option>
+                                          <option value="not_exists">!Ex</option>
+                                        </select>
+                                        <input 
+                                      placeholder="Value or {{var}}"
+                                      value={subCond.value || ""}
+                                      onChange={(e) => {
+                                        const newConditions = [...(condition.conditions || [])];
+                                            newConditions[subIdx] = { ...subCond, value: e.target.value };
+                                            updateEdgeConfiguration(edge.id, { condition: { ...condition, conditions: newConditions } });
+                                          }}
+                                          className="w-full px-2 py-1 bg-black/20 border border-white/10 rounded text-xs text-white"
+                                        />
+                                        <button 
+                                          onClick={() => {
+                                            const newConditions = condition.conditions.filter((_: any, i: number) => i !== subIdx);
+                                            updateEdgeConfiguration(edge.id, { condition: { ...condition, conditions: newConditions } });
+                                          }}
+                                          className="text-white/30 hover:text-red-400"
+                                        >
+                                          ×
+                                        </button>
+                                      </div>
+                                    ))}
+                                    <button
+                                      onClick={() => {
+                                        const newConditions = [...(condition.conditions || []), { field: "", operator: "equals", value: "" }];
+                                        updateEdgeConfiguration(edge.id, { condition: { ...condition, conditions: newConditions } });
+                                      }}
+                                      className="text-[10px] text-blue-300 hover:text-blue-200 flex items-center gap-1"
+                                    >
+                                      + Add Condition
+                                    </button>
+                                  </div>
+                                </div>
+                              ) : (
+                                /* Simple Logic */
+                                <div className="space-y-2">
+                                  <div className="grid grid-cols-3 gap-1">
+                                    <input 
+                                      placeholder="Field (e.g. intent)"
+                                      value={condition.field || ""}
+                                      onChange={(e) => updateEdgeConfiguration(edge.id, { 
+                                        condition: { ...condition, field: e.target.value } 
+                                      })}
+                                      className="px-2 py-1 bg-black/20 border border-white/10 rounded text-xs text-white"
+                                    />
+                                    <select
+                                      value={condition.operator || "equals"}
+                                      onChange={(e) => updateEdgeConfiguration(edge.id, { 
+                                        condition: { ...condition, operator: e.target.value } 
+                                      })}
+                                      className="px-2 py-1 bg-black/20 border border-white/10 rounded text-xs text-white"
+                                    >
+                                      <option value="equals">Equals</option>
+                                      <option value="not_equals">Not Equals</option>
+                                      <option value="contains">Contains</option>
+                                      <option value="not_contains">Not Contains</option>
+                                      <option value="greater_than">Greater Than</option>
+                                      <option value="less_than">Less Than</option>
+                                      <option value="exists">Exists</option>
+                                      <option value="not_exists">Not Exists</option>
+                                    </select>
+                                    <input 
+                                  placeholder="Value or {{var}}"
+                                  value={condition.value || ""}
+                                  onChange={(e) => updateEdgeConfiguration(edge.id, { 
+                                    condition: { ...condition, value: e.target.value } 
+                                  })}
+                                  className="px-2 py-1 bg-black/20 border border-white/10 rounded text-xs text-white"
+                                />
+                                  </div>
+                                  <div className="flex justify-end">
+                                     <button
+                                      onClick={() => {
+                                        // Convert to group
+                                        updateEdgeConfiguration(edge.id, { 
+                                          condition: { 
+                                            type: "group", 
+                                            logic: "and", 
+                                            conditions: [
+                                              { field: condition.field, operator: condition.operator, value: condition.value }
+                                            ] 
+                                          } 
+                                        });
+                                      }}
+                                      className="text-[10px] text-amber-300/70 hover:text-amber-300"
+                                    >
+                                      Switch to Advanced Mode
+                                    </button>
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Merge Node Configuration */}
+              {selectedNode.data.nodeType === "merge" && (
+                <div className="p-3 bg-purple-500/10 rounded-lg border border-purple-500/20">
+                  <h4 className="text-sm font-semibold text-white mb-3">Merge Strategy</h4>
+                  <div className="space-y-4">
+                    <div className="p-3 bg-blue-500/10 border border-blue-500/20 rounded-lg">
+                      <p className="text-xs text-blue-300">
+                        💡 <strong>Logic:</strong> Unifies flow from multiple branches. Configure how data should be merged or cleaned up.
+                      </p>
+                    </div>
+
+                    <div className="space-y-2">
+                      <label className="block text-xs text-white/70">Merge Mode</label>
+                      <select
+                        value={selectedNode.data.config?.strategy || "pass_through"}
+                        onChange={(e) => updateNodeConfiguration(selectedNode.id, { config: { ...selectedNode.data.config, strategy: e.target.value } })}
+                        className="w-full px-2 py-1 bg-black/20 border border-white/10 rounded text-xs text-white"
+                      >
+                        <option value="pass_through">Pass Through (No Changes)</option>
+                        <option value="unify">Unify Variables (Data Mapping)</option>
+                      </select>
+                    </div>
+
+                    {selectedNode.data.config?.strategy === "unify" && (
+                      <div className="space-y-3">
+                         <div className="flex items-center justify-between">
+                            <label className="block text-xs text-white/70">Variable Mapping</label>
+                            <button
+                              onClick={() => {
+                                const mappings = selectedNode.data.config?.mappings || [];
+                                updateNodeConfiguration(selectedNode.id, { 
+                                  config: {
+                                    ...selectedNode.data.config, 
+                                    mappings: [...mappings, { target: "", sources: [""] }] 
+                                  }
+                                });
+                              }}
+                              className="text-[10px] text-blue-300 hover:text-blue-200"
+                            >
+                              + Add Map
+                            </button>
+                         </div>
+                         
+                         {(selectedNode.data.config?.mappings || []).map((map: any, idx: number) => (
+                           <div key={idx} className="p-2 bg-white/5 border border-white/10 rounded-lg space-y-2">
+                              <div className="flex items-center gap-2">
+                                <span className="text-[10px] text-white/50">Set</span>
+                                <input
+                                  placeholder="Target Var (e.g. final_output)"
+                                  value={map.target}
+                                  onChange={(e) => {
+                                    const newMappings = [...(selectedNode.data.config?.mappings || [])];
+                                    newMappings[idx] = { ...map, target: e.target.value };
+                                    updateNodeConfiguration(selectedNode.id, { config: { ...selectedNode.data.config, mappings: newMappings } });
+                                  }}
+                                  className="flex-1 px-2 py-1 bg-black/20 border border-white/10 rounded text-xs text-white"
+                                />
+                                <button
+                                  onClick={() => {
+                                     const newMappings = selectedNode.data.config?.mappings.filter((_: any, i: number) => i !== idx);
+                                     updateNodeConfiguration(selectedNode.id, { config: { ...selectedNode.data.config, mappings: newMappings } });
+                                  }}
+                                  className="text-white/30 hover:text-red-400"
+                                >
+                                  ×
+                                </button>
+                              </div>
+                              <div className="pl-4 border-l border-white/10 space-y-1">
+                                <span className="text-[10px] text-white/50 block">From First Available:</span>
+                                {(map.sources || []).map((source: string, sIdx: number) => (
+                                   <div key={sIdx} className="flex items-center gap-1">
+                                      <input
+                                        placeholder="Source Var (e.g. branch_a_out)"
+                                        value={source}
+                                        onChange={(e) => {
+                                          const newMappings = [...(selectedNode.data.config?.mappings || [])];
+                                          const newSources = [...(map.sources || [])];
+                                          newSources[sIdx] = e.target.value;
+                                          newMappings[idx] = { ...map, sources: newSources };
+                                          updateNodeConfiguration(selectedNode.id, { config: { ...selectedNode.data.config, mappings: newMappings } });
+                                        }}
+                                        className="w-full px-2 py-0.5 bg-black/20 border border-white/10 rounded text-xs text-white"
+                                      />
+                                      {sIdx === (map.sources || []).length - 1 ? (
+                                        <button
+                                          onClick={() => {
+                                            const newMappings = [...(selectedNode.data.config?.mappings || [])];
+                                            const newSources = [...(map.sources || []), ""];
+                                            newMappings[idx] = { ...map, sources: newSources };
+                                            updateNodeConfiguration(selectedNode.id, { config: { ...selectedNode.data.config, mappings: newMappings } });
+                                          }}
+                                          className="text-blue-300 hover:text-blue-200 px-1"
+                                        >
+                                          +
+                                        </button>
+                                      ) : (
+                                        <button
+                                          onClick={() => {
+                                            const newMappings = [...(selectedNode.data.config?.mappings || [])];
+                                            const newSources = map.sources.filter((_: any, i: number) => i !== sIdx);
+                                            newMappings[idx] = { ...map, sources: newSources };
+                                            updateNodeConfiguration(selectedNode.id, { config: { ...selectedNode.data.config, mappings: newMappings } });
+                                          }}
+                                          className="text-white/30 hover:text-red-400 px-1"
+                                        >
+                                          -
+                                        </button>
+                                      )}
+                                   </div>
+                                ))}
+                              </div>
+                           </div>
+                         ))}
+                      </div>
+                    )}
+                    
+                    <div className="space-y-2 pt-2 border-t border-white/10">
+                       <label className="block text-xs text-white/70">Context Cleanup</label>
+                       <div className="p-2 bg-white/5 border border-white/10 rounded-lg">
+                          <p className="text-[10px] text-white/50 mb-2">Variables to remove (comma separated):</p>
+                          <textarea
+                            placeholder="temp_var1, temp_var2"
+                            value={selectedNode.data.config?.cleanup_keys || ""}
+                            onChange={(e) => updateNodeConfiguration(selectedNode.id, { config: { ...selectedNode.data.config, cleanup_keys: e.target.value } })}
+                            className="w-full px-2 py-1 bg-black/20 border border-white/10 rounded text-xs text-white min-h-[40px]"
+                          />
+                       </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {/* LLM Node Configuration */}
               {selectedNode.data.nodeType === "llm" && (
               <div className="p-3 bg-blue-500/10 rounded-lg border border-blue-500/20">
@@ -1444,18 +2002,9 @@ function FlowCanvas({
                       <input
                         type="number"
                         value={selectedNode.data.config?.max_tokens || 1000}
-                        onChange={(e) => {
-                          setSelectedNode({
-                            ...selectedNode,
-                            data: {
-                              ...selectedNode.data,
-                              config: {
-                                ...selectedNode.data.config,
-                                max_tokens: parseInt(e.target.value),
-                              },
-                            },
-                          });
-                        }}
+                        onChange={(e) => updateNodeConfiguration(selectedNode.id, {
+                          config: { ...selectedNode.data.config, max_tokens: parseInt(e.target.value) }
+                        })}
                         className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm"
                       />
                     </div>
@@ -1971,80 +2520,10 @@ function FlowCanvas({
             {selectedNode.data.nodeType === "condition" && (
               <div className="p-3 bg-yellow-500/10 rounded-lg border border-yellow-500/20">
                 <h4 className="text-sm font-semibold text-white mb-3">Condition Logic</h4>
-                <div className="space-y-3">
-                  <div>
-                    <div className="flex justify-between items-center mb-1">
-                      <label className="block text-xs text-white/70">Variable Name</label>
-                      <select 
-                        className="text-[10px] bg-white/10 border border-white/10 rounded px-1 py-0.5 text-white/80 focus:outline-none focus:border-blue-500"
-                        onChange={(e) => {
-                          if (e.target.value) {
-                            updateNodeConfiguration(selectedNode.id, {
-                              config: { ...selectedNode.data.config, variable: e.target.value }
-                            });
-                          }
-                        }}
-                        value=""
-                      >
-                        <option value="">Quick Insert...</option>
-                        <option value="last_user_message">Last User Message</option>
-                        <option value="intent">Detected Intent</option>
-                        <option value="user_id">User ID</option>
-                        <option value="session_id">Session ID</option>
-                      </select>
-                    </div>
-                    <input
-                      type="text"
-                      value={selectedNode.data.config?.variable || ""}
-                      onChange={(e) => {
-                        updateNodeConfiguration(selectedNode.id, {
-                          config: { ...selectedNode.data.config, variable: e.target.value }
-                        });
-                      }}
-                      className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm"
-                      placeholder="e.g. last_user_message, intent"
-                    />
-                    <p className="text-[10px] text-white/40 mt-1">
-                      The name of the variable to check in the context.
-                    </p>
-                  </div>
-                  <div>
-                    <label className="block text-xs text-white/70 mb-1">Operator</label>
-                    <select
-                      value={selectedNode.data.config?.operator || "equals"}
-                      onChange={(e) => {
-                        updateNodeConfiguration(selectedNode.id, {
-                          config: { ...selectedNode.data.config, operator: e.target.value }
-                        });
-                      }}
-                      className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm"
-                    >
-                      <option value="equals">Equals (==)</option>
-                      <option value="not_equals">Not Equals (!=)</option>
-                      <option value="contains">Contains</option>
-                      <option value="not_contains">Not Contains</option>
-                      <option value="greater_than">Greater Than (&gt;)</option>
-                      <option value="less_than">Less Than (&lt;)</option>
-                      <option value="exists">Exists</option>
-                      <option value="not_exists">Not Exists</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-xs text-white/70 mb-1">Value to Compare</label>
-                    <input
-                      type="text"
-                      value={selectedNode.data.config?.value || ""}
-                      onChange={(e) => {
-                        updateNodeConfiguration(selectedNode.id, {
-                          config: { ...selectedNode.data.config, value: e.target.value }
-                        });
-                      }}
-                      className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm"
-                      placeholder="Expected value"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs text-white/70 mb-1">Fallback Node (On False)</label>
+                
+                {/* Fallback Node (Default) */}
+                <div className="mb-4 pb-4 border-b border-white/10">
+                   <label className="block text-xs text-white/70 mb-1">Fallback Node (If No Match)</label>
                     <select
                       value={selectedNode.data.config?.fallback_node_id || ""}
                       onChange={(e) => {
@@ -2055,7 +2534,7 @@ function FlowCanvas({
                       }}
                       className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm"
                     >
-                      <option value="">-- No Fallback (Stop/Default) --</option>
+                      <option value="">-- Stop Execution --</option>
                       {nodes
                         .filter((n) => n.id !== selectedNode.id)
                         .map((node) => (
@@ -2064,13 +2543,179 @@ function FlowCanvas({
                           </option>
                         ))}
                     </select>
-                    <p className="text-[10px] text-white/40 mt-1">
-                      If condition fails, execution will jump to this node.
-                    </p>
-                  </div>
-                  </div>
                 </div>
-              )}
+
+                <div className="space-y-3">
+                  <div className="flex justify-between items-center">
+                    <label className="text-xs font-semibold text-white/90">Conditions</label>
+                    <button
+                      onClick={() => {
+                        const currentConditions = selectedNode.data.config?.conditions || [];
+                        updateNodeConfiguration(selectedNode.id, {
+                          config: {
+                            ...selectedNode.data.config,
+                            conditions: [
+                              ...currentConditions,
+                              { name: `Condition ${currentConditions.length + 1}`, variable: "last_user_message", operator: "contains", value: "", next_node_id: null }
+                            ]
+                          }
+                        });
+                      }}
+                      className="text-[10px] bg-blue-500/20 hover:bg-blue-500/30 text-blue-300 px-2 py-1 rounded border border-blue-500/30 transition-colors"
+                    >
+                      + Add Condition
+                    </button>
+                  </div>
+
+                  {(selectedNode.data.config?.conditions || []).map((condition: any, index: number) => (
+                    <div key={index} className="p-3 bg-white/5 rounded border border-white/10 relative group">
+                      <button
+                        onClick={() => {
+                          const newConditions = [...(selectedNode.data.config?.conditions || [])];
+                          newConditions.splice(index, 1);
+                          updateNodeConfiguration(selectedNode.id, {
+                            config: { ...selectedNode.data.config, conditions: newConditions }
+                          });
+                        }}
+                        className="absolute top-2 right-2 text-white/20 hover:text-red-400 transition-colors"
+                      >
+                        ×
+                      </button>
+
+                      <div className="space-y-2">
+                        {/* Name */}
+                        <input
+                          type="text"
+                          value={condition.name || ""}
+                          onChange={(e) => {
+                            const newConditions = [...(selectedNode.data.config?.conditions || [])];
+                            newConditions[index] = { ...newConditions[index], name: e.target.value };
+                            updateNodeConfiguration(selectedNode.id, {
+                              config: { ...selectedNode.data.config, conditions: newConditions }
+                            });
+                          }}
+                          className="w-full px-2 py-1 bg-transparent border-b border-white/10 text-white text-xs focus:border-blue-500 outline-none mb-2"
+                          placeholder="Condition Name"
+                        />
+
+                        {/* Variable */}
+                        <div>
+                           <div className="flex justify-between mb-1">
+                             <label className="text-[10px] text-white/50">Variable</label>
+                             <select 
+                                className="text-[10px] bg-white/10 border border-white/10 rounded px-1 py-0.5 text-white/80"
+                                onChange={(e) => {
+                                  if (e.target.value) {
+                                    const newConditions = [...(selectedNode.data.config?.conditions || [])];
+                                    newConditions[index] = { ...newConditions[index], variable: e.target.value };
+                                    updateNodeConfiguration(selectedNode.id, {
+                                      config: { ...selectedNode.data.config, conditions: newConditions }
+                                    });
+                                  }
+                                }}
+                                value=""
+                              >
+                                <option value="">Quick Insert...</option>
+                                <option value="last_user_message">Last User Message</option>
+                                <option value="intent">Detected Intent</option>
+                              </select>
+                           </div>
+                           <input
+                            type="text"
+                            value={condition.variable || ""}
+                            onChange={(e) => {
+                              const newConditions = [...(selectedNode.data.config?.conditions || [])];
+                              newConditions[index] = { ...newConditions[index], variable: e.target.value };
+                              updateNodeConfiguration(selectedNode.id, {
+                                config: { ...selectedNode.data.config, conditions: newConditions }
+                              });
+                            }}
+                            className="w-full px-2 py-1.5 bg-black/20 border border-white/10 rounded text-white text-xs"
+                            placeholder="Variable"
+                          />
+                        </div>
+
+                        {/* Operator & Value */}
+                        <div className="grid grid-cols-2 gap-2">
+                          <div>
+                            <label className="block text-[10px] text-white/50 mb-1">Operator</label>
+                            <select
+                              value={condition.operator || "equals"}
+                              onChange={(e) => {
+                                const newConditions = [...(selectedNode.data.config?.conditions || [])];
+                                newConditions[index] = { ...newConditions[index], operator: e.target.value };
+                                updateNodeConfiguration(selectedNode.id, {
+                                  config: { ...selectedNode.data.config, conditions: newConditions }
+                                });
+                              }}
+                              className="w-full px-2 py-1.5 bg-black/20 border border-white/10 rounded text-white text-xs"
+                            >
+                              <option value="equals">==</option>
+                              <option value="not_equals">!=</option>
+                              <option value="contains">Contains</option>
+                              <option value="not_contains">Not Contains</option>
+                              <option value="greater_than">&gt;</option>
+                              <option value="less_than">&lt;</option>
+                              <option value="exists">Exists</option>
+                            </select>
+                          </div>
+                          <div>
+                            <label className="block text-[10px] text-white/50 mb-1">Value</label>
+                            <input
+                              type="text"
+                              value={condition.value || ""}
+                              onChange={(e) => {
+                                const newConditions = [...(selectedNode.data.config?.conditions || [])];
+                                newConditions[index] = { ...newConditions[index], value: e.target.value };
+                                updateNodeConfiguration(selectedNode.id, {
+                                  config: { ...selectedNode.data.config, conditions: newConditions }
+                                });
+                              }}
+                              className="w-full px-2 py-1.5 bg-black/20 border border-white/10 rounded text-white text-xs"
+                              placeholder="Value"
+                            />
+                          </div>
+                        </div>
+
+                        {/* Target Node */}
+                        <div>
+                          <label className="block text-[10px] text-white/50 mb-1">Then Go To</label>
+                          <select
+                            value={condition.next_node_id || ""}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              const newConditions = [...(selectedNode.data.config?.conditions || [])];
+                              newConditions[index] = { ...newConditions[index], next_node_id: val === "" ? null : val };
+                              updateNodeConfiguration(selectedNode.id, {
+                                config: { ...selectedNode.data.config, conditions: newConditions }
+                              });
+                            }}
+                            className="w-full px-2 py-1.5 bg-black/20 border border-white/10 rounded text-white text-xs"
+                          >
+                            <option value="">-- Select Node --</option>
+                            {nodes
+                              .filter((n) => n.id !== selectedNode.id)
+                              .map((node) => (
+                                <option key={node.id} value={node.id}>
+                                  {node.data.label || node.data.name || `Node ${node.id}`}
+                                </option>
+                              ))}
+                          </select>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                  
+                  {(!selectedNode.data.config?.conditions || selectedNode.data.config.conditions.length === 0) && (
+                     <div className="text-center py-4 text-white/30 text-xs italic border border-dashed border-white/10 rounded">
+                       No conditions added.
+                       <br/>
+                       Will always use Fallback.
+                     </div>
+                  )}
+                </div>
+              </div>
+            )}
 
               {/* Entity Node Configuration */}
               {selectedNode.data.nodeType === "entity" && (
@@ -2091,6 +2736,96 @@ function FlowCanvas({
                       placeholder="email, phone, date, etc."
                     />
                   </div>
+                  
+                  {/* UI Options (Buttons) */}
+                  <div className="pt-3 border-t border-white/10">
+                     <div className="flex justify-between items-center mb-2">
+                       <label className="text-xs font-semibold text-white/90">User Interface Options</label>
+                       <button
+                         onClick={() => {
+                            const currentOptions = selectedNode.data.config?.ui_options || [];
+                            updateNodeConfiguration(selectedNode.id, {
+                              config: {
+                                ...selectedNode.data.config,
+                                ui_options: [
+                                  ...currentOptions,
+                                  { label: `Option ${currentOptions.length + 1}`, value: `value_${currentOptions.length + 1}` }
+                                ]
+                              }
+                            });
+                         }}
+                         className="text-[10px] bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 px-2 py-1 rounded border border-purple-500/30 transition-colors"
+                       >
+                         + Add Button
+                       </button>
+                     </div>
+                     
+                     <div className="mb-3">
+                       <label className="block text-[10px] text-white/50 mb-1">Prompt Message (Optional)</label>
+                       <input
+                         type="text"
+                         value={selectedNode.data.config?.prompt || ""}
+                         onChange={(e) => {
+                           updateNodeConfiguration(selectedNode.id, {
+                             config: { ...selectedNode.data.config, prompt: e.target.value }
+                           });
+                         }}
+                         className="w-full px-2 py-1.5 bg-black/20 border border-white/10 rounded text-white text-xs"
+                         placeholder="e.g. Please select a category..."
+                       />
+                     </div>
+
+                     <div className="space-y-2">
+                       {(selectedNode.data.config?.ui_options || []).map((option: any, index: number) => (
+                         <div key={index} className="flex gap-2 items-center">
+                           <input
+                             type="text"
+                             value={option.label || ""}
+                             onChange={(e) => {
+                               const newOptions = [...(selectedNode.data.config?.ui_options || [])];
+                               newOptions[index] = { ...newOptions[index], label: e.target.value };
+                               updateNodeConfiguration(selectedNode.id, {
+                                 config: { ...selectedNode.data.config, ui_options: newOptions }
+                               });
+                             }}
+                             className="flex-1 px-2 py-1 bg-white/5 border border-white/10 rounded text-white text-xs"
+                             placeholder="Label"
+                           />
+                           <input
+                             type="text"
+                             value={option.value || ""}
+                             onChange={(e) => {
+                               const newOptions = [...(selectedNode.data.config?.ui_options || [])];
+                               newOptions[index] = { ...newOptions[index], value: e.target.value };
+                               updateNodeConfiguration(selectedNode.id, {
+                                 config: { ...selectedNode.data.config, ui_options: newOptions }
+                               });
+                             }}
+                             className="flex-1 px-2 py-1 bg-white/5 border border-white/10 rounded text-white text-xs"
+                             placeholder="Value"
+                           />
+                           <button
+                             onClick={() => {
+                               const newOptions = [...(selectedNode.data.config?.ui_options || [])];
+                               newOptions.splice(index, 1);
+                               updateNodeConfiguration(selectedNode.id, {
+                                 config: { ...selectedNode.data.config, ui_options: newOptions }
+                               });
+                             }}
+                             className="text-white/20 hover:text-red-400 p-1"
+                           >
+                             ×
+                           </button>
+                         </div>
+                       ))}
+                       {(!selectedNode.data.config?.ui_options || selectedNode.data.config.ui_options.length === 0) && (
+                         <div className="text-[10px] text-white/30 italic text-center py-2">
+                           No buttons configured. Node will use purely LLM extraction.
+                         </div>
+                       )}
+                     </div>
+                  </div>
+
                   <div>
                     <label className="block text-xs text-white/70 mb-1">Extraction Pattern (Regex)</label>
                     <input

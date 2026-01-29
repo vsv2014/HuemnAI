@@ -109,6 +109,27 @@ export default function RichMessage({ message }: RichMessageProps) {
       );
     }
 
+    // Handle generic options/buttons (from Entity Node or Question Node)
+    if (data.options || data.ui_options) {
+      const options = data.options || data.ui_options;
+      return (
+        <div className="space-y-3">
+           <div className="whitespace-pre-wrap">{text}</div>
+           <div className="flex flex-wrap gap-2 mt-2">
+             {options.map((option: any, idx: number) => (
+               <button
+                 key={idx}
+                 onClick={() => sendMessage(option.value || option.label)}
+                 className="px-4 py-2 bg-blue-500/20 hover:bg-blue-500/40 text-blue-200 border border-blue-500/40 rounded-full text-sm transition-all hover:scale-105 active:scale-95"
+               >
+                 {option.label}
+               </button>
+             ))}
+           </div>
+        </div>
+      );
+    }
+
     if (data.type === "SHORTLIST" || (data.action === "shortlist" && data.candidates)) {
       return (
         <div className="space-y-3">
@@ -469,4 +490,3 @@ export default function RichMessage({ message }: RichMessageProps) {
     </div>
   );
 }
-

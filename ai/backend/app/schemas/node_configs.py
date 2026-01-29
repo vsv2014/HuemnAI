@@ -13,6 +13,12 @@ class BaseNodeConfig(BaseModel):
     class Config:
         extra = "allow"  # Allow extra fields for forward compatibility
 
+class StartNodeConfig(BaseNodeConfig):
+    message: Optional[str] = Field("Hello! How can I help you?", description="Welcome message")
+    trigger_type: str = Field("message", description="Trigger type: message, webhook, schedule, manual")
+    input_variables: Optional[List[Dict[str, str]]] = Field(default_factory=list, description="Expected input variables")
+    initial_context: Optional[Dict[str, Any]] = Field(default_factory=dict, description="Initial context values")
+
 class AiRagConfig(BaseNodeConfig):
     knowledge_base_id: Optional[str] = Field(None, description="ID of the knowledge base to search")
     query: str = Field(..., description="Query string for retrieval")
@@ -71,3 +77,4 @@ register_node_config("email_processor", EmailProcessorConfig)
 register_node_config("notification", NotificationConfig)
 register_node_config("calendar", CalendarConfig)
 register_node_config("streaming", StreamingConfig)
+register_node_config("start", StartNodeConfig)

@@ -35,7 +35,7 @@ async def get_subscribed_tools(
 @router.get("/widget/embed.js", response_class=HTMLResponse)
 async def get_embed_script():
     """Return JavaScript embed script for third-party tools"""
-    api_base = "http://127.0.0.1:8001"  # In production, use environment variable
+    api_base = "http://127.0.0.1:8000"  # In production, use environment variable
     frontend_base = "http://localhost:3000"  # In production, use environment variable
     
     script = f"""

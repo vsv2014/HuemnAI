@@ -1,4 +1,4 @@
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "http://127.0.0.1:8001";
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "http://127.0.0.1:8000";
 
 // Helper function to handle fetch with error handling
 async function safeFetch(url: string, options?: RequestInit) {
@@ -26,9 +26,9 @@ async function safeFetch(url: string, options?: RequestInit) {
     console.error(`Fetch error for ${url}:`, error);
     // Check if it's a network error (backend not running)
     if (error instanceof TypeError && error.message.includes('fetch')) {
-      console.error('Backend server may not be running. Check http://127.0.0.1:8001');
+      console.error('Backend server may not be running. Check http://127.0.0.1:8000');
       return { 
-        error: "Cannot connect to backend server. Please ensure the backend is running on port 8001.",
+        error: "Cannot connect to backend server. Please ensure the backend is running on port 8000.",
         type: "NETWORK_ERROR"
       };
     }
@@ -1129,6 +1129,24 @@ export async function deleteConnection(connectionId: number, token: string) {
       "Content-Type": "application/json",
       "Authorization": `Bearer ${token}`,
     },
+  });
+}
+
+export async function updateConnection(connectionId: number, data: {
+  condition?: Record<string, any>;
+  priority?: number;
+  label?: string;
+}, token: string) {
+  if (!token) {
+    return { error: "No authentication token" };
+  }
+  return safeFetch(`${API_BASE}/api/agents/connections/${connectionId}`, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${token}`,
+    },
+    body: JSON.stringify(data),
   });
 }
 
