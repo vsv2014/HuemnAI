@@ -304,6 +304,22 @@ const CustomEdge = ({
   const sourceNode = useStore(useCallback((store) => store.nodeInternals.get(source), [source]));
   const targetNode = useStore(useCallback((store) => store.nodeInternals.get(target), [target]));
   const { deleteElements } = useReactFlow();
+  const [isHovered, setIsHovered] = useState(false);
+  const hoverTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  const onMouseEnter = () => {
+    if (hoverTimerRef.current) {
+      clearTimeout(hoverTimerRef.current);
+      hoverTimerRef.current = null;
+    }
+    setIsHovered(true);
+  };
+
+  const onMouseLeave = () => {
+    hoverTimerRef.current = setTimeout(() => {
+      setIsHovered(false);
+    }, 300); // Small delay to allow moving to the button
+  };
 
   if (!sourceNode || !targetNode) {
     return null;
@@ -321,20 +337,44 @@ const CustomEdge = ({
   });
 
   // Extract color from markerEnd or style, fallback to default
-  // This ensures consistency between the arrow (marker) and the path (wire)
   const strokeColor = (markerEnd as any)?.color || style.stroke || '#60a5fa';
+
+  const showDeleteButton = selected || isHovered || sourceNode?.selected || targetNode?.selected;
 
   return (
     <>
+      {/* Interaction Path - Invisible but clickable (Wide hit area) */}
+      <path
+        d={edgePath}
+        strokeWidth={20} // Reduced from 30 to prevent overlap masking
+        stroke="rgba(0, 0, 0, 0.01)" // Slightly more opacity to ensure hit-testing
+        fill="none"
+        className="react-flow__edge-interaction"
+        style={{ cursor: 'pointer', pointerEvents: 'stroke' }} // Only capture stroke events
+        onMouseEnter={onMouseEnter}
+        onMouseLeave={onMouseLeave}
+        onContextMenu={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          if (confirm('Delete this connection?')) {
+            deleteElements({ edges: [{ id }] });
+          }
+        }}
+      />
+
+      {/* Visible Path */}
       <path
         id={id}
         style={{ 
           ...style, 
-          stroke: strokeColor, // Explicitly enforce stroke color in style
-          strokeWidth: 3,
-          filter: `drop-shadow(0 0 8px ${strokeColor})`
+          stroke: strokeColor,
+          strokeWidth: showDeleteButton ? 4 : 2,
+          filter: showDeleteButton ? `drop-shadow(0 0 8px ${strokeColor})` : 'none',
+          cursor: 'pointer',
+          pointerEvents: 'none', // Let clicks pass through to the interaction path
         }}
-        stroke={strokeColor} // Also set as SVG attribute for backup
+        stroke={strokeColor}
+        fill="none"
         className="react-flow__edge-path"
         d={edgePath}
         markerEnd={markerEnd}
@@ -342,7 +382,7 @@ const CustomEdge = ({
       
       {/* Continuous Particle Stream */}
       {/* Particle 1 */}
-      <circle r="3" fill={strokeColor} className="particle-flow">
+      <circle r="3" fill={strokeColor} className="particle-flow" style={{ pointerEvents: 'none' }}>
         <animateMotion dur="3s" repeatCount="indefinite" path={edgePath} begin="0s" calcMode="linear">
           <mpath href={`#${id}`} />
         </animateMotion>
@@ -350,7 +390,7 @@ const CustomEdge = ({
       </circle>
 
       {/* Particle 2 - Delayed */}
-      <circle r="3" fill={strokeColor} className="particle-flow">
+      <circle r="3" fill={strokeColor} className="particle-flow" style={{ pointerEvents: 'none' }}>
         <animateMotion dur="3s" repeatCount="indefinite" path={edgePath} begin="-1s" calcMode="linear">
           <mpath href={`#${id}`} />
         </animateMotion>
@@ -358,15 +398,15 @@ const CustomEdge = ({
       </circle>
 
       {/* Particle 3 - Delayed */}
-      <circle r="3" fill={strokeColor} className="particle-flow">
+      <circle r="3" fill={strokeColor} className="particle-flow" style={{ pointerEvents: 'none' }}>
         <animateMotion dur="3s" repeatCount="indefinite" path={edgePath} begin="-2s" calcMode="linear">
           <mpath href={`#${id}`} />
         </animateMotion>
         <animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.1;0.9;1" dur="3s" repeatCount="indefinite" begin="-2s" />
       </circle>
       
-      {/* Delete Button - Only visible when selected */}
-      {selected && (
+      {/* Delete Button - Visible when selected OR hovered OR connected nodes are selected */}
+      {showDeleteButton && (
         <EdgeLabelRenderer>
           <div
             style={{
@@ -376,9 +416,11 @@ const CustomEdge = ({
               zIndex: 1000,
             }}
             className="nodrag nopan"
+            onMouseEnter={onMouseEnter}
+            onMouseLeave={onMouseLeave}
           >
             <button
-              className="bg-red-500 hover:bg-red-600 text-white rounded-full w-6 h-6 flex items-center justify-center text-xs shadow-lg transition-transform hover:scale-110 border border-white/20"
+              className="bg-red-500 hover:bg-red-600 text-white rounded-full w-8 h-8 flex items-center justify-center text-sm shadow-lg transition-transform hover:scale-110 border border-white/20"
               onClick={(event) => {
                 event.stopPropagation();
                 if (confirm('Delete this connection?')) {
@@ -525,7 +567,9 @@ function FlowCanvas({
         type: "smoothstep",
         animated: true,
         deletable: true,
-        style: { stroke: nodeColor, strokeWidth: 2 },
+        updatable: true, // Allow dragging to disconnect/reconnect
+        interactionWidth: 30, // Make edge easier to click
+        style: { stroke: nodeColor, strokeWidth: 2, cursor: 'pointer' },
         markerEnd: { type: MarkerType.ArrowClosed, color: nodeColor },
       };
     });
@@ -619,26 +663,32 @@ function FlowCanvas({
 
   // Delete connection/edge
   const handleDeleteConnection = useCallback(
-    async (edgeId: string) => {
+    async (edgeId: string, edgeObj?: any) => {
     if (!token) return;
     
-      const edge = edges.find((e) => e.id === edgeId);
-      if (!edge) return;
+      const edge = edgeObj || edges.find((e) => e.id === edgeId);
+      if (!edge) {
+        console.warn("Could not find edge to delete:", edgeId);
+        // Try to delete from UI anyway if we have an ID
+        setEdges((eds) => eds.filter((e) => e.id !== edgeId));
+        return;
+      }
 
-      if (!confirm("Delete this connection?")) return;
+      // Note: Confirmation should be handled by the caller
 
       try {
-        // If edge has a backend ID, delete from backend
-        if (edge.data?.backendId) {
-          await deleteConnection(edge.data.backendId, token);
-        }
-        
-        // Remove from ReactFlow
+        // Optimistically remove from UI first
         setEdges((eds) => eds.filter((e) => e.id !== edgeId));
         setSelectedEdge(null);
+
+        // If edge has a backend ID, delete from backend
+        if (edge.data?.backendId) {
+          await deleteConnection(edge.data.backendId, token).catch(err => {
+             console.error("Backend delete warning:", err);
+          });
+        }
       } catch (err) {
         console.error("Error deleting connection:", err);
-        alert("Failed to delete connection");
       }
     },
     [token, edges, setEdges]
@@ -834,7 +884,9 @@ function FlowCanvas({
           type: "smoothstep",
           animated: true,
           deletable: true,
-          style: { stroke: nodeColor, strokeWidth: 2 },
+          updatable: true, // Allow dragging to disconnect/reconnect
+          interactionWidth: 30, // Make edge easier to click
+          style: { stroke: nodeColor, strokeWidth: 2, cursor: 'pointer' },
           markerEnd: { type: MarkerType.ArrowClosed, color: nodeColor },
         };
 
@@ -856,6 +908,48 @@ function FlowCanvas({
     [token, agentId, edges, setEdges]
   );
 
+  // Handle edge updates (reconnect)
+  const onEdgeUpdate = useCallback(
+    async (oldEdge: Edge, newConnection: Connection) => {
+      if (!token) return;
+
+      // If source and target are same, return
+      if (oldEdge.source === newConnection.source && oldEdge.target === newConnection.target) {
+        return;
+      }
+
+      // Delete old connection
+      if (oldEdge.data?.backendId) {
+        await deleteConnection(oldEdge.data.backendId, token);
+      }
+      
+      // Remove old edge from UI immediately to avoid flickering
+      setEdges((eds) => eds.filter((e) => e.id !== oldEdge.id));
+
+      // Create new connection
+      onConnect(newConnection);
+    },
+    [token, setEdges, onConnect]
+  );
+
+  // Handle edge update end (disconnect by dragging away)
+  const onEdgeUpdateEnd = useCallback(
+    async (_: any, edge: Edge) => {
+      if (!token) return;
+      
+      // onEdgeUpdateEnd is called if the user drops the handle outside a valid handle.
+      if (confirm("Disconnect this connection?")) {
+         // Delete edge
+         setEdges((eds) => eds.filter((e) => e.id !== edge.id));
+         if (edge.data?.backendId) {
+            await deleteConnection(edge.data.backendId, token);
+         }
+         setSelectedEdge(null);
+      }
+    },
+    [token, setEdges]
+  );
+
   // Delete node
   const handleDeleteNode = useCallback(
     async (nodeId: string) => {
@@ -875,11 +969,13 @@ function FlowCanvas({
 
   // Test panel handlers
   useEffect(() => {
-    if (showTestPanel && agent?.welcome_message) {
+    if (showTestPanel && testMessages.length === 0) {
+      const welcomeMsg = agent?.welcome_message || "Hello! I'm your AI assistant. How can I help you?";
+      console.log("✅ Setting welcome message:", welcomeMsg);
       setTestMessages([
         {
           role: "assistant",
-          content: agent.welcome_message,
+          content: welcomeMsg,
           timestamp: new Date(),
         },
       ]);
@@ -945,34 +1041,30 @@ function FlowCanvas({
   };
 
   const handleTestClear = () => {
-    setTestMessages([]);
     setTestSessionId(null);
     setDebugTrace([]);
-    if (agent?.welcome_message) {
-      setTestMessages([
-        {
-          role: "assistant",
-          content: agent.welcome_message,
-          timestamp: new Date(),
-        },
-      ]);
-    }
+    const welcomeMsg = agent?.welcome_message || "Hello! I'm your AI assistant. How can I help you?";
+    setTestMessages([
+      {
+        role: "assistant",
+        content: welcomeMsg,
+        timestamp: new Date(),
+      },
+    ]);
   };
 
   const handleTestRefresh = () => {
-    setTestMessages([]);
     setTestSessionId(null);
     setDebugTrace([]);
     setTestInput("");
-    if (agent?.welcome_message) {
-      setTestMessages([
-        {
-          role: "assistant",
-          content: agent.welcome_message,
-          timestamp: new Date(),
-        },
-      ]);
-    }
+    const welcomeMsg = agent?.welcome_message || "Hello! I'm your AI assistant. How can I help you?";
+    setTestMessages([
+      {
+        role: "assistant",
+        content: welcomeMsg,
+        timestamp: new Date(),
+      },
+    ]);
   };
 
   const handleRedirectToCall = async () => {
@@ -1037,6 +1129,14 @@ function FlowCanvas({
           onNodesChange={handleNodesChange}
           onEdgesChange={handleEdgesChange}
           onConnect={onConnect}
+          onEdgeUpdate={onEdgeUpdate}
+          onEdgeUpdateEnd={onEdgeUpdateEnd}
+          onEdgeContextMenu={(e, edge) => {
+             e.preventDefault();
+             if (confirm("Delete this connection?")) {
+               handleDeleteConnection(edge.id, edge);
+             }
+          }}
           onNodeDoubleClick={(_, node) => {
             setConnectingSourceId(node.id);
             setSelectedNode(null); // Close details to focus on connecting
@@ -1093,7 +1193,7 @@ function FlowCanvas({
           connectionRadius={30}
           snapToGrid={false}
           snapGrid={[15, 15]}
-          deleteKeyCode="Delete"
+          deleteKeyCode={["Delete", "Backspace"]}
           selectNodesOnDrag={false}
         >
           <Background 
@@ -1179,7 +1279,11 @@ function FlowCanvas({
 
             <div className="flex gap-2 pt-4 border-t border-white/10">
               <button
-                onClick={() => handleDeleteConnection(selectedEdge.id)}
+                onClick={() => {
+                  if (confirm("Delete this connection?")) {
+                    handleDeleteConnection(selectedEdge.id, selectedEdge);
+                  }
+                }}
                 className="flex-1 px-4 py-2 bg-red-500/20 hover:bg-red-500/30 text-red-300 rounded-lg transition-colors font-semibold"
               >
                 🗑️ Delete Connection
@@ -1188,7 +1292,7 @@ function FlowCanvas({
 
             <div className="p-3 bg-blue-500/10 border border-blue-500/20 rounded-lg">
                 <p className="text-xs text-blue-300">
-                  💡 <strong>Tip:</strong> You can also press <kbd className="px-2 py-1 bg-white/10 rounded">Delete</kbd> key to remove this connection.
+                  💡 <strong>Tip:</strong> You can also press <kbd className="px-2 py-1 bg-white/10 rounded">Delete</kbd> or <kbd className="px-2 py-1 bg-white/10 rounded">Backspace</kbd> key to remove this connection.
                 </p>
               </div>
             </div>
@@ -1869,7 +1973,26 @@ function FlowCanvas({
                 <h4 className="text-sm font-semibold text-white mb-3">Condition Logic</h4>
                 <div className="space-y-3">
                   <div>
-                    <label className="block text-xs text-white/70 mb-1">Variable Name</label>
+                    <div className="flex justify-between items-center mb-1">
+                      <label className="block text-xs text-white/70">Variable Name</label>
+                      <select 
+                        className="text-[10px] bg-white/10 border border-white/10 rounded px-1 py-0.5 text-white/80 focus:outline-none focus:border-blue-500"
+                        onChange={(e) => {
+                          if (e.target.value) {
+                            updateNodeConfiguration(selectedNode.id, {
+                              config: { ...selectedNode.data.config, variable: e.target.value }
+                            });
+                          }
+                        }}
+                        value=""
+                      >
+                        <option value="">Quick Insert...</option>
+                        <option value="last_user_message">Last User Message</option>
+                        <option value="intent">Detected Intent</option>
+                        <option value="user_id">User ID</option>
+                        <option value="session_id">Session ID</option>
+                      </select>
+                    </div>
                     <input
                       type="text"
                       value={selectedNode.data.config?.variable || ""}
@@ -1879,8 +2002,11 @@ function FlowCanvas({
                         });
                       }}
                       className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm"
-                      placeholder="user_input, entity_value, etc."
+                      placeholder="e.g. last_user_message, intent"
                     />
+                    <p className="text-[10px] text-white/40 mt-1">
+                      The name of the variable to check in the context.
+                    </p>
                   </div>
                   <div>
                     <label className="block text-xs text-white/70 mb-1">Operator</label>
@@ -1916,6 +2042,31 @@ function FlowCanvas({
                       className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm"
                       placeholder="Expected value"
                     />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-white/70 mb-1">Fallback Node (On False)</label>
+                    <select
+                      value={selectedNode.data.config?.fallback_node_id || ""}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        updateNodeConfiguration(selectedNode.id, {
+                          config: { ...selectedNode.data.config, fallback_node_id: val === "" ? null : val }
+                        });
+                      }}
+                      className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm"
+                    >
+                      <option value="">-- No Fallback (Stop/Default) --</option>
+                      {nodes
+                        .filter((n) => n.id !== selectedNode.id)
+                        .map((node) => (
+                          <option key={node.id} value={node.id}>
+                            {node.data.label || node.data.name || `Node ${node.id}`} ({node.data.nodeType})
+                          </option>
+                        ))}
+                    </select>
+                    <p className="text-[10px] text-white/40 mt-1">
+                      If condition fails, execution will jump to this node.
+                    </p>
                   </div>
                   </div>
                 </div>

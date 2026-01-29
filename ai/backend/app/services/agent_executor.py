@@ -589,7 +589,12 @@ class AgentExecutor:
         
         # Determine next node
         next_node_id = result.get("next_node_id")
-        if not next_node_id:
+        
+        # Check if we should skip default connection lookup
+        # This is useful for Condition nodes that evaluate to False and have no fallback
+        prevent_default = result.get("prevent_default_connection", False)
+        
+        if not next_node_id and not prevent_default:
             # Find next node from connections
             next_node_id = await self._get_next_node(agent_id, node_id, context)
         
@@ -897,29 +902,78 @@ Return only the intent name that best matches."""
         
         # Evaluate conditions
         evaluated_conditions = []
-        for condition in conditions:
-            condition_result = self._evaluate_condition(condition, context)
-            evaluated_conditions.append({
-                "name": condition.get("name", "Unnamed"),
-                "field": condition.get("field"),
-                "operator": condition.get("operator"),
-                "value": condition.get("value"),
-                "matched": condition_result
-            })
-            if condition_result:
-                return {
-                    "response": "",
-                    "next_node_id": condition.get("next_node_id"),
-                    "context": context,
-                    "metadata": {
-                        "matched_condition": condition.get("name"),
-                        "condition_field": condition.get("field"),
-                        "condition_value": condition.get("value"),
-                        "evaluated_conditions": evaluated_conditions
-                    }
-                }
         
-        # No condition matched, use default
+        if conditions:
+            # List Mode (Advanced)
+            for condition in conditions:
+                condition_result = self._evaluate_condition(condition, context)
+                evaluated_conditions.append({
+                    "name": condition.get("name", "Unnamed"),
+                    "field": condition.get("field"),
+                    "operator": condition.get("operator"),
+                    "value": condition.get("value"),
+                    "matched": condition_result
+                })
+                if condition_result:
+                    return {
+                        "response": "",
+                        "next_node_id": condition.get("next_node_id"),
+                        "context": context,
+                        "metadata": {
+                            "matched_condition": condition.get("name"),
+                            "condition_field": condition.get("field"),
+                            "condition_value": condition.get("value"),
+                            "evaluated_conditions": evaluated_conditions
+                        }
+                    }
+        else:
+            # Single Condition Mode (Simple UI)
+            variable = config.get("variable")
+            if variable:
+                single_condition = {
+                    "field": variable,
+                    "operator": config.get("operator", "equals"),
+                    "value": config.get("value")
+                }
+                is_match = self._evaluate_condition(single_condition, context)
+                evaluated_conditions.append({
+                    "name": "Main Condition",
+                    "field": variable,
+                    "operator": config.get("operator"),
+                    "value": config.get("value"),
+                    "matched": is_match
+                })
+                
+                if is_match:
+                    # Condition Matched!
+                    # Return next_node_id=None so it follows the "Success" visual connection
+                    return {
+                        "response": "",
+                        "next_node_id": None, 
+                        "context": context,
+                        "metadata": {
+                            "matched_condition": "True",
+                            "evaluated_conditions": evaluated_conditions
+                        }
+                    }
+                else:
+                    # Condition Failed!
+                    # Check for fallback node
+                    fallback_node_id = config.get("fallback_node_id")
+                    
+                    return {
+                        "response": "",
+                        "next_node_id": fallback_node_id, # If None, execution stops (due to prevent_default_connection)
+                        "prevent_default_connection": True, # Crucial! Don't follow success path
+                        "context": context,
+                        "metadata": {
+                            "matched_condition": "False",
+                            "evaluated_conditions": evaluated_conditions,
+                            "fallback_used": bool(fallback_node_id)
+                        }
+                    }
+        
+        # No condition matched (List Mode Fallback)
         default_node = config.get("default_node_id")
         
         return {
