@@ -304,6 +304,120 @@ export async function getAuditLogs(
   });
 }
 
+/* ---------------- MISSING EXPORTS (Added for Build Fix) ---------------- */
+
+export async function getGenAIFeatures(agentId: string | number, token: string) {
+  if (!token) return { error: "No authentication token" };
+  return safeFetch(`${API_BASE}/api/agents/${agentId}/genai/features`, {
+    headers: { "Authorization": `Bearer ${token}` }
+  });
+}
+
+export async function getModels(token: string) {
+  if (!token) return { error: "No authentication token" };
+  return safeFetch(`${API_BASE}/api/llm/models`, {
+    headers: { "Authorization": `Bearer ${token}` }
+  });
+}
+
+export async function getPrompts(agentId: string | number, token: string) {
+  if (!token) return { error: "No authentication token" };
+  return safeFetch(`${API_BASE}/api/agents/${agentId}/genai/prompts`, {
+    headers: { "Authorization": `Bearer ${token}` }
+  });
+}
+
+export async function getGuardrails(agentId: string | number, token: string) {
+  if (!token) return { error: "No authentication token" };
+  return safeFetch(`${API_BASE}/api/agents/${agentId}/genai/safeguards`, {
+    headers: { "Authorization": `Bearer ${token}` }
+  });
+}
+
+export async function redirectChatToCall(agentId: string | number, conversationId: string | number, token: string) {
+  if (!token) return { error: "No authentication token" };
+  return safeFetch(`${API_BASE}/api/agents/${agentId}/conversations/${conversationId}/redirect-to-call`, {
+    method: "POST",
+    headers: { "Authorization": `Bearer ${token}` }
+  });
+}
+
+export async function getChangeLogs(agentId: string | number, token: string) {
+  if (!token) return { error: "No authentication token" };
+  return safeFetch(`${API_BASE}/api/agents/${agentId}/changelogs`, {
+    headers: { "Authorization": `Bearer ${token}` }
+  });
+}
+
+export async function getIntegrations(agentId: string | number, token: string) {
+  if (!token) return { error: "No authentication token" };
+  return safeFetch(`${API_BASE}/api/agents/${agentId}/integrations`, {
+    headers: { "Authorization": `Bearer ${token}` }
+  });
+}
+
+export async function getLanguages(agentId: string | number, token: string) {
+  if (!token) return { error: "No authentication token" };
+  return safeFetch(`${API_BASE}/api/agents/${agentId}/languages`, {
+    headers: { "Authorization": `Bearer ${token}` }
+  });
+}
+
+export async function updateLanguage(agentId: string | number, languageData: any, token: string) {
+  if (!token) return { error: "No authentication token" };
+  return safeFetch(`${API_BASE}/api/agents/${agentId}/languages`, {
+    method: "PUT",
+    headers: {
+      "Authorization": `Bearer ${token}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(languageData)
+  });
+}
+
+export async function updateAgentProfile(agentId: string | number, profileData: any, token: string) {
+  if (!token) return { error: "No authentication token" };
+  return safeFetch(`${API_BASE}/api/agents/${agentId}/profile`, {
+    method: "PUT",
+    headers: {
+      "Authorization": `Bearer ${token}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(profileData)
+  });
+}
+
+export async function getVariables(agentId: string | number, token: string) {
+  if (!token) return { error: "No authentication token" };
+  return safeFetch(`${API_BASE}/api/agents/${agentId}/variables`, {
+    headers: { "Authorization": `Bearer ${token}` }
+  });
+}
+
+export async function getRoles(agentId: string | number, token: string) {
+  if (!token) return { error: "No authentication token" };
+  return safeFetch(`${API_BASE}/api/agents/${agentId}/roles`, {
+    headers: { "Authorization": `Bearer ${token}` }
+  });
+}
+
+export async function getEligibleEmployees(token: string) {
+  if (!token) return { error: "No authentication token" };
+  return safeFetch(`${API_BASE}/api/hr/employees/eligible`, {
+    headers: { "Authorization": `Bearer ${token}` }
+  });
+}
+
+export async function submitDemoRequest(data: any) {
+  return safeFetch(`${API_BASE}/api/demo-request`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(data)
+  });
+}
+
 /* ---------------- TICKET ASSIGNER ---------------- */
 
 export async function getPendingTickets(token: string) {
@@ -328,6 +442,55 @@ export async function assignTicket(ticketId: number, userId: number, token: stri
 export async function autoAssignTicket(ticketId: number, token: string) {
   if (!token) return { error: "No authentication token" };
   return safeFetch(`${API_BASE}/api/ticket-assigner/auto-assign/${ticketId}`, {
+    method: "POST",
+    headers: { "Authorization": `Bearer ${token}` }
+  });
+}
+
+export async function exportAuditLogs(token: string, format: string) {
+  if (!token) return { error: "No authentication token" };
+  // Stub implementation
+  return safeFetch(`${API_BASE}/api/audit/export?format=${format}`, {
+    headers: { "Authorization": `Bearer ${token}` }
+  });
+}
+
+export async function getShadowEvaluations(token: string) {
+  if (!token) return { error: "No authentication token" };
+  // Stub implementation
+  return safeFetch(`${API_BASE}/api/evaluations/shadow`, {
+    headers: { "Authorization": `Bearer ${token}` }
+  });
+}
+
+export async function getAllAgentsAdmin(token: string) {
+  if (!token) return { error: "No authentication token" };
+  // Stub implementation
+  return safeFetch(`${API_BASE}/api/admin/agents`, {
+    headers: { "Authorization": `Bearer ${token}` }
+  });
+}
+
+export async function getTrace(id: string, token: string) {
+  if (!token) return { error: "No authentication token" };
+  // Stub implementation
+  return safeFetch(`${API_BASE}/api/traces/${id}`, {
+    headers: { "Authorization": `Bearer ${token}` }
+  });
+}
+
+export async function getVersions(agentId: string, token: string) {
+  if (!token) return { error: "No authentication token" };
+  // Stub implementation
+  return safeFetch(`${API_BASE}/api/agents/${agentId}/versions`, {
+    headers: { "Authorization": `Bearer ${token}` }
+  });
+}
+
+export async function publishVersion(agentId: string, versionId: string, token: string) {
+  if (!token) return { error: "No authentication token" };
+  // Stub implementation
+  return safeFetch(`${API_BASE}/api/agents/${agentId}/versions/${versionId}/publish`, {
     method: "POST",
     headers: { "Authorization": `Bearer ${token}` }
   });

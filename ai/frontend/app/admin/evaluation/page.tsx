@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, Suspense } from "react";
 import { useAuthStore } from "@/store/authStore";
 import { getShadowEvaluations } from "@/services/api";
 import { useSearchParams, useRouter } from "next/navigation";
@@ -21,7 +21,7 @@ interface EvaluationLog {
   created_at: string;
 }
 
-export default function ShadowEvaluationDashboard() {
+function EvaluationContent() {
   const { user, token, isAuthenticated } = useAuthStore();
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -189,5 +189,13 @@ export default function ShadowEvaluationDashboard() {
         )}
       </div>
     </div>
+  );
+}
+
+export default function ShadowEvaluationDashboard() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-black text-white p-8">Loading...</div>}>
+      <EvaluationContent />
+    </Suspense>
   );
 }

@@ -1,10 +1,10 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { queryKnowledge, recordActivity } from "../../services/api";
 
-export default function KnowledgePage() {
+function KnowledgeContent() {
   const searchParams = useSearchParams();
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<any[]>([]);
@@ -162,5 +162,13 @@ export default function KnowledgePage() {
         </div>
       )}
     </div>
+  );
+}
+
+export default function KnowledgePage() {
+  return (
+    <Suspense fallback={<div className="p-6 text-center">Loading knowledge base...</div>}>
+      <KnowledgeContent />
+    </Suspense>
   );
 }
