@@ -171,7 +171,14 @@ export default function StatusWidget() {
                     <span className="text-xl">
                       {getToolIcon(tool.tool_name)}
                     </span>
-                    <span className="text-white/80 text-sm flex-1">{tool.tool_display_name || tool.tool_name}</span>
+                    <div className="flex flex-col flex-1">
+                      <span className="text-white/80 text-sm">{tool.tool_display_name || tool.tool_name}</span>
+                      {tool.tokens_remaining !== undefined && (
+                        <span className="text-xs text-blue-300">
+                          {tool.tokens_remaining.toLocaleString()} tokens
+                        </span>
+                      )}
+                    </div>
                     {tool.status === "active" && (
                       <span className="px-2 py-0.5 bg-green-500/20 text-green-400 text-xs rounded-full">
                         Active

@@ -22,7 +22,7 @@ interface Plan {
 
 export default function PricingPage() {
   const router = useRouter();
-  const { token, isAuthenticated, subscriptionStatus, trialDaysRemaining } = useAuthStore();
+  const { token, isAuthenticated, subscriptionStatus, trialDaysRemaining, updateSubscriptionStatus, logout } = useAuthStore();
   const [plans, setPlans] = useState<Plan[]>([]);
   const [loading, setLoading] = useState(true);
   const [subscribing, setSubscribing] = useState<number | null>(null);
@@ -58,7 +58,9 @@ export default function PricingPage() {
   };
 
   const handleSubscribe = async (planId: number, billingPeriod: "monthly" | "yearly") => {
+    console.log("handleSubscribe called", planId, billingPeriod);
     if (!token) {
+      console.log("No token, redirecting to login");
       router.push("/auth/login");
       return;
     }
@@ -67,18 +69,45 @@ export default function PricingPage() {
     setError("");
 
     try {
+      console.log("Calling subscribe API...");
       const response = await subscribe(planId, billingPeriod, token);
+      console.log("Subscribe API response:", response);
       
       if (response.error) {
+        if (response.status === 401 || response.error.includes("Token expired")) {
+            console.log("Token expired, redirecting to login");
+            setSubscribing(null);
+            logout();
+            router.push("/auth/login");
+            return;
+        }
         setError(response.error || "Subscription failed");
         setSubscribing(null);
         return;
       }
 
+      // Check for Stripe checkout URL
+      if (response.checkout_url) {
+        window.location.href = response.checkout_url;
+        return;
+      }
+
       // Success - redirect to dashboard
-      alert(response.message || "Subscription successful!");
-      router.push("/");
+      // alert(response.message || "Subscription successful!");
+      
+      // Update store with new subscription status
+      if (response.subscription_status) {
+        updateSubscriptionStatus(
+          response.subscription_status, 
+          response.trial_days_remaining,
+          response.current_plan
+        );
+      }
+      
+      router.push("/payment/success");
     } catch (err: any) {
+      console.error("Subscription error:", err);
+      alert("Subscription failed: " + (err.message || "Unknown error"));
       setError(err.message || "Subscription failed");
       setSubscribing(null);
     }
@@ -86,14 +115,14 @@ export default function PricingPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-[#0b0f19]">
+      <div className="min-h-screen flex items-center justify-center bg-[#0b0f19] relative z-20">
         <div className="text-white text-xl">Loading plans...</div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-[#0b0f19] py-20 px-4">
+    <div className="min-h-screen bg-[#0b0f19] py-20 px-4 relative z-20">
       <div className="max-w-7xl mx-auto">
         {/* Header */}
         <div className="text-center mb-16">
@@ -127,9 +156,9 @@ export default function PricingPage() {
           {plans.map((plan) => (
             <div
               key={plan.id}
-              className={`bg-white/5 backdrop-blur-xl rounded-2xl p-8 border ${
+              className={`bg-white/5 backdrop-blur-xl rounded-2xl p-8 border relative z-10 ${
                 plan.name === "enterprise"
-                  ? "border-purple-500/50 ring-2 ring-purple-500/20 scale-105"
+                  ? "border-purple-500/50 ring-2 ring-purple-500/20 scale-105 z-20"
                   : plan.name === "professional"
                   ? "border-blue-500/50 ring-2 ring-blue-500/20"
                   : "border-white/10"
@@ -224,16 +253,19 @@ export default function PricingPage() {
                 {(plan.is_enterprise || plan.name === "enterprise" || plan.price_monthly === null || plan.price_monthly === undefined || plan.price_monthly === 0) ? (
                   <button
                     onClick={() => router.push("/demo-request")}
-                    className="w-full py-3 rounded-lg font-semibold transition-all bg-gradient-to-r from-purple-500 to-pink-600 text-white hover:from-purple-600 hover:to-pink-700"
+                    className="w-full py-3 rounded-lg font-semibold transition-all bg-gradient-to-r from-purple-500 to-pink-600 text-white hover:from-purple-600 hover:to-pink-700 cursor-pointer relative z-30"
                   >
                     Contact Us for Quotation
                   </button>
                 ) : (
                   <>
                     <button
-                      onClick={() => handleSubscribe(plan.id, "monthly")}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleSubscribe(plan.id, "monthly");
+                      }}
                       disabled={subscribing === plan.id}
-                      className={`w-full py-3 rounded-lg font-semibold transition-all ${
+                      className={`w-full py-3 rounded-lg font-semibold transition-all cursor-pointer relative z-30 ${
                         plan.is_popular
                           ? "bg-gradient-to-r from-blue-500 to-purple-600 text-white hover:from-blue-600 hover:to-purple-700"
                           : "bg-white/10 text-white hover:bg-white/20"
@@ -244,9 +276,12 @@ export default function PricingPage() {
                         : `Subscribe Monthly - $${plan.price_monthly?.toFixed(2) || "0.00"}/mo`}
                     </button>
                     <button
-                      onClick={() => handleSubscribe(plan.id, "yearly")}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleSubscribe(plan.id, "yearly");
+                      }}
                       disabled={subscribing === plan.id}
-                      className="w-full py-2 text-sm text-white/60 hover:text-white border border-white/10 rounded-lg hover:border-white/20 transition-all disabled:opacity-50"
+                      className="w-full py-2 text-sm text-white/60 hover:text-white border border-white/10 rounded-lg hover:border-white/20 transition-all disabled:opacity-50 cursor-pointer relative z-30"
                     >
                       {subscribing === plan.id
                         ? "Processing..."

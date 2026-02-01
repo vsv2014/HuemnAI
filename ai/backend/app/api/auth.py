@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, Depends, Request
+from fastapi import APIRouter, HTTPException, Depends, Request, BackgroundTasks
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel, EmailStr
 from typing import Optional
@@ -8,8 +8,9 @@ import secrets
 import jwt
 from sqlalchemy.orm import Session
 from app.db.session import get_db
-from app.db.models.subscription import UserAccount, SubscriptionPlan, Subscription, UserIntegration
+from app.db.models.subscription import UserAccount, SubscriptionPlan, Subscription, UserIntegration, UserToolSubscription
 from app.core.config import settings
+from app.services.email_service import send_welcome_email, send_login_notification_email, send_password_reset_email
 import logging
 
 logger = logging.getLogger(__name__)
@@ -32,11 +33,19 @@ class LoginRequest(BaseModel):
     password: str
     is_agent: Optional[bool] = False  # True for agent login (requires company email)
 
+class ForgotPasswordRequest(BaseModel):
+    email: EmailStr
+
+class ResetPasswordRequest(BaseModel):
+    token: str
+    new_password: str
+
 class AuthResponse(BaseModel):
     token: str
     user: dict
     subscription_status: str
     trial_days_remaining: Optional[int] = None
+    subscribed_tools: Optional[list] = None
 
 def hash_password(password: str) -> str:
     """Hash password using SHA256 (in production, use bcrypt)"""
@@ -46,17 +55,25 @@ def verify_password(password: str, password_hash: str) -> bool:
     """Verify password"""
     return hash_password(password) == password_hash
 
-def create_jwt_token(user_id: int, email: str, login_time: Optional[datetime] = None) -> str:
-    """Create JWT token with 8-hour expiry for security"""
-    if login_time is None:
-        login_time = datetime.utcnow()
+def create_jwt_token(user_id: int, email: str) -> str:
+    """Create JWT token with 24-hour expiry"""
+    login_time = datetime.utcnow()
     
-    # Token expires after 8 hours for security
+    # Token expires after 24 hours
     payload = {
         "user_id": user_id,
         "email": email,
-        "login_time": login_time.isoformat(),
-        "exp": login_time + timedelta(hours=8)  # 8-hour auto-logout
+        "exp": login_time + timedelta(hours=24)
+    }
+    return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
+
+def create_reset_token(email: str) -> str:
+    """Create password reset token with 30-minute expiry"""
+    reset_time = datetime.utcnow()
+    payload = {
+        "email": email,
+        "type": "password_reset",
+        "exp": reset_time + timedelta(minutes=30)
     }
     return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
 
@@ -64,21 +81,11 @@ def get_current_user(
     credentials: HTTPAuthorizationCredentials = Depends(security),
     db: Session = Depends(get_db)
 ) -> UserAccount:
-    """Get current authenticated user with 8-hour auto-logout check"""
+    """Get current authenticated user"""
     try:
         token = credentials.credentials
         payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
         user_id = payload.get("user_id")
-        login_time_str = payload.get("login_time")
-        
-        # Check if token is older than 8 hours
-        if login_time_str:
-            login_time = datetime.fromisoformat(login_time_str.replace('Z', '+00:00'))
-            if login_time.tzinfo is None:
-                login_time = login_time.replace(tzinfo=datetime.utcnow().tzinfo)
-            hours_since_login = (datetime.utcnow() - login_time.replace(tzinfo=None)).total_seconds() / 3600
-            if hours_since_login >= 8:
-                raise HTTPException(status_code=401, detail="Session expired. Please login again for security.")
         
         user = db.query(UserAccount).filter(UserAccount.id == user_id).first()
         if not user or not user.is_active:
@@ -86,8 +93,6 @@ def get_current_user(
         return user
     except jwt.ExpiredSignatureError:
         raise HTTPException(status_code=401, detail="Token expired. Please login again.")
-    except HTTPException:
-        raise
     except Exception as e:
         logger.error(f"Auth error: {e}")
         raise HTTPException(status_code=401, detail="Invalid token")
@@ -116,9 +121,39 @@ def get_client_ip(request: Request) -> str:
         return request.client.host
     return "unknown"
 
+import re
+
+def validate_password_complexity(password: str) -> None:
+    """
+    Validate password complexity:
+    - At least 8 characters
+    - At least one uppercase letter
+    - At least one lowercase letter
+    - At least one number
+    - At least one special character
+    """
+    if len(password) < 8:
+        raise HTTPException(status_code=400, detail="Password must be at least 8 characters long")
+    if not re.search(r"[A-Z]", password):
+        raise HTTPException(status_code=400, detail="Password must contain at least one uppercase letter")
+    if not re.search(r"[a-z]", password):
+        raise HTTPException(status_code=400, detail="Password must contain at least one lowercase letter")
+    if not re.search(r"\d", password):
+        raise HTTPException(status_code=400, detail="Password must contain at least one number")
+    if not re.search(r"[!@#$%^&*(),.?\":{}|<>]", password):
+        raise HTTPException(status_code=400, detail="Password must contain at least one special character")
+
 @router.post("/signup", response_model=AuthResponse)
-async def signup(signup_request: SignupRequest, db: Session = Depends(get_db), http_request: Request = None):
+async def signup(
+    signup_request: SignupRequest,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+    http_request: Request = None
+):
     """Sign up new user with free trial"""
+    # Validate password complexity
+    validate_password_complexity(signup_request.password)
+
     # Check if email already exists
     existing_user = db.query(UserAccount).filter(UserAccount.email == signup_request.email).first()
     if existing_user:
@@ -159,6 +194,28 @@ async def signup(signup_request: SignupRequest, db: Session = Depends(get_db), h
     db.add(user)
     db.commit()
     db.refresh(user)
+
+    # Initialize default tool subscriptions with free tokens
+    default_tools = [
+        ("agent-builder", "Agent Builder"),
+        ("customer-service", "Customer Service"),
+        ("hr-services", "HR Services"),
+        ("knowledge-ai", "Knowledge AI"),
+        ("analytics-dashboard", "Analytics Dashboard")
+    ]
+    
+    for tool_name, tool_display_name in default_tools:
+        tool_sub = UserToolSubscription(
+            user_id=user.id,
+            tool_name=tool_name,
+            tool_display_name=tool_display_name,
+            subscription_status="active",  # Active during trial
+            tokens_remaining=50000,
+            tokens_total=50000
+        )
+        db.add(tool_sub)
+    
+    db.commit()
     
     # Create token
     token = create_jwt_token(user.id, user.email)
@@ -245,6 +302,36 @@ async def login(request: LoginRequest, db: Session = Depends(get_db)):
         UserToolSubscription.is_active == True,
         UserToolSubscription.subscription_status == "active"
     ).all()
+
+    # If no tools found (e.g. old user), create default tools
+    if not tool_subscriptions:
+        default_tools = [
+            ("agent_builder", "Agent Builder"),
+            ("customer_service", "Customer Service"),
+            ("hr_services", "HR Services"),
+            ("knowledge_ai", "Knowledge AI"),
+            ("analytics_dashboard", "Analytics Dashboard")
+        ]
+        
+        for tool_name, tool_display_name in default_tools:
+            tool_sub = UserToolSubscription(
+                user_id=user.id,
+                tool_name=tool_name,
+                tool_display_name=tool_display_name,
+                subscription_status="active",
+                tokens_remaining=50000,
+                tokens_total=50000
+            )
+            db.add(tool_sub)
+        
+        db.commit()
+        
+        # Re-fetch
+        tool_subscriptions = db.query(UserToolSubscription).filter(
+            UserToolSubscription.user_id == user.id,
+            UserToolSubscription.is_active == True,
+            UserToolSubscription.subscription_status == "active"
+        ).all()
     
     subscribed_tools = [{
         "tool_name": sub.tool_name,
@@ -252,8 +339,12 @@ async def login(request: LoginRequest, db: Session = Depends(get_db)):
         "subscribed_at": sub.subscribed_at.isoformat() if sub.subscribed_at else None
     } for sub in tool_subscriptions]
     
-    # Create token with login time for 8-hour expiry
-    token = create_jwt_token(user.id, user.email, login_time)
+    # Create token (valid for 24h)
+    token = create_jwt_token(user.id, user.email)
+    
+    # Send login notification in background
+    ip_address = get_client_ip(http_request) if http_request else "unknown"
+    background_tasks.add_task(send_login_notification_email, user.name, user.email, ip_address)
     
     return {
         "token": token,
@@ -261,14 +352,66 @@ async def login(request: LoginRequest, db: Session = Depends(get_db)):
             "id": user.id,
             "email": user.email,
             "name": user.name,
-            "role": user.role,  # Added role
+            "role": user.role,
             "subscription_status": user.subscription_status
         },
         "subscription_status": user.subscription_status,
         "trial_days_remaining": trial_days_remaining,
-        "subscribed_tools": subscribed_tools,  # SSO: Return subscribed tools for auto-login
-        "login_time": login_time.isoformat()  # Track login time for 8-hour expiry
+        "subscribed_tools": subscribed_tools
     }
+
+@router.post("/forgot-password")
+async def forgot_password(
+    request: ForgotPasswordRequest,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db)
+):
+    """Initiate password reset process"""
+    user = db.query(UserAccount).filter(UserAccount.email == request.email).first()
+    if not user:
+        # For security, do not reveal if email exists
+        return {"message": "If your email is registered, you will receive a password reset link."}
+    
+    # Create reset token
+    token = create_reset_token(user.email)
+    
+    # Send email in background
+    background_tasks.add_task(send_password_reset_email, user.email, token)
+    
+    return {"message": "If your email is registered, you will receive a password reset link."}
+
+@router.post("/reset-password")
+async def reset_password(
+    request: ResetPasswordRequest,
+    db: Session = Depends(get_db)
+):
+    """Reset password using token"""
+    try:
+        payload = jwt.decode(request.token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+        email = payload.get("email")
+        type = payload.get("type")
+        
+        if type != "password_reset":
+            raise HTTPException(status_code=400, detail="Invalid token type")
+            
+        user = db.query(UserAccount).filter(UserAccount.email == email).first()
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+            
+        # Update password
+        validate_password_complexity(request.new_password)
+        user.password_hash = hash_password(request.new_password)
+        db.commit()
+        
+        return {"message": "Password reset successfully. You can now login."}
+        
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(status_code=400, detail="Token expired. Please request a new password reset.")
+    except jwt.InvalidTokenError:
+        raise HTTPException(status_code=400, detail="Invalid token")
+    except Exception as e:
+        logger.error(f"Password reset error: {e}")
+        raise HTTPException(status_code=400, detail="Failed to reset password")
 
 @router.get("/me")
 async def get_current_user_info(user: UserAccount = Depends(get_current_user), db: Session = Depends(get_db)):
@@ -308,4 +451,58 @@ async def get_current_user_info(user: UserAccount = Depends(get_current_user), d
             for int in integrations
         ]
     }
+
+@router.post("/forgot-password")
+async def forgot_password(
+    request: ForgotPasswordRequest,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db)
+):
+    """Initiate password reset flow"""
+    user = db.query(UserAccount).filter(UserAccount.email == request.email).first()
+    if not user:
+        # Don't reveal if user exists (security best practice)
+        # But for this specific use case, the user explicitly asked to know if registered.
+        # However, typically we just say "If an account exists, an email has been sent."
+        # But the user asked: "if it is present it should ask the user to forget he password"
+        # This implies the SIGNUP flow detects it.
+        # For this endpoint, we will just send the email if user exists.
+        return {"message": "If an account exists with this email, a password reset link has been sent."}
+    
+    token = create_reset_token(user.email)
+    background_tasks.add_task(send_password_reset_email, user.name, user.email, token)
+    
+    return {"message": "If an account exists with this email, a password reset link has been sent."}
+
+@router.post("/reset-password")
+async def reset_password(request: ResetPasswordRequest, db: Session = Depends(get_db)):
+    """Reset password with token"""
+    try:
+        payload = jwt.decode(request.token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+        email = payload.get("email")
+        token_type = payload.get("type")
+        
+        if token_type != "password_reset":
+            raise HTTPException(status_code=400, detail="Invalid token type")
+            
+        user = db.query(UserAccount).filter(UserAccount.email == email).first()
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+            
+        # Validate new password complexity
+        validate_password_complexity(request.new_password)
+        
+        # Update password
+        user.password_hash = hash_password(request.new_password)
+        db.commit()
+        
+        return {"message": "Password reset successfully"}
+        
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(status_code=400, detail="Token has expired")
+    except jwt.InvalidTokenError:
+        raise HTTPException(status_code=400, detail="Invalid token")
+    except Exception as e:
+        logger.error(f"Password reset error: {str(e)}")
+        raise HTTPException(status_code=400, detail="Failed to reset password")
 

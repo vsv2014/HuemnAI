@@ -71,6 +71,26 @@ export async function signup(email: string, password: string, name: string, ipAd
   });
 }
 
+export async function forgotPassword(email: string) {
+  return safeFetch(`${API_BASE}/api/auth/forgot-password`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ email })
+  });
+}
+
+export async function resetPassword(token: string, newPassword: string) {
+  return safeFetch(`${API_BASE}/api/auth/reset-password`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ token, new_password: newPassword })
+  });
+}
+
 export async function getCurrentUser(token: string) {
   if (!token) return { error: "No authentication token" };
   return safeFetch(`${API_BASE}/api/auth/me`, {

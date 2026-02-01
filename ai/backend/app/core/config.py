@@ -16,7 +16,7 @@ class Settings:
     REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379")
 
     # Security
-    SECRET_KEY = os.getenv("SECRET_KEY", "CHANGE_ME")
+    SECRET_KEY = os.getenv("SECRET_KEY", "fixed-dev-secret-key-do-not-use-in-prod-123")
 
     # LLM - Supports multiple providers
     LLM_MODE: Literal["llm", "rules", "hybrid"] = os.getenv("LLM_MODE", "hybrid")
@@ -68,6 +68,8 @@ class Settings:
     
     # Subscription & Development
     BYPASS_SUBSCRIPTION = os.getenv("BYPASS_SUBSCRIPTION", "1") == "1"  # Set to "0" to enable subscription checks
+    STRIPE_SECRET_KEY = os.getenv("STRIPE_SECRET_KEY")
+    STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET")
 
     # Email Configuration
     SMTP_HOST = os.getenv("SMTP_HOST", "smtp.gmail.com")

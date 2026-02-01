@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Request, Header
 from pydantic import BaseModel
 from typing import Optional, List
 from datetime import datetime, timedelta
@@ -9,9 +9,17 @@ from app.db.models.subscription import (
 )
 from app.api.auth import get_current_user
 import logging
+import stripe
+import os
+from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+# Stripe Configuration
+stripe.api_key = settings.STRIPE_SECRET_KEY
+STRIPE_WEBHOOK_SECRET = settings.STRIPE_WEBHOOK_SECRET
+FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:3000")
 
 class SubscribeRequest(BaseModel):
     plan_id: int
@@ -24,6 +32,8 @@ class SubscriptionResponse(BaseModel):
     success: bool
     message: str
     subscription: Optional[dict] = None
+    checkout_url: Optional[str] = None
+    session_id: Optional[str] = None
 
 # Pricing configuration (with 50% discount for first subscription)
 # Custom pricing as specified
@@ -164,13 +174,39 @@ async def get_subscription_plans(db: Session = Depends(get_db)):
         ]
     }
 
+async def _activate_integrations(user: UserAccount, plan: SubscriptionPlan, db: Session):
+    """Activate integrations based on plan"""
+    for integration_type in plan.integrations:
+        # Check if integration already exists
+        existing = db.query(UserIntegration).filter(
+            UserIntegration.user_id == user.id,
+            UserIntegration.integration_type == integration_type
+        ).first()
+        
+        if not existing:
+            integration_names = {
+                "zendesk": "Zendesk",
+                "jira": "Jira",
+                "salesforce": "Salesforce",
+                "linkedin": "LinkedIn",
+                "greenhouse": "Greenhouse"
+            }
+            
+            integration = UserIntegration(
+                user_id=user.id,
+                integration_type=integration_type,
+                integration_name=integration_names.get(integration_type, integration_type.capitalize()),
+                is_active=True
+            )
+            db.add(integration)
+
 @router.post("/subscribe", response_model=SubscriptionResponse)
 async def subscribe(
     request: SubscribeRequest,
     user: UserAccount = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Subscribe to a plan (with 50% discount for first subscription)"""
+    """Subscribe to a plan (integrates with Stripe)"""
     # Get plan
     plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.id == request.plan_id).first()
     if not plan:
@@ -195,6 +231,106 @@ async def subscribe(
         price = plan.price_yearly * (1 - discount)
         ends_at = datetime.utcnow() + timedelta(days=365)
     
+    # Stripe Integration
+    checkout_url = None
+    session_id = None
+    
+    # Check for valid Stripe key
+    is_stripe_configured = stripe.api_key and "placeholder" not in stripe.api_key and "CHANGE_ME" not in stripe.api_key
+    
+    if not is_stripe_configured:
+        logger.warning("Stripe is not configured. Using mock payment flow.")
+        # MOCK FLOW for development/testing
+        # Create a dummy subscription record directly since we skip webhook
+        subscription = Subscription(
+            user_id=user.id,
+            plan_id=plan.id,
+            status="active",
+            started_at=datetime.utcnow(),
+            ends_at=ends_at,
+            billing_period=request.billing_period,
+            amount_paid=price
+        )
+        db.add(subscription)
+        
+        # Activate plan features/integrations
+        user.subscription_plan_id = plan.id
+        user.subscription_status = "active"
+        user.has_used_trial = True  # Mark trial as used
+        await _activate_integrations(user, plan, db)
+        
+        db.commit()
+        
+        return SubscriptionResponse(
+            success=True,
+            message="Mock subscription successful (Stripe not configured)",
+            checkout_url=f"{FRONTEND_URL}/payment/success?session_id=mock_session_{datetime.utcnow().timestamp()}&mock=true",
+            session_id=f"mock_session_{datetime.utcnow().timestamp()}"
+        )
+
+    try:
+        # 1. Get or Create Customer
+        if not user.stripe_customer_id:
+            customer = stripe.Customer.create(
+                email=user.email,
+                name=user.name,
+                metadata={"user_id": user.id}
+            )
+            user.stripe_customer_id = customer.id
+            db.commit()
+        
+        customer_id = user.stripe_customer_id
+        
+        # 2. Create Checkout Session
+        checkout_session = stripe.checkout.Session.create(
+            customer=customer_id,
+            payment_method_types=["card"],
+            line_items=[
+                {
+                    "price_data": {
+                        "currency": "usd",
+                        "product_data": {
+                            "name": plan.display_name,
+                            "description": f"{plan.display_name} ({request.billing_period})",
+                        },
+                        "unit_amount": int(price * 100),  # Amount in cents
+                    },
+                    "quantity": 1,
+                },
+            ],
+            mode="payment",  # Use 'subscription' for recurring, 'payment' for one-time (simplified for now)
+            success_url=f"{FRONTEND_URL}/payment/success?session_id={{CHECKOUT_SESSION_ID}}",
+            cancel_url=f"{FRONTEND_URL}/pricing",
+            metadata={
+                "user_id": user.id,
+                "plan_id": plan.id,
+                "billing_period": request.billing_period
+            }
+        )
+        
+        checkout_url = checkout_session.url
+        session_id = checkout_session.id
+        
+    except Exception as e:
+        logger.error(f"Stripe error: {str(e)}")
+        raise HTTPException(status_code=400, detail=f"Payment initialization failed: {str(e)}")
+
+    if checkout_url:
+        return SubscriptionResponse(
+            success=True,
+            message="Redirecting to payment...",
+            checkout_url=checkout_url,
+            session_id=session_id
+        )
+
+    # Fallback error
+    raise HTTPException(status_code=400, detail="Failed to create payment session")
+
+    # Check if we should block fallback
+    if os.getenv("ENV") == "prod" or os.getenv("FORCE_STRIPE") == "true":
+         raise HTTPException(status_code=500, detail="Payment gateway not configured correctly. Please contact support.")
+
+    # Fallback: Direct subscription (Development/No Stripe)
     # Create subscription record
     subscription = Subscription(
         user_id=user.id,
@@ -232,29 +368,7 @@ async def subscribe(
     db.refresh(subscription)
     
     # Activate integrations based on plan
-    for integration_type in plan.integrations:
-        # Check if integration already exists
-        existing = db.query(UserIntegration).filter(
-            UserIntegration.user_id == user.id,
-            UserIntegration.integration_type == integration_type
-        ).first()
-        
-        if not existing:
-            integration_names = {
-                "zendesk": "Zendesk",
-                "jira": "Jira",
-                "salesforce": "Salesforce",
-                "linkedin": "LinkedIn",
-                "greenhouse": "Greenhouse"
-            }
-            
-            integration = UserIntegration(
-                user_id=user.id,
-                integration_type=integration_type,
-                integration_name=integration_names.get(integration_type, integration_type.capitalize()),
-                is_active=True
-            )
-            db.add(integration)
+    await _activate_integrations(user, plan, db)
     
     db.commit()
     
@@ -383,6 +497,7 @@ async def get_subscribed_tools(
     # During trial, all tools are accessible with 50,000 tokens each
     if user.subscription_status == "trial":
         all_tools_data = [
+            {"tool_name": "agent_builder", "tool_display_name": "Agent Builder"},
             {"tool_name": "customer_service", "tool_display_name": "Customer Service & Agent Console"},
             {"tool_name": "knowledge_ai", "tool_display_name": "Knowledge AI"},
             {"tool_name": "hr_services", "tool_display_name": "HR Services"},
@@ -695,4 +810,88 @@ async def unsubscribe_from_tool(
         "success": True,
         "message": f"Successfully unsubscribed from {tool_subscription.tool_display_name}"
     }
+
+@router.post("/webhook")
+async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
+    """Handle Stripe webhooks"""
+    payload = await request.body()
+    sig_header = request.headers.get("stripe-signature")
+    
+    try:
+        event = stripe.Webhook.construct_event(
+            payload, sig_header, STRIPE_WEBHOOK_SECRET
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail="Invalid payload")
+    except stripe.error.SignatureVerificationError as e:
+        raise HTTPException(status_code=400, detail="Invalid signature")
+        
+    if event['type'] == 'checkout.session.completed':
+        session = event['data']['object']
+        
+        # Retrieve user and plan from metadata
+        user_id = session.get('metadata', {}).get('user_id')
+        plan_id = session.get('metadata', {}).get('plan_id')
+        
+        if user_id and plan_id:
+            user = db.query(UserAccount).filter(UserAccount.id == int(user_id)).first()
+            plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.id == int(plan_id)).first()
+            
+            if user and plan:
+                # Update user
+                user.current_plan_id = plan.id
+                user.subscription_status = "active"
+                user.stripe_customer_id = session.get('customer')
+                
+                # Create Subscription Record
+                subscription_id = session.get('subscription')
+                if subscription_id:
+                    # Retrieve stripe subscription to get current_period_end
+                    stripe_sub = stripe.Subscription.retrieve(subscription_id)
+                    ends_at = datetime.fromtimestamp(stripe_sub.current_period_end)
+                    
+                    subscription = Subscription(
+                        user_id=user.id,
+                        plan_id=plan.id,
+                        status="active",
+                        amount_paid=session.get('amount_total', 0) / 100.0,
+                        billing_period=session.get('metadata', {}).get('billing_period', 'monthly'),
+                        started_at=datetime.utcnow(),
+                        ends_at=ends_at,
+                        payment_method="stripe",
+                        stripe_subscription_id=subscription_id,
+                        stripe_checkout_session_id=session.get('id')
+                    )
+                    
+                    user.subscription_started_at = datetime.utcnow()
+                    user.subscription_ends_at = ends_at
+                    
+                    db.add(subscription)
+                    
+                    # Activate integrations
+                    await _activate_integrations(user, plan, db)
+                    
+                    db.commit()
+        
+    elif event['type'] == 'invoice.payment_succeeded':
+        invoice = event['data']['object']
+        subscription_id = invoice.get('subscription')
+        
+        if subscription_id:
+            subscription = db.query(Subscription).filter(Subscription.stripe_subscription_id == subscription_id).first()
+            if subscription:
+                # Update ends_at
+                period_end = invoice.get('lines', {}).get('data', [{}])[0].get('period', {}).get('end')
+                if period_end:
+                    subscription.ends_at = datetime.fromtimestamp(period_end)
+                    subscription.status = "active"
+                    
+                    # Also update user account
+                    if subscription.user:
+                        subscription.user.subscription_ends_at = datetime.fromtimestamp(period_end)
+                        subscription.user.subscription_status = "active"
+                        
+                    db.commit()
+        
+    return {"status": "success"}
 

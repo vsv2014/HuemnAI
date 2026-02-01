@@ -28,6 +28,26 @@ export default function RootLayout({ children }: { children: ReactNode }) {
       }
     }
 
+    // Route Protection: Redirect unauthenticated users
+    const publicPaths = [
+      '/', 
+      '/auth/login', 
+      '/auth/signup', 
+      '/pricing', 
+      '/demo-request', 
+      '/demo-request/thank-you',
+      '/privacy', 
+      '/terms'
+    ];
+    
+    const isPublicPath = publicPaths.includes(pathname) || 
+                         pathname.startsWith('/auth/') || 
+                         pathname.startsWith('/demo-request');
+
+    if (!isAuthenticated && !isPublicPath) {
+      router.push("/auth/login");
+    }
+
     // Check auth status on mount
     if (token && isAuthenticated) {
       loadUserData();
@@ -59,10 +79,24 @@ export default function RootLayout({ children }: { children: ReactNode }) {
           }
           return { error: "Invalid token" };
         }),
-        getSubscriptionStatus(token).catch(() => ({ error: "Invalid token" }))
+        getSubscriptionStatus(token).catch((err) => {
+          console.error("Subscription status check failed:", err);
+          if (err?.message?.includes("401") || err?.message?.includes("Invalid")) {
+             return { status: 401, error: "Invalid token" };
+          }
+          return { error: "Failed to fetch status" };
+        })
       ]);
 
       // Only update if we got valid data (not errors)
+      if (userData?.status === 401 || subscriptionData?.status === 401) {
+        // Token is invalid/expired
+        console.log("Token expired or invalid (401 returned), logging out...");
+        logout();
+        router.push("/auth/login");
+        return;
+      }
+
       if (userData && userData.user && !userData.error) {
         setIntegrations(userData.integrations || []);
         if (subscriptionData && !subscriptionData.error) {
@@ -108,8 +142,12 @@ export default function RootLayout({ children }: { children: ReactNode }) {
   };
 
   // Hide header on all agent builder pages and sub-pages (settings, genai, analytics, etc.)
-  // Also hide for Knowledge AI, Chat Tools, and Settings page to provide immersive experience
-  const isAgentBuilder = pathname?.startsWith('/agents') || pathname?.includes('knowledge-ai') || pathname?.startsWith('/chat/') || pathname?.startsWith('/settings');
+  // Also hide for Knowledge AI, Chat Tools, Settings page, and Auth pages (Login/Signup) to provide immersive experience
+  const shouldHideHeader = pathname?.startsWith('/agents') || 
+                           pathname?.includes('knowledge-ai') || 
+                           pathname?.startsWith('/chat/') || 
+                           pathname?.startsWith('/settings') || 
+                           pathname?.startsWith('/auth/');
   
   return (
     <html lang="en" suppressHydrationWarning>
@@ -117,8 +155,8 @@ export default function RootLayout({ children }: { children: ReactNode }) {
         {/* Global Animated Background - Visible on all pages */}
         <FullscreenAnimatedBackground />
         
-        {/* HEADER - Hide on all agent builder pages and sub-pages */}
-        {!isAgentBuilder && (
+        {/* HEADER - Hide on specific pages */}
+        {!shouldHideHeader && (
         <header className="fixed top-6 left-0 right-0 mx-auto z-50
                    w-[95%] max-w-7xl
                    flex items-center justify-between

@@ -8,6 +8,7 @@ import TrialStatusBanner from "./TrialStatusBanner";
 
 // Map tool slugs to tool names for subscription matching
 const TOOL_SLUG_TO_NAME: Record<string, string> = {
+  "agent-builder": "agent_builder",
   "customer-service": "customer_service",
   "ticket-assigner": "ticket_assigner",
   "ticket-solver": "ticket_solver",

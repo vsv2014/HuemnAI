@@ -17,6 +17,20 @@ export default function LoginPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
+    
+    // Email validation
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      setError("Please enter a valid email address");
+      return;
+    }
+
+    // Password validation (client-side pre-check)
+    if (password.length < 1) {
+       setError("Password is required");
+       return;
+    }
+
     setLoading(true);
 
     try {
@@ -56,14 +70,18 @@ export default function LoginPage() {
         <div className="absolute -top-12 -left-12 w-24 h-24 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full blur-xl opacity-60 animate-bounce" style={{ animationDuration: '3s' }}></div>
         <div className="absolute -bottom-8 -right-8 w-32 h-32 bg-gradient-to-br from-purple-500 to-pink-600 rounded-full blur-xl opacity-60 animate-bounce" style={{ animationDuration: '4s', animationDelay: '1s' }}></div>
 
-        <div className="bg-white/5 backdrop-blur-2xl rounded-3xl p-8 border border-white/10 shadow-[0_8px_32px_0_rgba(0,0,0,0.36)] relative overflow-hidden group">
+        <div className="bg-white/5 backdrop-blur-2xl rounded-3xl px-8 pb-8 pt-0 border border-white/10 shadow-[0_8px_32px_0_rgba(0,0,0,0.36)] relative overflow-hidden group">
           
           {/* Shine effect on card hover */}
           <div className="absolute inset-0 bg-gradient-to-br from-white/10 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none"></div>
 
           <div className="text-center mb-8 relative">
-            <div className="inline-block p-3 rounded-2xl bg-gradient-to-br from-blue-500/20 to-purple-500/20 mb-4 border border-white/5 shadow-inner">
-              <span className="text-4xl">👋</span>
+            <div className="-mb-12 -mt-10">
+              <img 
+                src="/images/logo-head.png" 
+                alt="HUEMN Logo" 
+                className="w-48 h-48 object-contain mx-auto drop-shadow-xl"
+              />
             </div>
             <h1 className="text-4xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-white via-blue-100 to-white mb-2 drop-shadow-sm">Welcome Back</h1>
             <p className="text-blue-200/60 font-medium">Sign in to your intelligent workspace</p>
@@ -120,6 +138,11 @@ export default function LoginPage() {
                   placeholder="••••••••"
                 />
                 <div className="absolute inset-0 rounded-xl bg-gradient-to-r from-purple-500/20 to-pink-500/20 opacity-0 group-hover/input:opacity-100 pointer-events-none transition-opacity -z-10 blur-sm"></div>
+              </div>
+              <div className="flex justify-end pt-1">
+                <Link href="/auth/forgot-password" className="text-xs text-blue-300 hover:text-white transition-colors">
+                  Forgot Password?
+                </Link>
               </div>
             </div>
 

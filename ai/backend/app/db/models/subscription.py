@@ -40,6 +40,7 @@ class UserAccount(Base):
     
     # Subscription fields
     current_plan_id = Column(Integer, ForeignKey("subscription_plans.id"), nullable=True)
+    stripe_customer_id = Column(String, nullable=True, index=True)  # Stripe Customer ID
     subscription_status = Column(String, default="trial")  # "trial", "active", "expired", "cancelled"
     trial_started_at = Column(DateTime, nullable=True)
     trial_ends_at = Column(DateTime, nullable=True)
@@ -69,6 +70,8 @@ class Subscription(Base):
     cancelled_at = Column(DateTime, nullable=True)
     payment_method = Column(String, nullable=True)
     transaction_id = Column(String, nullable=True)
+    stripe_subscription_id = Column(String, nullable=True, index=True)
+    stripe_checkout_session_id = Column(String, nullable=True)
     
     # Relationships
     user = relationship("UserAccount", back_populates="subscriptions")

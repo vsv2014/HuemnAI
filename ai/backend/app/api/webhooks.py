@@ -18,6 +18,10 @@ from app.services.ticket_service import (
 )
 from app.db.session import SessionLocal
 from app.db.models.ticket import Ticket
+from app.db.models.subscription import UserAccount, Subscription, SubscriptionPlan
+from app.core.config import settings
+from datetime import datetime, timedelta
+import stripe
 import logging
 
 logger = logging.getLogger(__name__)
@@ -212,4 +216,113 @@ async def jira_webhook(request: Request):
     except Exception as e:
         logger.error(f"Error processing Jira webhook: {e}", exc_info=True)
         raise HTTPException(status_code=400, detail=f"Invalid webhook data: {str(e)}")
+
+
+# ---------------- STRIPE WEBHOOK ----------------
+
+@router.post("/stripe")
+async def stripe_webhook(request: Request):
+    """
+    Handle Stripe webhooks for subscription events
+    """
+    payload = await request.body()
+    sig_header = request.headers.get("stripe-signature")
+    
+    try:
+        event = stripe.Webhook.construct_event(
+            payload, sig_header, settings.STRIPE_WEBHOOK_SECRET
+        )
+    except ValueError as e:
+        # Invalid payload
+        raise HTTPException(status_code=400, detail="Invalid payload")
+    except stripe.error.SignatureVerificationError as e:
+        # Invalid signature
+        raise HTTPException(status_code=400, detail="Invalid signature")
+    
+    # Handle the event
+    if event["type"] == "checkout.session.completed":
+        session = event["data"]["object"]
+        await handle_checkout_completed(session)
+    elif event["type"] == "invoice.payment_succeeded":
+        # Handle recurring payment success
+        pass
+    elif event["type"] == "invoice.payment_failed":
+        # Handle payment failure (e.g., email user)
+        pass
+        
+    return {"status": "success"}
+
+
+async def handle_checkout_completed(session):
+    """
+    Fulfill the subscription after successful payment
+    """
+    db = SessionLocal()
+    try:
+        user_id = session.get("metadata", {}).get("user_id")
+        plan_id = session.get("metadata", {}).get("plan_id")
+        billing_period = session.get("metadata", {}).get("billing_period")
+        
+        if not user_id or not plan_id:
+            logger.error("Missing metadata in Stripe session")
+            return
+            
+        user = db.query(UserAccount).filter(UserAccount.id == int(user_id)).first()
+        plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.id == int(plan_id)).first()
+        
+        if not user or not plan:
+            logger.error("User or Plan not found")
+            return
+            
+        # Create Subscription Record
+        # Check if subscription already exists for this session
+        existing = db.query(Subscription).filter(
+            Subscription.stripe_checkout_session_id == session["id"]
+        ).first()
+        
+        if existing:
+            logger.info(f"Subscription for session {session['id']} already processed")
+            return
+
+        # Calculate dates
+        started_at = datetime.utcnow()
+        if billing_period == "monthly":
+            ends_at = started_at + timedelta(days=30)
+        else:
+            ends_at = started_at + timedelta(days=365)
+            
+        new_subscription = Subscription(
+            user_id=user.id,
+            plan_id=plan.id,
+            status="active",
+            amount_paid=session["amount_total"] / 100.0,
+            billing_period=billing_period,
+            started_at=started_at,
+            ends_at=ends_at,
+            payment_method="stripe",
+            transaction_id=session["payment_intent"],
+            stripe_checkout_session_id=session["id"],
+            stripe_subscription_id=session.get("subscription")
+        )
+        db.add(new_subscription)
+        
+        # Update User Status
+        user.current_plan_id = plan.id
+        user.subscription_status = "active"
+        user.subscription_started_at = started_at
+        user.subscription_ends_at = ends_at
+        user.stripe_customer_id = session["customer"]
+        
+        # Activate Integrations
+        from app.api.subscription import _activate_integrations
+        await _activate_integrations(user, plan, db)
+        
+        db.commit()
+        logger.info(f"Subscription activated for user {user.id}")
+        
+    except Exception as e:
+        logger.error(f"Error handling checkout completion: {str(e)}")
+        db.rollback()
+    finally:
+        db.close()
 
