@@ -1,4 +1,5 @@
 from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from app.api import chat, actions, feedback
 from app.api.status import router as status_router
@@ -6,10 +7,10 @@ from app.api.products import router as products_router
 from app.api.tickets import router as tickets_router
 from app.db.init_db import init_db
 from app.api.ws_status import router as ws_router
-from app.api import knowledge, hr, ticket_booking, auth, subscription, demo_request, analytics, widget, ticket_assigner
-from app.api import webhooks, config as config_api, tools as tools_api, ticket_solver, economic_trends, knowledge_sources
+from app.api import knowledge, hr, auth, subscription, demo_request, analytics, widget, ticket_assigner
+from app.api import webhooks, config as config_api, tools as tools_api, ticket_solver, knowledge_sources
 from app.api import agents, agent_templates
-from app.api import enterprise, ivr
+from app.api import enterprise, ivr, conversations
 from app.core.lifecycle import register_lifecycle
 from app.services.status_service import start_status_watcher
 from app.services.knowledge_crawler_scheduler import start_knowledge_crawler_scheduler
@@ -22,6 +23,11 @@ setup_logging()
 init_db()
 
 app = FastAPI(title="HUEMN.Ai")
+
+# Mount uploads directory
+import os
+os.makedirs("uploads", exist_ok=True)
+app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
 
 # register lifecycle for background jobs
 register_lifecycle(app)
@@ -45,7 +51,7 @@ app.add_middleware(
 
 @app.get("/")
 async def root():
-    return {"message": "HUEMN.Ai API", "version": "2.0.0", "tools": ["ticketing", "ticket_assigner", "status_updater", "knowledge_ai", "hr_services", "ticket_booking_agent"]}
+    return {"message": "HUEMN.Ai API", "version": "2.0.0", "tools": ["ticketing", "ticket_assigner", "status_updater", "knowledge_ai", "hr_services"]}
 
 @app.get("/health")
 async def health():
@@ -60,7 +66,6 @@ app.include_router(tickets_router, prefix="/api/tickets")
 app.include_router(knowledge.router, prefix="/api/knowledge")
 app.include_router(knowledge_sources.router, prefix="/api/knowledge")
 app.include_router(hr.router, prefix="/api/hr")
-app.include_router(ticket_booking.router, prefix="/api/ticket-booking")
 app.include_router(auth.router, prefix="/api/auth")
 app.include_router(subscription.router, prefix="/api/subscription")
 app.include_router(demo_request.router, prefix="/api")
@@ -71,11 +76,23 @@ app.include_router(webhooks.router, prefix="/api/webhooks")
 app.include_router(config_api.router, prefix="/api/config")
 app.include_router(tools_api.router, prefix="/api/tools")
 app.include_router(ticket_solver.router, prefix="/api/ticket-solver")
-app.include_router(economic_trends.router, prefix="/api/economic-trends")
 app.include_router(agents.router, prefix="/api/agents")
 app.include_router(agent_templates.router, prefix="/api/agent-templates")
 app.include_router(ivr.router, prefix="/api/ivr")
 app.include_router(enterprise.router, prefix="/api")
+app.include_router(conversations.router, prefix="/api/conversations")
+
+# Audit logs
+from app.api import audit
+app.include_router(audit.router, prefix="/api/audit")
+
+# Trace router
+from app.api.endpoints import trace
+app.include_router(trace.router, prefix="/api/trace")
+
+# Evaluation router
+from app.api.endpoints import evaluation
+app.include_router(evaluation.router, prefix="/api/evaluation")
 
 # Admin router (protected by ADMIN_API_KEY if set)
 from app.api import admin as admin_router

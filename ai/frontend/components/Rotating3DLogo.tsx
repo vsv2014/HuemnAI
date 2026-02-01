@@ -72,12 +72,10 @@ export default function Rotating3DLogo({
       }}
     >
       <img
-        src="/images/animated-logo.png"
+        src="/images/logo-head.png?v=3"
         alt="HUEMN.Ai Logo"
         className="w-full h-full object-contain"
         style={{
-          filter: 'drop-shadow(0 0 40px rgba(139, 92, 246, 0.7)) drop-shadow(0 0 80px rgba(99, 102, 241, 0.4))',
-          mixBlendMode: 'normal',
           opacity: 1
         }}
       />

@@ -15,6 +15,7 @@ import logging
 logger = logging.getLogger(__name__)
 router = APIRouter()
 security = HTTPBearer()
+security_optional = HTTPBearer(auto_error=False)
 
 # JWT Secret (in production, use a strong secret from env)
 JWT_SECRET = settings.SECRET_KEY
@@ -90,6 +91,24 @@ def get_current_user(
     except Exception as e:
         logger.error(f"Auth error: {e}")
         raise HTTPException(status_code=401, detail="Invalid token")
+
+def get_current_user_optional(
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security_optional),
+    db: Session = Depends(get_db)
+) -> Optional[UserAccount]:
+    """Get current authenticated user if token is present, else None"""
+    if not credentials:
+        return None
+    try:
+        token = credentials.credentials
+        payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+        user_id = payload.get("user_id")
+        user = db.query(UserAccount).filter(UserAccount.id == user_id).first()
+        if not user or not user.is_active:
+            return None
+        return user
+    except:
+        return None
 
 def get_client_ip(request: Request) -> str:
     """Get client IP address"""
@@ -242,6 +261,7 @@ async def login(request: LoginRequest, db: Session = Depends(get_db)):
             "id": user.id,
             "email": user.email,
             "name": user.name,
+            "role": user.role,  # Added role
             "subscription_status": user.subscription_status
         },
         "subscription_status": user.subscription_status,
@@ -269,6 +289,7 @@ async def get_current_user_info(user: UserAccount = Depends(get_current_user), d
             "id": user.id,
             "email": user.email,
             "name": user.name,
+            "role": user.role,
             "subscription_status": user.subscription_status,
             "trial_days_remaining": trial_days_remaining
         },

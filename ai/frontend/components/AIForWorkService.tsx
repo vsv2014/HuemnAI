@@ -16,34 +16,10 @@ export default function AIForWorkService() {
 
   const handleResearch = async () => {
     if (!researchQuery.trim() || !token) {
-      setAnalysisResult("Please log in and enter a research query about macroeconomic trends.");
+      setAnalysisResult("Please log in and enter a research query.");
       return;
     }
-
-    setAnalyzing(true);
-    setAnalysisResult(null);
-
-    try {
-      const response = await fetch(`${API_BASE}/api/economic-trends/analyze-query`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ query: researchQuery }),
-      });
-
-      const data = await response.json();
-      if (data.success) {
-        setAnalysisResult(data.answer);
-      } else {
-        setAnalysisResult("Unable to analyze. Please make sure you have configured economic data sources.");
-      }
-    } catch (error) {
-      setAnalysisResult("Error connecting to the analysis service. Please try again.");
-    } finally {
-      setAnalyzing(false);
-    }
+    setAnalysisResult("Research feature is coming soon.");
   };
 
   const handleAnalyze = async () => {
@@ -51,30 +27,7 @@ export default function AIForWorkService() {
       setAnalysisResult("Please log in to use the analysis feature.");
       return;
     }
-
-    setAnalyzing(true);
-    setAnalysisResult(null);
-
-    try {
-      const response = await fetch(`${API_BASE}/api/economic-trends/analysis`, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
-
-      const data = await response.json();
-      if (data.success && data.analysis) {
-        const analysis = data.analysis;
-        const result = `${analysis.summary}\n\nRecommendations:\n${analysis.recommendations.map((r: string, i: number) => `${i + 1}. ${r}`).join("\n")}`;
-        setAnalysisResult(result);
-      } else {
-        setAnalysisResult("Please add economic data sources first to get analysis.");
-      }
-    } catch (error) {
-      setAnalysisResult("Error fetching analysis. Please try again.");
-    } finally {
-      setAnalyzing(false);
-    }
+    setAnalysisResult("Analysis feature is coming soon.");
   };
 
   return (
@@ -88,16 +41,9 @@ export default function AIForWorkService() {
               AI for <span className="text-blue-400">Analytics</span>
             </h2>
             <p className="text-lg sm:text-xl text-white/80 mb-6 sm:mb-8 leading-relaxed">
-              Connect to your business systems, understand your data and workflows, and activate agentic RAG search, to automate and orchestrate AI agents with precision. Focus on macroeconomic analysis and trends.
+              Connect to your business systems, understand your data and workflows, and activate agentic RAG search, to automate and orchestrate AI agents with precision.
             </p>
             <div className="flex flex-col sm:flex-row gap-4 mb-6 sm:mb-8">
-              <button
-                onClick={() => router.push("/products/economic-trends")}
-                className="px-6 sm:px-8 py-3 sm:py-4 bg-white text-black font-semibold rounded-lg hover:bg-white/90 transition-all hover:scale-105 flex items-center justify-center gap-2"
-              >
-                LEARN MORE
-                <span className="w-2 h-2 bg-black rounded-full" />
-              </button>
               <button
                 onClick={() => router.push("/chat/analytics-dashboard")}
                 className="px-6 sm:px-8 py-3 sm:py-4 border-2 border-white/30 text-white font-semibold rounded-lg hover:bg-white/10 transition-all hover:scale-105"
@@ -183,16 +129,9 @@ export default function AIForWorkService() {
               Reimagine AI for Human with HUEMN.Ai
             </p>
             <p className="text-base sm:text-lg text-white/70 mb-6 sm:mb-8 leading-relaxed">
-              Track economic trends across states, countries, and the world. Get intelligent guidance and insights powered by advanced AI analysis of national and international economic data.
+              Get intelligent guidance and insights powered by advanced AI analysis.
             </p>
             <div className="flex flex-col sm:flex-row gap-4 mb-6 sm:mb-8">
-              <button
-                onClick={() => router.push("/products/economic-trends")}
-                className="px-6 sm:px-8 py-3 sm:py-4 bg-white text-black font-semibold rounded-lg hover:bg-white/90 transition-all hover:scale-105 flex items-center justify-center gap-2"
-              >
-                EXPLORE ECONOMIC TRENDS
-                <span className="w-2 h-2 bg-black rounded-full" />
-              </button>
               <button
                 onClick={() => router.push("/demo-request")}
                 className="px-6 sm:px-8 py-3 sm:py-4 border-2 border-white/30 text-white font-semibold rounded-lg hover:bg-white/10 transition-all hover:scale-105"

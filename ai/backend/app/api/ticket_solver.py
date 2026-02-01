@@ -19,6 +19,7 @@ router = APIRouter()
 
 class ReplyRequest(BaseModel):
     reply_text: str
+    attachments: Optional[List[str]] = None
 
 
 class StatusUpdateRequest(BaseModel):
@@ -29,6 +30,7 @@ class StatusUpdateRequest(BaseModel):
 async def get_agent_tickets(
     sort_by: str = "priority",  # priority, created_at, sla
     filter_status: str = "all",  # all, open, in_progress, resolved
+    include_unassigned: bool = False,
     db: Session = Depends(get_db),
     current_user: UserAccount = Depends(get_current_user)
 ):
@@ -38,9 +40,17 @@ async def get_agent_tickets(
         user_id = str(current_user.id) if current_user.id else current_user.email
         
         # Build query
-        query = db.query(Ticket).filter(
-            Ticket.assigned_to == user_id
-        )
+        if include_unassigned:
+            query = db.query(Ticket).filter(
+                or_(
+                    Ticket.assigned_to == user_id,
+                    Ticket.assigned_to == None
+                )
+            )
+        else:
+            query = db.query(Ticket).filter(
+                Ticket.assigned_to == user_id
+            )
         
         # Filter by status
         if filter_status != "all":
@@ -84,7 +94,8 @@ async def get_agent_tickets(
                 "severity": ticket.severity,
                 "sla_deadline": sla_deadline,
                 "customer_channel": ticket.customer_channel or (ticket.customer_info.get("channel", "email") if ticket.customer_info else "email"),
-                "conversation_history": ticket.conversation_history or []
+                "conversation_history": ticket.conversation_history or [],
+                "attachments": ticket.attachments or []
             })
         
         return {
@@ -136,7 +147,8 @@ async def get_ticket_details(
                 "severity": ticket.severity,
                 "sla_deadline": sla_deadline,
                 "customer_channel": ticket.customer_channel or (ticket.customer_info.get("channel", "email") if ticket.customer_info else "email"),
-                "conversation_history": ticket.conversation_history or []
+                "conversation_history": ticket.conversation_history or [],
+                "attachments": ticket.attachments or []
             }
         }
     except HTTPException:
@@ -176,7 +188,8 @@ async def reply_to_ticket(
             "text": payload.reply_text,
             "timestamp": datetime.utcnow().isoformat(),
             "agent_id": user_id,
-            "agent_name": current_user.name or current_user.email
+            "agent_name": current_user.name or current_user.email,
+            "attachments": payload.attachments or []
         })
         
         # Update ticket with conversation history
@@ -199,7 +212,8 @@ async def reply_to_ticket(
             reply_text=payload.reply_text,
             customer_channel=customer_channel,
             customer_info=ticket.customer_info or {},
-            agent_name=current_user.name or current_user.email
+            agent_name=current_user.name or current_user.email,
+            attachments=payload.attachments
         )
         
         if not bridge_result.get("success"):

@@ -1,11 +1,11 @@
 import { create } from "zustand";
+import { useAuthStore } from "@/store/authStore";
 import {
   handleCustomerIssue,
   queryKnowledge,
   hrService,
   updateAgentStatus,
   recordActivity,
-  handleBookingQuery,
 } from "@/services/api";
 import { TOOLS } from "@/config/tools";
 
@@ -65,7 +65,7 @@ function detectTicketIntent(text: string): { needs_ticket: boolean; needs_agent:
   };
 }
 
-interface Message {
+export interface Message {
   role: "user" | "assistant" | "system";
   text: string;
   data?: any; // Additional data for tool responses
@@ -124,6 +124,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
       conversationHistory: [...s.conversationHistory, { role: "user", text }],
     }));
 
+    const token = useAuthStore.getState().token || "";
+    const user = useAuthStore.getState().user;
+    const userId = user?.id || "user1";
     let result: any;
     let assistantMessage: string = "";
 
@@ -133,7 +136,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
           // Ticketing Tool - handles troubleshooting and ticket creation
           result = await handleCustomerIssue(
             text,
-            "user1",
+            token,
             undefined, // connector_type - can be configured
             conversationHistory
           );
@@ -183,7 +186,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
         case TOOLS.TICKET_ASSIGNER:
           // Ticket Assigner - for managing ticket assignments
-          result = await handleCustomerIssue(text, "user1");
+          result = await handleCustomerIssue(text, token);
           assistantMessage = result.message || JSON.stringify(result);
           break;
 
@@ -202,7 +205,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
             setTimeout(async () => {
               const customerServiceResult = await handleCustomerIssue(
                 text,
-                "user1",
+                token,
                 undefined,
                 conversationHistory
               );
@@ -228,7 +231,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
             break;
           }
           
-          result = await queryKnowledge(text, conversationHistory);
+          result = await queryKnowledge(text, token, conversationHistory);
           
           // Also check backend response for routing (fallback)
           if (result.type === "ROUTE_TO_CUSTOMER_SERVICE" || result.should_route) {
@@ -241,7 +244,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
             setTimeout(async () => {
               const customerServiceResult = await handleCustomerIssue(
                 result.original_query || text,
-                "user1",
+                token,
                 undefined,
                 conversationHistory
               );
@@ -293,7 +296,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
             assistantMessage = "I understand you'd like to create a ticket or connect with an agent. Let me transfer you to our Customer Service team...";
             set({ tool: TOOLS.CUSTOMER_SERVICE });
             setTimeout(async () => {
-              const customerServiceResult = await handleCustomerIssue(text, "user1", undefined, conversationHistory);
+              const customerServiceResult = await handleCustomerIssue(text, token, undefined, conversationHistory);
               set((s) => ({
                 messages: [
                   ...s.messages,
@@ -313,7 +316,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
             break;
           }
           
-          result = await hrService(text);
+          result = await hrService("chat", { message: text }, token);
           
           // Use the human-like message from backend
           if (result.message) {
@@ -365,86 +368,15 @@ export const useChatStore = create<ChatState>((set, get) => ({
           const status = match ? match[1].toLowerCase() : null;
           
           if (status) {
-            await updateAgentStatus("user1", status as any);
+            await updateAgentStatus(userId, status as any, token);
             assistantMessage = `✅ Status updated to: ${status}`;
             
             // Also record activity
-            await recordActivity("user1");
+            await recordActivity(userId, token);
           } else {
             // Record activity for any message
             await recordActivity("user1");
             assistantMessage = "Activity recorded. Send 'online', 'busy', 'away', or 'offline' to update status.";
-          }
-          break;
-        }
-
-        case TOOLS.TICKET_BOOKING_AGENT: {
-          // Ticket Booking Agent - search, compare, and book tickets
-          // Check if user wants to create ticket or connect to agent (for support issues)
-          const bookingIntent = detectTicketIntent(text);
-          if (bookingIntent.should_route) {
-            assistantMessage = "I understand you'd like to create a ticket or connect with an agent. Let me transfer you to our Customer Service team...";
-            set({ tool: TOOLS.CUSTOMER_SERVICE });
-            setTimeout(async () => {
-              const customerServiceResult = await handleCustomerIssue(text, "user1", undefined, conversationHistory);
-              set((s) => ({
-                messages: [
-                  ...s.messages,
-                  {
-                    role: "assistant",
-                    text: customerServiceResult.message || "I'm here to help with your issue.",
-                    data: customerServiceResult
-                  }
-                ],
-                conversationHistory: [
-                  ...s.conversationHistory,
-                  { role: "assistant", text: customerServiceResult.message || "" }
-                ],
-                loading: false
-              }));
-            }, 500);
-            break;
-          }
-          
-          result = await handleBookingQuery(text, "user1", conversationHistory, userLocation || undefined);
-          
-          if (result.type === "SEARCH_RESULTS") {
-            assistantMessage = result.message || "I found some options for you.";
-            if (result.best_option) {
-              const currencySymbol = result.currency_symbol || "$";
-              const currency = result.currency || "USD";
-              assistantMessage += `\n\n🏆 Best Option:\n`;
-              assistantMessage += `Platform: ${result.best_option.platform}\n`;
-              assistantMessage += `Price: ${currencySymbol}${result.best_option.price} ${currency}\n`;
-              if (result.best_option.features?.length > 0) {
-                assistantMessage += `Features: ${result.best_option.features.join(", ")}\n`;
-              }
-              if (result.price_comparison) {
-                assistantMessage += `\nPrice Range: ${currencySymbol}${result.price_comparison.lowest} - ${currencySymbol}${result.price_comparison.highest}`;
-                assistantMessage += ` (Average: ${currencySymbol}${result.price_comparison.average.toFixed(2)})`;
-              }
-              assistantMessage += `\n\nWould you like to book this ticket?`;
-            }
-          } else if (result.type === "COLLECT_DETAILS") {
-            assistantMessage = result.message || "I need some details to book your ticket.";
-            if (result.required_fields?.length > 0) {
-              assistantMessage += `\n\nRequired Information:\n`;
-              result.required_fields.forEach((field: any, idx: number) => {
-                assistantMessage += `${idx + 1}. ${field.label}\n`;
-              });
-            }
-          } else if (result.type === "INFO") {
-            assistantMessage = result.message || "I can help you with ticket booking!";
-            if (result.capabilities?.length > 0) {
-              assistantMessage += `\n\nI can:\n`;
-              result.capabilities.forEach((cap: string, idx: number) => {
-                assistantMessage += `• ${cap}\n`;
-              });
-            }
-          } else if (result.type === "ERROR") {
-            assistantMessage = result.message || "I encountered an error. Please try again.";
-          } else {
-            assistantMessage = result.message || "I'm here to help you book tickets. What would you like to do?";
           }
           break;
         }

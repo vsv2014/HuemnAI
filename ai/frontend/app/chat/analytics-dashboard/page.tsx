@@ -24,6 +24,7 @@ import {
 } from "recharts";
 import { getAnalyticsOverview, getAnalyticsTrends } from "@/services/api";
 import TrialBanner from "@/components/TrialBanner";
+import ToolSwitcher from "@/components/ToolSwitcher";
 
 interface AnalyticsData {
   overview: {
@@ -257,38 +258,54 @@ export default function AnalyticsDashboardPage() {
         {/* Header */}
         <div className="flex items-center justify-between mb-8">
           <div>
-            <Link
-              href="/"
-              className="text-white/60 hover:text-white transition-colors mb-2 inline-block"
-            >
-              ← Back to Home
-            </Link>
+            <div className="flex items-center gap-2 mb-2">
+              <Link
+                href="/"
+                className="text-white/60 hover:text-white transition-colors p-1.5 rounded-md hover:bg-white/10"
+                title="Go to Home"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
+                  <polyline points="9 22 9 12 15 12 15 22"/>
+                </svg>
+              </Link>
+              <span className="text-white/20">|</span>
+              <button
+                onClick={() => router.back()}
+                className="text-white/60 hover:text-white text-sm transition-colors"
+              >
+                ← Back
+              </button>
+            </div>
             <h1 className="text-4xl font-bold bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent">
               Analytics Dashboard
             </h1>
             <p className="text-white/60 mt-2">Real-time performance metrics and insights</p>
           </div>
-          <div className="flex gap-2">
-            <button
-              onClick={() => setTimeRange("7d")}
-              className={`px-4 py-2 rounded-lg transition-all ${
-                timeRange === "7d"
-                  ? "bg-blue-500 text-white"
-                  : "bg-white/5 text-white/60 hover:bg-white/10"
-              }`}
-            >
-              7 Days
-            </button>
-            <button
-              onClick={() => setTimeRange("30d")}
-              className={`px-4 py-2 rounded-lg transition-all ${
-                timeRange === "30d"
-                  ? "bg-blue-500 text-white"
-                  : "bg-white/5 text-white/60 hover:bg-white/10"
-              }`}
-            >
-              30 Days
-            </button>
+          <div className="flex items-center gap-4">
+            <ToolSwitcher />
+            <div className="flex gap-2">
+              <button
+                onClick={() => setTimeRange("7d")}
+                className={`px-4 py-2 rounded-lg transition-all ${
+                  timeRange === "7d"
+                    ? "bg-blue-500 text-white"
+                    : "bg-white/5 text-white/60 hover:bg-white/10"
+                }`}
+              >
+                7 Days
+              </button>
+              <button
+                onClick={() => setTimeRange("30d")}
+                className={`px-4 py-2 rounded-lg transition-all ${
+                  timeRange === "30d"
+                    ? "bg-blue-500 text-white"
+                    : "bg-white/5 text-white/60 hover:bg-white/10"
+                }`}
+              >
+                30 Days
+              </button>
+            </div>
           </div>
         </div>
 

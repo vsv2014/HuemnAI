@@ -6,6 +6,7 @@ interface User {
   email: string;
   name: string;
   subscription_status: string;
+  role?: string;
 }
 
 interface CurrentPlan {

@@ -14,13 +14,11 @@ const getToolNameFromPath = (path: string): string | null => {
   if (path.includes("status-updater")) return "status_updater";
   if (path.includes("hr-services")) return "hr_services";
   if (path.includes("knowledge-ai")) return "knowledge_ai";
-  if (path.includes("ticket-booking-agent")) return "ticket_booking_agent";
   if (path.includes("analytics-dashboard")) return "analytics_dashboard";
-  if (path.includes("economic-trends")) return "economic_trends";
   return null;
 };
 
-export default function TrialBanner() {
+export default function TrialBanner({ minimal = false }: { minimal?: boolean }) {
   const { token, subscriptionStatus, trialDaysRemaining } = useAuthStore();
   const router = useRouter();
   const pathname = usePathname();
@@ -66,7 +64,9 @@ export default function TrialBanner() {
   }
 
   if (loading) {
-    return (
+    return minimal ? (
+      <div className="text-xs text-blue-300 animate-pulse">Loading...</div>
+    ) : (
       <div className="mb-4 px-4 sm:px-6 rounded-lg p-4 border bg-blue-500/10 border-blue-500/30">
         <p className="text-blue-300 text-sm">Loading token status...</p>
       </div>
@@ -139,6 +139,47 @@ export default function TrialBanner() {
   };
 
   const colors = colorClasses[bannerColor as keyof typeof colorClasses];
+
+  if (minimal) {
+    return (
+      <div className={`rounded-lg p-2.5 ${colors.bg} transition-all duration-300`}>
+        <div className="flex flex-col gap-2">
+          <div className="flex justify-between items-center">
+             <span className={`${colors.text} text-[10px] font-bold uppercase tracking-wide`}>
+                {trialDaysRemaining} days left
+             </span>
+             {!hasTokens && (
+                <button
+                  onClick={() => router.push("/pricing")}
+                  className={`px-1.5 py-0.5 ${colors.button} text-white rounded text-[9px] font-bold uppercase tracking-wider`}
+                >
+                  Upgrade
+                </button>
+             )}
+          </div>
+          
+          {tokenStatus && (
+            <div className="space-y-1">
+              <div className="flex justify-between text-[9px] text-white/40">
+                 <span>Tokens</span>
+                 <span>{Math.round(percentage)}%</span>
+              </div>
+              <div className="bg-black/20 rounded-full h-1 overflow-hidden w-full">
+                <div 
+                  className={`h-full transition-all ${
+                    percentage > 50 ? "bg-blue-500" : 
+                    percentage > 30 ? "bg-orange-500" : 
+                    percentage > 10 ? "bg-yellow-500" : "bg-red-500"
+                  }`}
+                  style={{ width: `${percentage}%` }}
+                />
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className={`mb-4 px-4 sm:px-6 rounded-lg p-4 border ${colors.bg} ${colors.border} transition-all duration-300`}>

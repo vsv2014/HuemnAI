@@ -2,6 +2,8 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
+import ToolSwitcher from "@/components/ToolSwitcher";
 import { updateAgentStatus, getSubscribedTools } from "@/services/api";
 import { useAuthStore } from "@/store/authStore";
 
@@ -18,6 +20,7 @@ const STATUS_OPTIONS = [
 ];
 
 export default function StatusUpdaterPage() {
+  const router = useRouter();
   const { token, user, isAuthenticated } = useAuthStore();
   const [currentStatus, setCurrentStatus] = useState("offline");
   const [subscribedTools, setSubscribedTools] = useState<any[]>([]);
@@ -78,7 +81,7 @@ export default function StatusUpdaterPage() {
     setLoading(true);
     try {
       const userId = user.id?.toString() || user.email || "user1";
-      await updateAgentStatus(userId, newStatus as any);
+      await updateAgentStatus(userId, newStatus, token);
       setCurrentStatus(newStatus);
       
       // Show success message
@@ -129,20 +132,36 @@ export default function StatusUpdaterPage() {
 
   return (
     <div className="p-6 max-w-4xl mx-auto">
-      <div className="mb-6">
-        <div className="flex items-center gap-3 mb-2">
-          <Link 
-            href="/" 
-            className="text-white/60 hover:text-white text-sm transition-colors"
-          >
-            ← Back to Home
-          </Link>
-          <span className="text-white/40">|</span>
-          <h1 className="text-2xl font-semibold">Status Updater</h1>
+      <div className="mb-6 flex items-start justify-between">
+        <div>
+          <div className="flex items-center gap-3 mb-2">
+            <div className="flex items-center gap-2">
+              <Link 
+                href="/" 
+                className="text-white/60 hover:text-white transition-colors p-1.5 rounded-md hover:bg-white/10"
+                title="Go to Home"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
+                  <polyline points="9 22 9 12 15 12 15 22"/>
+                </svg>
+              </Link>
+              <span className="text-white/20">|</span>
+              <button 
+                onClick={() => router.back()} 
+                className="text-white/60 hover:text-white text-sm transition-colors"
+              >
+                ← Back
+              </button>
+            </div>
+            <span className="text-white/40">|</span>
+            <h1 className="text-2xl font-semibold">Status Updater</h1>
+          </div>
+          <p className="text-sm text-white/60">
+            Update your status to track work time and availability. Your status widget is also available in the header.
+          </p>
         </div>
-        <p className="text-sm text-white/60">
-          Update your status to track work time and availability. Your status widget is also available in the header.
-        </p>
+        <ToolSwitcher />
       </div>
 
       <div className="bg-white/5 backdrop-blur-xl rounded-xl p-8 border border-white/10">

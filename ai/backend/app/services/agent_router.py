@@ -45,6 +45,15 @@ def select_best_agent(priority: str = "medium", required_skills: Optional[list] 
                 break
     
     if not available:
+        # FALLBACK: If still no agents (e.g. dev environment or everyone offline),
+        # pick the agent with the lowest workload to ensure assignment happens.
+        logger.warning("No online agents found. Using fallback assignment.")
+        # Sort all agents by workload
+        agents_by_load = sorted(agents, key=lambda a: a.get("open_ticket_count", 0))
+        if agents_by_load:
+            available.append(agents_by_load[0])
+            
+    if not available:
         logger.warning("No suitable agents available after filtering")
         return None
     

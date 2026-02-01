@@ -31,6 +31,16 @@ TICKET_TEMPLATES = {
         ],
         "default_priority": "high"
     },
+    "agent_builder": {
+        "title_template": "Agent Builder Issue: {description}",
+        "questions": [
+            "What specifically is not working in the Agent Builder?",
+            "Can you provide screenshots or a screen recording of the error?",
+            "Are you seeing any error messages in the console? (If possible, please provide a HAR file)",
+            "What browser and version are you using?",
+        ],
+        "default_priority": "medium"
+    },
     "payment": {
         "title_template": "Payment/Billing Issue: {description}",
         "questions": [
@@ -254,6 +264,7 @@ def create_ticket_with_template(
     connector_type: Optional[str] = None,
     collected_info: Optional[Dict] = None,
     question_index: int = 0,
+    attachments: Optional[List[str]] = None,
     operation_mode: str = "integrated"
 ) -> Dict:
     """
@@ -297,6 +308,7 @@ def create_ticket_with_template(
             customer_info=collected_info,
             connector_type=connector_type,
             priority=priority,
+            attachments=attachments,
             operation_mode=operation_mode
         )
         return {
@@ -327,6 +339,7 @@ def create_ticket_with_info(
     customer_info: Optional[Dict] = None,
     connector_type: Optional[str] = None,
     priority: str = "medium",
+    attachments: Optional[List[str]] = None,
     operation_mode: str = "integrated"
 ) -> Ticket:
     """
@@ -359,7 +372,8 @@ def create_ticket_with_info(
             assigned_to=agent_id,
             status="open",
             connector_type=connector_type,
-            customer_channel=customer_channel
+            customer_channel=customer_channel,
+            attachments=attachments or []
         )
         
         # Initialize conversation history with customer's initial message

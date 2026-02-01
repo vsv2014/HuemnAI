@@ -13,20 +13,37 @@ except ImportError:
 
 
 class OpenAILLM(BaseLLM):
-    async def stream(self, message: str):
+    async def stream(self, message: str, messages: list = None, model: str = None):
         """
-        Stream tokens from OpenAI API if key is available, otherwise return mock response.
+        Stream tokens from OpenAI API.
+        Args:
+            message: The user message (used if messages is None)
+            messages: Full conversation history (preferred)
+            model: Specific model to use (overrides config)
         """
         # Try to get from user configuration first (UI Settings only)
         from app.services.config_service import get_llm_config
         config = get_llm_config("openai")
         api_key = None
-        model = None
+        config_model = None
         
         # STRICT: Only use UI-configured keys (from database)
         if config and config.get("is_database"):
             api_key = config.get("api_key")
-            model = config.get("config_data", {}).get("model", "gpt-3.5-turbo")
+            # Get primary model
+            config_model = config.get("config_data", {}).get("model", "gpt-3.5-turbo")
+            # Get fallback models list
+            fallback_models = config.get("config_data", {}).get("fallback_models", [])
+            if isinstance(fallback_models, str):
+                fallback_models = [m.strip() for m in fallback_models.split(",") if m.strip()]
+            
+            # Create ordered list of models to try
+            # If explicit model provided, try that first (or only that?)
+            # For shadow mode, we want to try ONLY the specific model usually, but fallbacks are okay.
+            if model:
+                models_to_try = [model]
+            else:
+                models_to_try = [config_model] + [m for m in fallback_models if m != config_model]
         
         # NO FALLBACK to environment variables - require UI configuration
         if not api_key:
@@ -42,40 +59,59 @@ class OpenAILLM(BaseLLM):
         
         # If OpenAI key is available, use real API
         if OPENAI_AVAILABLE and api_key:
-            try:
-                client = OpenAI(api_key=api_key)
-                
-                # Use chat completions API for streaming with higher temperature for variety
-                stream = client.chat.completions.create(
-                    model=model,
-                    messages=[
-                        {"role": "system", "content": "You are a helpful, empathetic customer service assistant. Provide unique, contextual responses for each query. Be conversational and natural."},
-                        {"role": "user", "content": message}
-                    ],
-                    stream=True,
-                    temperature=0.8,  # Higher temperature for more variety
-                    max_tokens=500,
-                )
-                
-                # Stream tokens as they arrive
-                content_received = False
-                for chunk in stream:
-                    if chunk.choices and len(chunk.choices) > 0:
-                        delta = chunk.choices[0].delta
-                        if delta and delta.content:
-                            content_received = True
-                            yield delta.content
-                
-                # If no content received, something went wrong
-                if not content_received:
-                    raise Exception("No content received from OpenAI API")
+            client = OpenAI(api_key=api_key)
+            
+            success = False
+            last_error = None
+            
+            # Prepare messages if not provided
+            if not messages:
+                messages = [
+                    {"role": "system", "content": "You are a helpful, empathetic customer service assistant. Provide unique, contextual responses for each query. Be conversational and natural."},
+                    {"role": "user", "content": message}
+                ]
+            
+            # Try each model in sequence
+            for current_model in models_to_try:
+                try:
+                    # Use chat completions API for streaming with higher temperature for variety
+                    stream = client.chat.completions.create(
+                        model=current_model,
+                        messages=messages,
+                        stream=True,
+                        temperature=0.8,  # Higher temperature for more variety
+                        max_tokens=500,
+                    )
+                    
+                    # Stream tokens as they arrive
+                    content_received = False
+                    for chunk in stream:
+                        if chunk.choices and len(chunk.choices) > 0:
+                            delta = chunk.choices[0].delta
+                            if delta and delta.content:
+                                content_received = True
+                                yield delta.content
+                    
+                    # If we got here and received content, we're done
+                    if content_received:
+                        success = True
+                        break
+                    else:
+                        raise Exception(f"No content received from model {current_model}")
                         
-            except Exception as e:
+                except Exception as e:
+                    last_error = e
+                    import logging
+                    logger = logging.getLogger(__name__)
+                    logger.warning(f"Model {current_model} failed: {e}. Trying next model...")
+                    continue
+            
+            if not success:
                 # Log the error for debugging
                 import logging
                 logger = logging.getLogger(__name__)
-                logger.error(f"OpenAI API error: {e}, falling back to contextual response")
-                print(f"OpenAI API error: {e}")
+                logger.error(f"All OpenAI models failed. Last error: {last_error}, falling back to contextual response")
+                print(f"OpenAI API error: {last_error}")
                 
                 # Fall back to smart contextual response instead of generic
                 message_lower = message.lower()

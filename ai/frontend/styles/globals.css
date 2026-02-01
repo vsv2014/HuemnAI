@@ -10,11 +10,6 @@ body {
 }
 
 body {
-  background: radial-gradient(
-    circle at top,
-    #1a1f36,
-    #0b0f19 60%
-  );
   color: #ffffff;
   font-family: "Inter", system-ui, sans-serif;
   /* allow scrolling so pages can scroll naturally */
@@ -295,6 +290,61 @@ main {
 
 .logo-mouth {
   animation: mouthMove 4s ease-in-out infinite;
+}
+
+/* Custom Animation for Multi-color Text */
+@keyframes rainbow-text {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+.animate-rainbow-text {
+  background: linear-gradient(
+    to right, 
+    #60a5fa, /* blue-400 */
+    #a78bfa, /* purple-400 */
+    #f472b6, /* pink-400 */
+    #fbbf24, /* amber-400 */
+    #34d399, /* emerald-400 */
+    #60a5fa  /* blue-400 loop */
+  );
+  background-size: 200% auto;
+  color: transparent;
+  background-clip: text;
+  -webkit-background-clip: text;
+  animation: rainbow-text 3s linear infinite;
+}
+
+@keyframes rainbow-border-glow {
+  0% {
+    border-color: rgba(96, 165, 250, 0.3);
+    box-shadow: 0 8px 32px 0 rgba(96, 165, 250, 0.15);
+  }
+  20% {
+    border-color: rgba(167, 139, 250, 0.3);
+    box-shadow: 0 8px 32px 0 rgba(167, 139, 250, 0.15);
+  }
+  40% {
+    border-color: rgba(244, 114, 182, 0.3);
+    box-shadow: 0 8px 32px 0 rgba(244, 114, 182, 0.15);
+  }
+  60% {
+    border-color: rgba(251, 191, 36, 0.3);
+    box-shadow: 0 8px 32px 0 rgba(251, 191, 36, 0.15);
+  }
+  80% {
+    border-color: rgba(52, 211, 153, 0.3);
+    box-shadow: 0 8px 32px 0 rgba(52, 211, 153, 0.15);
+  }
+  100% {
+    border-color: rgba(96, 165, 250, 0.3);
+    box-shadow: 0 8px 32px 0 rgba(96, 165, 250, 0.15);
+  }
+}
+
+.animate-rainbow-border {
+  animation: rainbow-border-glow 5s linear infinite;
 }
 
 @keyframes borderPulse {
@@ -884,21 +934,11 @@ button[draggable="true"] *,
 
 /* Membrane Shape Morphing Animation */
 @keyframes membrane-morph {
-  0% {
-    border-radius: 40% 60% 70% 30% / 40% 50% 60% 50%;
-  }
-  25% {
-    border-radius: 60% 40% 30% 70% / 60% 30% 70% 40%;
-  }
-  50% {
-    border-radius: 30% 70% 70% 30% / 30% 30% 70% 70%;
-  }
-  75% {
-    border-radius: 50% 50% 20% 80% / 25% 80% 20% 75%;
-  }
-  100% {
-    border-radius: 40% 60% 70% 30% / 40% 50% 60% 50%;
-  }
+  0% { border-radius: 42% 58% 65% 35% / 42% 52% 58% 48%; }
+  25% { border-radius: 58% 42% 35% 65% / 58% 35% 65% 42%; }
+  50% { border-radius: 35% 65% 65% 35% / 35% 35% 65% 65%; }
+  75% { border-radius: 48% 52% 25% 75% / 28% 75% 25% 72%; }
+  100% { border-radius: 42% 58% 65% 35% / 42% 52% 58% 48%; }
 }
 
 /* Selected/Active Pulse */
@@ -918,6 +958,12 @@ button[draggable="true"] *,
 }
 
 /* Fluid Interior Glow */
+@keyframes membrane-inner-pulse {
+  0% { opacity: 0.15; transform: scale(0.95); }
+  50% { opacity: 0.35; transform: scale(1.02); }
+  100% { opacity: 0.15; transform: scale(0.95); }
+}
+
 .membrane-glow {
   position: absolute;
   inset: 0;
@@ -927,8 +973,10 @@ button[draggable="true"] *,
     rgba(255, 255, 255, 0.1),
     transparent 60%
   );
-  filter: blur(5px);
+  filter: blur(8px);
   pointer-events: none;
+  animation: membrane-inner-pulse 5s ease-in-out infinite;
+  will-change: transform, opacity;
 }
 
 /* Organic Handle - Visible Connection Points */

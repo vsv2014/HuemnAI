@@ -104,7 +104,7 @@ export default function StatusWidget() {
     try {
       // Use user.id or email as user identifier
       const userId = user.id?.toString() || user.email || "user1";
-      await updateAgentStatus(userId, newStatus as any);
+      await updateAgentStatus(userId, newStatus, token);
       setCurrentStatus(newStatus);
       setIsOpen(false);
     } catch (error) {

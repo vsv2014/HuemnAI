@@ -203,7 +203,18 @@ export default function AppSidebar({ agentId }: { agentId: number }) {
               <div className="w-8 h-8 bg-gradient-to-br from-blue-500 to-purple-500 rounded-lg flex items-center justify-center">
                 <span className="text-white text-sm font-bold">AI</span>
               </div>
-              <h2 className="text-lg font-bold bg-gradient-to-r from-white to-white/70 bg-clip-text text-transparent">HUEMN.Ai</h2>
+              <h2 className="text-lg font-bold flex items-center">
+                <span className="bg-gradient-to-r from-white to-white/70 bg-clip-text text-transparent">HUEMN</span>
+                <span className="inline-flex items-baseline ml-0.5">
+                  <span className="animate-rainbow-text">.A</span>
+                  <span className="relative animate-rainbow-text">
+                    ı
+                    <span className="absolute top-1 left-1/2 -translate-x-1/2 w-1.5 h-1.5 bg-white/80 animate-pulse z-10" 
+                          style={{ clipPath: 'polygon(50% 0%, 61% 35%, 98% 35%, 68% 57%, 79% 91%, 50% 70%, 21% 91%, 32% 57%, 2% 35%, 39% 35%)' }} />
+                    <span className="absolute top-1 left-1/2 -translate-x-1/2 w-3 h-3 bg-white/40 blur-sm rounded-full" />
+                  </span>
+                </span>
+              </h2>
             </div>
           </div>
         )}

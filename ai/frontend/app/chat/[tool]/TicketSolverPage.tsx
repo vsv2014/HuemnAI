@@ -2,12 +2,15 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
+import ToolSwitcher from "@/components/ToolSwitcher";
 import { useAuthStore } from "@/store/authStore";
 import {
   getAgentTickets,
   replyToTicket,
   updateTicketStatus,
   getTicketDetails,
+  getAgentTicketDetails,
+  uploadTicketAttachment,
 } from "@/services/api";
 
 interface Ticket {
@@ -24,7 +27,8 @@ interface Ticket {
   severity?: string;
   sla_deadline?: string;
   customer_channel?: string; // email, chat, etc.
-  conversation_history?: Array<{ role: string; text: string; timestamp: string }>;
+  conversation_history?: Array<{ role: string; text: string; timestamp: string; attachments?: string[] }>;
+  attachments?: string[];
 }
 
 interface TicketSolverPageProps {
@@ -47,6 +51,7 @@ const STATUS_COLORS: Record<string, string> = {
 };
 
 export default function TicketSolverPage({ toolName, toolId }: TicketSolverPageProps) {
+  const router = useRouter();
   const { token, user, isAuthenticated } = useAuthStore();
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(null);
@@ -54,7 +59,10 @@ export default function TicketSolverPage({ toolName, toolId }: TicketSolverPageP
   const [replyText, setReplyText] = useState("");
   const [sendingReply, setSendingReply] = useState(false);
   const [sortBy, setSortBy] = useState<"priority" | "created_at" | "sla">("priority");
-  const [filterStatus, setFilterStatus] = useState<"all" | "open" | "in_progress" | "resolved">("all");
+  const [filterStatus, setFilterStatus] = useState<"all" | "open" | "in_progress" | "resolved" | "unassigned">("all");
+  const [isUploading, setIsUploading] = useState(false);
+  const [replyAttachments, setReplyAttachments] = useState<Array<{name: string, url: string}>>([]);
+  const fileInputRef = useState<HTMLInputElement | null>(null);
 
   useEffect(() => {
     if (isAuthenticated && token) {
@@ -69,9 +77,25 @@ export default function TicketSolverPage({ toolName, toolId }: TicketSolverPageP
     if (!token) return;
     setLoading(true);
     try {
-      const response = await getAgentTickets(token, sortBy, filterStatus);
+      const params: any = { sort_by: sortBy };
+      
+      if (filterStatus === 'unassigned') {
+        params.status = 'all';
+        params.include_unassigned = true;
+      } else {
+        params.status = filterStatus;
+      }
+
+      const response = await getAgentTickets(token, params);
       if (response && response.tickets) {
-        setTickets(response.tickets);
+        let loadedTickets = response.tickets;
+        
+        // Client-side filtering for unassigned if needed
+        if (filterStatus === 'unassigned') {
+          loadedTickets = loadedTickets.filter((t: Ticket) => !t.assigned_to);
+        }
+
+        setTickets(loadedTickets);
         // If selected ticket, refresh its details
         if (selectedTicket) {
           const updated = response.tickets.find((t: Ticket) => t.id === selectedTicket.id);
@@ -88,10 +112,11 @@ export default function TicketSolverPage({ toolName, toolId }: TicketSolverPageP
   const handleSelectTicket = async (ticket: Ticket) => {
     setSelectedTicket(ticket);
     setReplyText("");
+    setReplyAttachments([]);
     // Load full ticket details including conversation history
     if (token) {
       try {
-        const details = await getTicketDetails(ticket.id, token);
+        const details = await getAgentTicketDetails(ticket.id, token);
         if (details && details.ticket) {
           setSelectedTicket(details.ticket);
         }
@@ -101,19 +126,41 @@ export default function TicketSolverPage({ toolName, toolId }: TicketSolverPageP
     }
   };
 
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files.length > 0 && token) {
+      setIsUploading(true);
+      try {
+        const file = e.target.files[0];
+        const result = await uploadTicketAttachment(file, token);
+        if (result.success) {
+          setReplyAttachments(prev => [...prev, { name: result.filename, url: result.url }]);
+        } else {
+          console.error("Upload failed:", result.error);
+        }
+      } catch (err) {
+        console.error("Error uploading file:", err);
+      } finally {
+        setIsUploading(false);
+        if (e.target) e.target.value = "";
+      }
+    }
+  };
+
   const handleReply = async () => {
-    if (!selectedTicket || !replyText.trim() || !token) return;
+    if (!selectedTicket || (!replyText.trim() && replyAttachments.length === 0) || !token) return;
     
     setSendingReply(true);
     try {
-      const response = await replyToTicket(selectedTicket.id, replyText, token);
+      const attachments = replyAttachments.map(a => a.url);
+      const response = await replyToTicket(selectedTicket.id, replyText, attachments, token);
       if (response && response.success) {
         setReplyText("");
+        setReplyAttachments([]);
         // Reload tickets to get updated conversation
         await loadTickets();
         // Update selected ticket
         if (selectedTicket) {
-          const updated = await getTicketDetails(selectedTicket.id, token);
+          const updated = await getAgentTicketDetails(selectedTicket.id, token);
           if (updated && updated.ticket) {
             setSelectedTicket(updated.ticket);
           }
@@ -134,7 +181,7 @@ export default function TicketSolverPage({ toolName, toolId }: TicketSolverPageP
       if (response && response.success) {
         await loadTickets();
         if (selectedTicket) {
-          const updated = await getTicketDetails(selectedTicket.id, token);
+          const updated = await getAgentTicketDetails(selectedTicket.id, token);
           if (updated && updated.ticket) {
             setSelectedTicket(updated.ticket);
           }
@@ -178,11 +225,33 @@ export default function TicketSolverPage({ toolName, toolId }: TicketSolverPageP
   return (
     <div className="min-h-screen bg-[#0b0f19] p-4 md:p-8">
       <div className="max-w-7xl mx-auto">
-        <div className="mb-6">
-          <h1 className="text-3xl font-bold text-white mb-2">Ticket Solver</h1>
-          <p className="text-white/60">
-            View and resolve tickets assigned to you. Reply to customers and update ticket status.
-          </p>
+        <div className="mb-6 flex items-start justify-between">
+          <div>
+            <div className="flex items-center gap-2 mb-2">
+              <Link
+                href="/"
+                className="text-white/60 hover:text-white transition-colors p-1.5 rounded-md hover:bg-white/10"
+                title="Go to Home"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
+                  <polyline points="9 22 9 12 15 12 15 22"/>
+                </svg>
+              </Link>
+              <span className="text-white/20">|</span>
+              <button
+                onClick={() => router.back()}
+                className="text-white/60 hover:text-white text-sm transition-colors"
+              >
+                ← Back
+              </button>
+            </div>
+            <h1 className="text-3xl font-bold text-white mb-2">Ticket Solver</h1>
+            <p className="text-white/60">
+              View and resolve tickets assigned to you. Reply to customers and update ticket status.
+            </p>
+          </div>
+          <ToolSwitcher />
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -213,6 +282,7 @@ export default function TicketSolverPage({ toolName, toolId }: TicketSolverPageP
                     <option value="open">Open</option>
                     <option value="in_progress">In Progress</option>
                     <option value="resolved">Resolved</option>
+                    <option value="unassigned">Unassigned</option>
                   </select>
                 </div>
               </div>
@@ -302,6 +372,25 @@ export default function TicketSolverPage({ toolName, toolId }: TicketSolverPageP
                     <p className="text-white/80 whitespace-pre-wrap">{selectedTicket.description}</p>
                   </div>
 
+                  {selectedTicket.attachments && selectedTicket.attachments.length > 0 && (
+                    <div className="mb-6">
+                      <h3 className="text-lg font-semibold text-white mb-2">Attachments</h3>
+                      <div className="flex flex-wrap gap-2">
+                        {selectedTicket.attachments.map((url, idx) => (
+                          <a 
+                            key={idx}
+                            href={`${url}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="flex items-center gap-2 bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-blue-400 hover:bg-white/10"
+                          >
+                            📎 Attachment {idx + 1}
+                          </a>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
                   {selectedTicket.troubleshooting_steps && selectedTicket.troubleshooting_steps.length > 0 && (
                     <div className="mb-6">
                       <h3 className="text-lg font-semibold text-white mb-2">Troubleshooting Steps</h3>
@@ -346,7 +435,22 @@ export default function TicketSolverPage({ toolName, toolId }: TicketSolverPageP
                                 {new Date(msg.timestamp).toLocaleString()}
                               </span>
                             </div>
-                            <p className="text-white/80 text-sm">{msg.text}</p>
+                            <p className="text-white/80 text-sm whitespace-pre-wrap">{msg.text}</p>
+                            {msg.attachments && msg.attachments.length > 0 && (
+                              <div className="mt-2 flex flex-wrap gap-2">
+                                {msg.attachments.map((url, i) => (
+                                  <a 
+                                    key={i}
+                                    href={url}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="text-xs text-blue-400 hover:text-blue-300 flex items-center gap-1 bg-black/20 px-2 py-1 rounded"
+                                  >
+                                    📎 Attachment
+                                  </a>
+                                ))}
+                              </div>
+                            )}
                           </div>
                         ))}
                       </div>
@@ -356,18 +460,52 @@ export default function TicketSolverPage({ toolName, toolId }: TicketSolverPageP
                   {/* Reply Section */}
                   <div className="border-t border-white/10 pt-6">
                     <h3 className="text-lg font-semibold text-white mb-3">Reply to Customer</h3>
-                    <div className="mb-3">
+                    
+                    {replyAttachments.length > 0 && (
+                      <div className="flex flex-wrap gap-2 mb-2 p-2 bg-white/5 rounded-lg border border-white/10">
+                        {replyAttachments.map((f, i) => (
+                          <div key={i} className="text-xs text-white/70 flex items-center gap-1 bg-black/20 px-2 py-1 rounded">
+                            <span>📎</span>
+                            <span className="truncate max-w-[150px]">{f.name}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    <div className="mb-3 relative">
                       <textarea
                         value={replyText}
                         onChange={(e) => setReplyText(e.target.value)}
                         placeholder="Type your reply to the customer..."
                         className="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-3 text-white placeholder-white/40 min-h-[120px] focus:outline-none focus:ring-2 focus:ring-blue-500"
                       />
+                      <div className="absolute bottom-3 right-3">
+                         <input
+                            type="file"
+                            id="reply-attachment"
+                            className="hidden"
+                            onChange={handleFileSelect}
+                          />
+                          <label 
+                            htmlFor="reply-attachment"
+                            className={`cursor-pointer p-2 rounded-lg bg-white/10 hover:bg-white/20 transition-all inline-flex items-center justify-center ${isUploading ? 'opacity-50 pointer-events-none' : ''}`}
+                            title="Attach file"
+                          >
+                            {isUploading ? (
+                              <svg className="animate-spin h-5 w-5 text-white" viewBox="0 0 24 24">
+                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                              </svg>
+                            ) : (
+                              <span className="text-white text-lg">📎</span>
+                            )}
+                          </label>
+                      </div>
                     </div>
                     <div className="flex items-center gap-3">
                       <button
                         onClick={handleReply}
-                        disabled={!replyText.trim() || sendingReply}
+                        disabled={(!replyText.trim() && replyAttachments.length === 0) || sendingReply}
                         className="px-6 py-2 bg-gradient-to-r from-blue-500 to-purple-600 text-white rounded-lg font-semibold hover:from-blue-600 hover:to-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
                       >
                         {sendingReply ? "Sending..." : "Send Reply"}

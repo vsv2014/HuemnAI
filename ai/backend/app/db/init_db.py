@@ -17,6 +17,10 @@ from app.db.models import knowledge
 from app.db.models import agent
 # Enterprise models
 from app.db.models import enterprise
+# Audit Log model
+from app.db.models import audit
+# HR models
+from app.db.models import hr
 
 def init_db():
     """

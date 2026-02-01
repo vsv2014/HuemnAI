@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, Depends, Header
+from fastapi import APIRouter, HTTPException, Depends, Header, BackgroundTasks, Request
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import and_, or_
@@ -16,6 +16,8 @@ from app.db.models.agent import (
     AgentConversation, AgentMessage, AgentType, NodeType, AgentIntegration
 )
 from app.services.flow_generator import FlowGenerator
+from app.services.audit_service import log_audit_event
+from app.db.models.subscription import UserAccount
 
 router = APIRouter()
 
@@ -122,7 +124,11 @@ def get_user_id(authorization: Optional[str] = Header(None)) -> Optional[int]:
 
 # Agent CRUD endpoints
 @router.post("/", response_model=Dict[str, Any])
-async def create_agent(agent_data: AgentCreate, db: Session = Depends(get_db)):
+async def create_agent(
+    agent_data: AgentCreate, 
+    request: Request,
+    db: Session = Depends(get_db)
+):
     """Create a new agent"""
     # Handle agent_type conversion if it's a string
     agent_type = agent_data.agent_type
@@ -145,6 +151,16 @@ async def create_agent(agent_data: AgentCreate, db: Session = Depends(get_db)):
     db.add(agent)
     db.commit()
     db.refresh(agent)
+    
+    # Audit Log
+    log_audit_event(
+        db=db,
+        action="create_agent",
+        resource_type="agent",
+        resource_id=str(agent.id),
+        details={"name": agent.name, "type": agent.agent_type.value},
+        request=request
+    )
     
     return {
         "id": agent.id,
@@ -244,7 +260,12 @@ async def get_agent(agent_id: int, db: Session = Depends(get_db)):
 
 
 @router.put("/{agent_id}", response_model=Dict[str, Any])
-async def update_agent(agent_id: int, agent_data: AgentUpdate, db: Session = Depends(get_db)):
+async def update_agent(
+    agent_id: int, 
+    agent_data: AgentUpdate, 
+    request: Request,
+    db: Session = Depends(get_db)
+):
     """Update an agent"""
     agent = db.query(Agent).filter(Agent.id == agent_id).first()
     if not agent:
@@ -257,6 +278,16 @@ async def update_agent(agent_id: int, agent_data: AgentUpdate, db: Session = Dep
     db.commit()
     db.refresh(agent)
     
+    # Audit Log
+    log_audit_event(
+        db=db,
+        action="update_agent",
+        resource_type="agent",
+        resource_id=str(agent.id),
+        details={"updated_fields": list(update_data.keys())},
+        request=request
+    )
+    
     return {
         "id": agent.id,
         "name": agent.name,
@@ -265,21 +296,41 @@ async def update_agent(agent_id: int, agent_data: AgentUpdate, db: Session = Dep
 
 
 @router.delete("/{agent_id}")
-async def delete_agent(agent_id: int, db: Session = Depends(get_db)):
+async def delete_agent(
+    agent_id: int, 
+    request: Request,
+    db: Session = Depends(get_db)
+):
     """Delete an agent"""
     agent = db.query(Agent).filter(Agent.id == agent_id).first()
     if not agent:
         raise HTTPException(status_code=404, detail="Agent not found")
     
+    agent_name = agent.name # Capture name before deletion
+    
     db.delete(agent)
     db.commit()
+    
+    # Audit Log
+    log_audit_event(
+        db=db,
+        action="delete_agent",
+        resource_type="agent",
+        resource_id=str(agent_id),
+        details={"name": agent_name},
+        request=request
+    )
     
     return {"message": "Agent deleted successfully"}
 
 
 # Node endpoints
 @router.post("/nodes", response_model=Dict[str, Any])
-async def create_node(node_data: NodeCreate, db: Session = Depends(get_db)):
+async def create_node(
+    node_data: NodeCreate, 
+    request: Request,
+    db: Session = Depends(get_db)
+):
     """Create a new node"""
     # Verify agent exists
     agent = db.query(Agent).filter(Agent.id == node_data.agent_id).first()
@@ -304,6 +355,16 @@ async def create_node(node_data: NodeCreate, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(node)
     
+    # Audit Log
+    log_audit_event(
+        db=db,
+        action="create_node",
+        resource_type="node",
+        resource_id=str(node.id),
+        details={"agent_id": node.agent_id, "type": node.node_type.value, "name": node.name},
+        request=request
+    )
+    
     return {
         "id": node.id,
         "agent_id": node.agent_id,
@@ -317,7 +378,12 @@ async def create_node(node_data: NodeCreate, db: Session = Depends(get_db)):
 
 
 @router.put("/nodes/{node_id}", response_model=Dict[str, Any])
-async def update_node(node_id: int, node_data: NodeUpdate, db: Session = Depends(get_db)):
+async def update_node(
+    node_id: int, 
+    node_data: NodeUpdate, 
+    request: Request,
+    db: Session = Depends(get_db)
+):
     """Update a node"""
     node = db.query(AgentNode).filter(AgentNode.id == node_id).first()
     if not node:
@@ -330,6 +396,16 @@ async def update_node(node_id: int, node_data: NodeUpdate, db: Session = Depends
     db.commit()
     db.refresh(node)
     
+    # Audit Log
+    log_audit_event(
+        db=db,
+        action="update_node",
+        resource_type="node",
+        resource_id=str(node.id),
+        details={"agent_id": node.agent_id, "updated_fields": list(update_data.keys())},
+        request=request
+    )
+    
     return {
         "id": node.id,
         "name": node.name,
@@ -339,21 +415,42 @@ async def update_node(node_id: int, node_data: NodeUpdate, db: Session = Depends
 
 
 @router.delete("/nodes/{node_id}")
-async def delete_node(node_id: int, db: Session = Depends(get_db)):
+async def delete_node(
+    node_id: int, 
+    request: Request,
+    db: Session = Depends(get_db)
+):
     """Delete a node"""
     node = db.query(AgentNode).filter(AgentNode.id == node_id).first()
     if not node:
         raise HTTPException(status_code=404, detail="Node not found")
     
+    agent_id = node.agent_id
+    node_name = node.name
+    
     db.delete(node)
     db.commit()
+    
+    # Audit Log
+    log_audit_event(
+        db=db,
+        action="delete_node",
+        resource_type="node",
+        resource_id=str(node_id),
+        details={"agent_id": agent_id, "name": node_name},
+        request=request
+    )
     
     return {"message": "Node deleted successfully"}
 
 
 # Connection endpoints
 @router.post("/connections", response_model=Dict[str, Any])
-async def create_connection(conn_data: ConnectionCreate, db: Session = Depends(get_db)):
+async def create_connection(
+    conn_data: ConnectionCreate, 
+    request: Request,
+    db: Session = Depends(get_db)
+):
     """Create a connection between nodes"""
     # Verify agent exists
     agent = db.query(Agent).filter(Agent.id == conn_data.agent_id).first()
@@ -383,6 +480,20 @@ async def create_connection(conn_data: ConnectionCreate, db: Session = Depends(g
     db.commit()
     db.refresh(connection)
     
+    # Audit Log
+    log_audit_event(
+        db=db,
+        action="create_connection",
+        resource_type="connection",
+        resource_id=str(connection.id),
+        details={
+            "agent_id": connection.agent_id, 
+            "source": connection.source_node_id, 
+            "target": connection.target_node_id
+        },
+        request=request
+    )
+    
     return {
         "id": connection.id,
         "source_node_id": connection.source_node_id,
@@ -393,7 +504,12 @@ async def create_connection(conn_data: ConnectionCreate, db: Session = Depends(g
 
 
 @router.put("/connections/{connection_id}", response_model=Dict[str, Any])
-async def update_connection(connection_id: int, conn_data: ConnectionUpdate, db: Session = Depends(get_db)):
+async def update_connection(
+    connection_id: int, 
+    conn_data: ConnectionUpdate, 
+    request: Request,
+    db: Session = Depends(get_db)
+):
     """Update a connection"""
     connection = db.query(AgentConnection).filter(AgentConnection.id == connection_id).first()
     if not connection:
@@ -406,6 +522,16 @@ async def update_connection(connection_id: int, conn_data: ConnectionUpdate, db:
     db.commit()
     db.refresh(connection)
     
+    # Audit Log
+    log_audit_event(
+        db=db,
+        action="update_connection",
+        resource_type="connection",
+        resource_id=str(connection.id),
+        details={"agent_id": connection.agent_id, "updated_fields": list(update_data.keys())},
+        request=request
+    )
+    
     return {
         "id": connection.id,
         "source_node_id": connection.source_node_id,
@@ -416,21 +542,57 @@ async def update_connection(connection_id: int, conn_data: ConnectionUpdate, db:
 
 
 @router.delete("/connections/{connection_id}")
-async def delete_connection(connection_id: int, db: Session = Depends(get_db)):
+async def delete_connection(
+    connection_id: int, 
+    request: Request,
+    db: Session = Depends(get_db)
+):
     """Delete a connection"""
     connection = db.query(AgentConnection).filter(AgentConnection.id == connection_id).first()
     if not connection:
         raise HTTPException(status_code=404, detail="Connection not found")
     
+    agent_id = connection.agent_id
+    
     db.delete(connection)
     db.commit()
+    
+    # Audit Log
+    log_audit_event(
+        db=db,
+        action="delete_connection",
+        resource_type="connection",
+        resource_id=str(connection_id),
+        details={"agent_id": agent_id},
+        request=request
+    )
     
     return {"message": "Connection deleted successfully"}
 
 
+@router.post("/generate-flow", response_model=Dict[str, Any])
+async def generate_flow(
+    request: GenerateFlowRequest,
+    db: Session = Depends(get_db)
+):
+    """Generate agent flow from prompt"""
+    agent = db.query(Agent).filter(Agent.id == request.agent_id).first()
+    if not agent:
+        raise HTTPException(status_code=404, detail="Agent not found")
+        
+    generator = FlowGenerator(db)
+    result = await generator.generate_from_prompt(agent, request.prompt)
+    
+    return result
+
+
 # Conversation/Execution endpoint
 @router.post("/conversations")  # Return dict directly to ensure all fields are included
-async def process_message(request: ConversationRequest, db: Session = Depends(get_db)):
+async def process_message(
+    request: ConversationRequest, 
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db)
+):
     """Process a message through an agent"""
     agent = db.query(Agent).filter(Agent.id == request.agent_id).first()
     if not agent:
@@ -470,7 +632,7 @@ async def process_message(request: ConversationRequest, db: Session = Depends(ge
     
     # Execute agent flow
     from app.services.agent_executor import AgentExecutor
-    executor = AgentExecutor(db)
+    executor = AgentExecutor(db, background_tasks=background_tasks)
     
     # Force load nodes relationship and log agent state
     node_count = len(agent.nodes) if agent.nodes else 0
@@ -518,6 +680,11 @@ async def process_message(request: ConversationRequest, db: Session = Depends(ge
             "node_id": result.get("node_id"),
             "metadata": result.get("metadata", {})
         })
+        
+        # Persist full debug trace
+        if debug_trace:
+            conversation.debug_trace = debug_trace
+            
     except Exception as e:
         logger.error(f"Error executing agent: {str(e)}", exc_info=True)
         import traceback
@@ -636,6 +803,22 @@ async def get_conversation(session_id: str, db: Session = Depends(get_db)):
         "context": conversation.context,
         "messages": messages,
         "created_at": conversation.created_at.isoformat() if conversation.created_at else None
+    }
+
+
+@router.get("/conversations/{session_id}/trace")
+async def get_conversation_trace(session_id: str, db: Session = Depends(get_db)):
+    """Get full execution trace for a conversation"""
+    conversation = db.query(AgentConversation).filter(
+        AgentConversation.session_id == session_id
+    ).first()
+    
+    if not conversation:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+        
+    return {
+        "session_id": session_id,
+        "debug_trace": conversation.debug_trace or []
     }
 
 

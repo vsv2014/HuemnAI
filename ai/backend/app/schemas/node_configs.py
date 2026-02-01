@@ -19,6 +19,31 @@ class StartNodeConfig(BaseNodeConfig):
     input_variables: Optional[List[Dict[str, str]]] = Field(default_factory=list, description="Expected input variables")
     initial_context: Optional[Dict[str, Any]] = Field(default_factory=dict, description="Initial context values")
 
+class IvrProperties(BaseModel):
+    initial_prompts: List[str] = Field(default_factory=list, description="Prompts to play initially")
+    timeout_prompts: List[str] = Field(default_factory=list, description="Prompts to play on timeout")
+    no_match_prompts: List[str] = Field(default_factory=list, description="Prompts to play on no match")
+    error_prompts: List[str] = Field(default_factory=list, description="Prompts to play on error")
+    timeout: int = Field(10, description="Timeout in seconds")
+    max_retries: int = Field(3, description="Maximum number of retries")
+    on_exceed_retries: str = Field("end_dialog", description="Action when retries exceeded: end_dialog, transition")
+    barge_in: bool = Field(True, description="Allow barge-in")
+    grammar: Optional[str] = Field(None, description="Node level grammar")
+
+class EntityExtractionOptions(BaseModel):
+    strategy: str = Field("unused_text", description="Evaluation strategy: unused_text, all_text, explicit_prompt")
+    auto_correct: bool = Field(True, description="Enable auto-correction")
+    intent_detection: str = Field("accept_as_entity", description="Intent detection strategy: accept_as_entity, prefer_intent, ask_user")
+
+class EntityNodeConfig(BaseNodeConfig):
+    variable: str = Field(..., description="Context variable to store the extracted entity")
+    entity_type: str = Field(..., description="Type of entity to extract (e.g., date, location, number)")
+    ivr_properties: Optional[IvrProperties] = Field(default_factory=IvrProperties, description="IVR specific properties")
+    extraction_options: Optional[EntityExtractionOptions] = Field(default_factory=EntityExtractionOptions, description="Extraction strategy settings")
+    custom_tags: Optional[Dict[str, Dict[str, str]]] = Field(default_factory=dict, description="Custom tags for message/user/session")
+    analytics_containment: str = Field("default", description="Analytics containment type")
+    advanced_controls: Optional[Dict[str, Any]] = Field(default_factory=dict, description="Advanced settings")
+
 class AiRagConfig(BaseNodeConfig):
     knowledge_base_id: Optional[str] = Field(None, description="ID of the knowledge base to search")
     query: str = Field(..., description="Query string for retrieval")
@@ -70,6 +95,7 @@ class StreamingConfig(BaseNodeConfig):
 # --- Registration ---
 
 register_node_config("ai_rag", AiRagConfig)
+register_node_config("entity", EntityNodeConfig)
 register_node_config("ai_embedding", AiEmbeddingConfig)
 register_node_config("ai_vector_search", AiVectorSearchConfig)
 register_node_config("webhook", WebhookConfig)

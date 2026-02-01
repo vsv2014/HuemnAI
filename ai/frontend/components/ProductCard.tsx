@@ -28,14 +28,9 @@ export default function ProductCard({
     const toolMap: Record<string, string> = {
       "agent-builder": "agent_builder",
       "customer-service": "customer_service",
-      "ticket-assigner": "ticket_assigner",
-      "ticket-solver": "ticket_solver",
-      "status-updater": "status_updater",
       "hr-services": "hr_services",
       "knowledge-ai": "knowledge_ai",
-      "ticket-booking-agent": "ticket_booking_agent",
       "analytics-dashboard": "analytics_dashboard",
-      "economic-trends": "economic_trends",
     };
     return toolMap[slug || ""] || null;
   };
@@ -232,62 +227,76 @@ export default function ProductCard({
   }
 
   return (
-    <div className="scene">
+    <div className="scene group h-full">
       <Tilt
-        glareEnable={false}
-        tiltMaxAngleX={8}
-        tiltMaxAngleY={12}
+        glareEnable={true}
+        glareMaxOpacity={0.15}
+        glareColor="#60a5fa"
+        glarePosition="all"
+        glareBorderRadius="1rem"
+        tiltMaxAngleX={5}
+        tiltMaxAngleY={5}
         perspective={1200}
         scale={1.02}
         transitionEasing="cubic-bezier(.03,.98,.52,.99)"
         tiltEnable={typeof window !== 'undefined' && window.innerWidth >= 768}
+        className="h-full"
       >
         <div
           ref={ref}
           onClick={handleClick}
-          className={`tile w-full max-w-sm mx-auto sm:max-w-none sm:w-72 text-left rounded-xl sm:rounded-2xl border ${
+          className={`tile w-full max-w-sm mx-auto sm:max-w-none sm:w-full h-full min-h-[200px] text-left rounded-3xl border ${
             subscriptionStatus === "trial" && toolTokens && toolTokens.tokens_remaining <= 0
               ? "border-red-500/50 bg-red-500/5"
-              : "border-white/10 bg-white/5"
-          } tile-inner cursor-pointer active:scale-95 transition-transform relative`}
+              : "border-t-white/20 border-l-white/10 border-r-white/5 border-b-white/5 bg-gradient-to-br from-white/10 via-white/5 to-transparent hover:bg-white/10"
+          } tile-inner cursor-pointer active:scale-95 transition-all duration-300 relative overflow-hidden backdrop-blur-3xl shadow-[0_8px_32px_0_rgba(0,0,0,0.36),inset_0_0_0_1px_rgba(255,255,255,0.1)] hover:shadow-[0_16px_48px_0_rgba(31,38,135,0.5),inset_0_0_0_1px_rgba(255,255,255,0.2)] p-6 sm:p-8 flex flex-col justify-between group`}
           aria-label={`Open ${title}`}
         >
+          <div className="absolute inset-0 bg-gradient-to-tr from-transparent via-white/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-700 pointer-events-none" />
+          {/* Futuristic Background Glow */}
+          <div className="absolute top-0 right-0 w-40 h-40 bg-gradient-to-br from-blue-500/20 to-purple-500/20 blur-[60px] rounded-full -mr-10 -mt-10 pointer-events-none group-hover:opacity-100 opacity-60 transition-opacity" />
+          
           {/* Red Banner for Exhausted Tokens - Only show if actually 0 */}
           {subscriptionStatus === "trial" && toolTokens && toolTokens.tokens_remaining <= 0 && !isSettings && (
-            <div className="absolute top-0 left-0 right-0 bg-red-500/20 border-b border-red-500/50 rounded-t-xl sm:rounded-t-2xl px-3 py-1.5 z-10">
-              <p className="text-red-300 text-xs font-semibold text-center">
-                ⚠️ Please subscribe to use this tool
+            <div className="absolute top-0 left-0 right-0 bg-red-500/20 border-b border-red-500/50 rounded-t-2xl sm:rounded-t-3xl px-3 py-2 z-10">
+              <p className="text-red-300 text-xs font-semibold text-center uppercase tracking-wider">
+                ⚠️ Subscription Required
               </p>
             </div>
           )}
           
-          <div className={`flex items-start gap-3 sm:gap-4 ${subscriptionStatus === "trial" && toolTokens && toolTokens.tokens_remaining <= 0 && !isSettings ? "pt-10" : ""}`}>
-            <div className="flex-shrink-0">{IconForSlug(slug || title.toLowerCase())}</div>
-            <div className="flex-1 min-w-0 flex flex-col">
-              {/* Title and Token Badge Row */}
-              <div className="flex items-start justify-between gap-2 mb-2">
-                <h3 className="text-lg sm:text-xl font-semibold break-words flex-1 leading-tight pr-2">{title}</h3>
-                {/* Token Count Display - Compact vertical badge */}
-                {subscriptionStatus === "trial" && toolTokens && !isSettings && (
-                  <div className="bg-gradient-to-br from-blue-500/20 via-blue-500/15 to-purple-500/20 border border-blue-500/40 rounded-lg px-2.5 py-1.5 flex-shrink-0 shadow-lg backdrop-blur-sm">
-                    <div className="text-center">
-                      <p className="text-blue-300 text-[11px] font-bold leading-none">
-                        {toolTokens.tokens_remaining.toLocaleString()}
-                      </p>
-                      <p className="text-blue-400/70 text-[9px] leading-tight mt-0.5">
-                        / {toolTokens.tokens_total.toLocaleString()}
-                      </p>
-                    </div>
-                  </div>
-                )}
+          <div className={`relative z-10 flex-1 ${subscriptionStatus === "trial" && toolTokens && toolTokens.tokens_remaining <= 0 && !isSettings ? "pt-8" : ""}`}>
+            <div className="flex items-start justify-between gap-4 mb-6">
+              <div className="p-3 bg-white/5 rounded-2xl border border-white/10 group-hover:scale-110 transition-transform duration-300 shadow-[0_0_15px_rgba(255,255,255,0.05)] group-hover:shadow-[0_0_20px_rgba(59,130,246,0.2)] group-hover:border-blue-500/30">
+                {IconForSlug(slug || title.toLowerCase())}
               </div>
-              {/* Description - Full width, properly spaced */}
-              <p className="text-white/70 text-xs sm:text-sm leading-relaxed">{desc}</p>
+              
+              {/* Token Count Display - Compact vertical badge */}
+              {subscriptionStatus === "trial" && toolTokens && !isSettings && (
+                <div className="bg-gradient-to-br from-blue-500/20 via-blue-500/15 to-purple-500/20 border border-blue-500/40 rounded-xl px-3 py-2 flex-shrink-0 shadow-lg backdrop-blur-md">
+                  <div className="text-center">
+                    <p className="text-blue-300 text-xs font-bold leading-none">
+                      {toolTokens.tokens_remaining.toLocaleString()}
+                    </p>
+                    <p className="text-blue-400/70 text-[10px] uppercase tracking-wider mt-1 font-medium">
+                      Tokens
+                    </p>
+                  </div>
+                </div>
+              )}
             </div>
+            
+            <h3 className="text-xl sm:text-2xl font-bold mb-3 bg-clip-text text-transparent bg-gradient-to-r from-white to-white/80 group-hover:from-white group-hover:to-blue-200 transition-all">{title}</h3>
+            <p className="text-white/60 text-sm leading-relaxed group-hover:text-white/80 transition-colors">{desc}</p>
           </div>
 
-          <div className="tile-cta">
-            <span className="inline-block text-xs sm:text-sm">Explore →</span>
+          <div className="relative z-10 mt-6 pt-4 border-t border-white/5 flex items-center justify-between group/cta">
+            <span className="text-xs font-medium text-white/40 uppercase tracking-widest group-hover:text-blue-300 transition-colors">Launch Tool</span>
+            <div className="w-8 h-8 rounded-full bg-white/5 flex items-center justify-center group-hover/cta:bg-blue-500 group-hover/cta:text-white transition-all duration-300 group-hover/cta:scale-110 group-hover/cta:shadow-[0_0_15px_rgba(59,130,246,0.5)]">
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 5l7 7m0 0l-7 7m7-7H3" />
+              </svg>
+            </div>
           </div>
         </div>
       </Tilt>

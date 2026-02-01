@@ -22,8 +22,10 @@ PROVIDER_DEFINITIONS = {
             "fields": {
                 "api_key": {"type": "password", "required": True, "label": "API Key"},
                 "model": {"type": "select", "required": True, "label": "Model", 
-                         "options": ["gpt-4", "gpt-4-turbo", "gpt-3.5-turbo", "gpt-4o", "gpt-4o-mini"],
-                         "default": "gpt-3.5-turbo"},
+                         "options": ["gpt-4", "gpt-4-turbo", "gpt-3.5-turbo", "gpt-4o", "gpt-4o-mini", "o1-preview", "o1-mini"],
+                         "default": "gpt-4o"},
+                "fallback_models": {"type": "text", "required": False, "label": "Fallback Models (comma-separated)",
+                                   "default": "gpt-4o-mini, gpt-3.5-turbo"},
                 "embedding_model": {"type": "select", "required": False, "label": "Embedding Model",
                                    "options": ["text-embedding-3-small", "text-embedding-3-large", "text-embedding-ada-002"],
                                    "default": "text-embedding-3-small"}
@@ -37,7 +39,7 @@ PROVIDER_DEFINITIONS = {
                 "api_version": {"type": "text", "required": False, "label": "API Version",
                               "default": "2024-02-15-preview"},
                 "deployment_name": {"type": "text", "required": True, "label": "Deployment Name",
-                                   "default": "gpt-35-turbo"}
+                                   "default": "gpt-4"}
             }
         },
         "anthropic": {
@@ -45,8 +47,85 @@ PROVIDER_DEFINITIONS = {
             "fields": {
                 "api_key": {"type": "password", "required": True, "label": "API Key"},
                 "model": {"type": "select", "required": True, "label": "Model",
-                         "options": ["claude-3-opus", "claude-3-sonnet", "claude-3-haiku"],
-                         "default": "claude-3-sonnet"}
+                         "options": ["claude-3-5-sonnet-20240620", "claude-3-opus-20240229", "claude-3-sonnet-20240229", "claude-3-haiku-20240307"],
+                         "default": "claude-3-5-sonnet-20240620"}
+            }
+        },
+        "google": {
+            "name": "Google Gemini",
+            "fields": {
+                "api_key": {"type": "password", "required": True, "label": "API Key"},
+                "model": {"type": "select", "required": True, "label": "Model",
+                         "options": ["gemini-1.5-pro", "gemini-1.5-flash", "gemini-1.0-pro"],
+                         "default": "gemini-1.5-pro"}
+            }
+        },
+        "mistral": {
+            "name": "Mistral AI",
+            "fields": {
+                "api_key": {"type": "password", "required": True, "label": "API Key"},
+                "model": {"type": "select", "required": True, "label": "Model",
+                         "options": ["mistral-large-latest", "mistral-small-latest", "codestral-latest"],
+                         "default": "mistral-large-latest"}
+            }
+        },
+        "cohere": {
+            "name": "Cohere",
+            "fields": {
+                "api_key": {"type": "password", "required": True, "label": "API Key"},
+                "model": {"type": "select", "required": True, "label": "Model",
+                         "options": ["command-r-plus", "command-r", "command"],
+                         "default": "command-r-plus"}
+            }
+        },
+        "bedrock": {
+            "name": "AWS Bedrock",
+            "fields": {
+                "access_key_id": {"type": "text", "required": True, "label": "Access Key ID"},
+                "secret_access_key": {"type": "password", "required": True, "label": "Secret Access Key"},
+                "region": {"type": "text", "required": True, "label": "Region", "default": "us-east-1"},
+                "model_id": {"type": "text", "required": True, "label": "Model ID", "default": "anthropic.claude-3-sonnet-20240229-v1:0"}
+            }
+        },
+        "groq": {
+            "name": "Groq",
+            "fields": {
+                "api_key": {"type": "password", "required": True, "label": "API Key"},
+                "model": {"type": "select", "required": True, "label": "Model",
+                         "options": ["llama3-70b-8192", "llama3-8b-8192", "mixtral-8x7b-32768"],
+                         "default": "llama3-70b-8192"}
+            }
+        }
+    },
+    "vector_db": {
+        "pinecone": {
+            "name": "Pinecone",
+            "fields": {
+                "api_key": {"type": "password", "required": True, "label": "API Key"},
+                "environment": {"type": "text", "required": True, "label": "Environment/Region"},
+                "index_name": {"type": "text", "required": True, "label": "Index Name"}
+            }
+        },
+        "weaviate": {
+            "name": "Weaviate",
+            "fields": {
+                "url": {"type": "text", "required": True, "label": "Cluster URL"},
+                "api_key": {"type": "password", "required": True, "label": "API Key"}
+            }
+        },
+        "qdrant": {
+            "name": "Qdrant",
+            "fields": {
+                "url": {"type": "text", "required": True, "label": "Cluster URL"},
+                "api_key": {"type": "password", "required": True, "label": "API Key"}
+            }
+        },
+        "chroma": {
+            "name": "ChromaDB",
+            "fields": {
+                "host": {"type": "text", "required": True, "label": "Host", "default": "localhost"},
+                "port": {"type": "text", "required": True, "label": "Port", "default": "8000"},
+                "collection_name": {"type": "text", "required": False, "label": "Collection Name"}
             }
         }
     },
@@ -75,6 +154,12 @@ PROVIDER_DEFINITIONS = {
                 "security_token": {"type": "password", "required": True, "label": "Security Token"}
             }
         },
+        "hubspot": {
+            "name": "HubSpot",
+            "fields": {
+                "access_token": {"type": "password", "required": True, "label": "Access Token"}
+            }
+        },
         "greenhouse": {
             "name": "Greenhouse",
             "fields": {
@@ -87,6 +172,85 @@ PROVIDER_DEFINITIONS = {
                 "client_id": {"type": "text", "required": True, "label": "Client ID"},
                 "client_secret": {"type": "password", "required": True, "label": "Client Secret"},
                 "access_token": {"type": "password", "required": False, "label": "Access Token"}
+            }
+        },
+        "notion": {
+            "name": "Notion",
+            "fields": {
+                "integration_token": {"type": "password", "required": True, "label": "Integration Token"}
+            }
+        },
+        "slack": {
+            "name": "Slack",
+            "fields": {
+                "bot_token": {"type": "password", "required": True, "label": "Bot User OAuth Token"},
+                "signing_secret": {"type": "password", "required": True, "label": "Signing Secret"}
+            }
+        },
+        "github": {
+            "name": "GitHub",
+            "fields": {
+                "personal_access_token": {"type": "password", "required": True, "label": "Personal Access Token"}
+            }
+        },
+        "linear": {
+            "name": "Linear",
+            "fields": {
+                "api_key": {"type": "password", "required": True, "label": "API Key"}
+            }
+        }
+    },
+    "speech": {
+        "deepgram": {
+            "name": "Deepgram",
+            "fields": {
+                "api_key": {"type": "password", "required": True, "label": "API Key"}
+            }
+        },
+        "elevenlabs": {
+            "name": "ElevenLabs",
+            "fields": {
+                "api_key": {"type": "password", "required": True, "label": "API Key"},
+                "voice_id": {"type": "text", "required": False, "label": "Default Voice ID"}
+            }
+        }
+    },
+    "search": {
+        "serpapi": {
+            "name": "SerpApi",
+            "fields": {
+                "api_key": {"type": "password", "required": True, "label": "API Key"}
+            }
+        },
+        "google_search": {
+            "name": "Google Custom Search",
+            "fields": {
+                "api_key": {"type": "password", "required": True, "label": "API Key"},
+                "cx": {"type": "text", "required": True, "label": "Search Engine ID (cx)"}
+            }
+        },
+        "tavily": {
+            "name": "Tavily",
+            "fields": {
+                "api_key": {"type": "password", "required": True, "label": "API Key"}
+            }
+        }
+    },
+    "storage": {
+        "aws_s3": {
+            "name": "AWS S3",
+            "fields": {
+                "access_key_id": {"type": "text", "required": True, "label": "Access Key ID"},
+                "secret_access_key": {"type": "password", "required": True, "label": "Secret Access Key"},
+                "region": {"type": "text", "required": True, "label": "Region", "default": "us-east-1"},
+                "bucket_name": {"type": "text", "required": True, "label": "Bucket Name"}
+            }
+        },
+        "gcs": {
+            "name": "Google Cloud Storage",
+            "fields": {
+                "service_account_json": {"type": "text", "required": True, "label": "Service Account JSON (Base64)"},
+                "bucket_name": {"type": "text", "required": True, "label": "Bucket Name"}
             }
         }
     }
@@ -352,11 +516,11 @@ async def test_config(config_id: int, db: Session = Depends(get_db)):
                     max_tokens=5
                 )
                 return {"success": True, "message": "Azure OpenAI connection successful"}
-        elif config.provider_type == "connector":
-            # Test connector connections
-            return {"success": True, "message": "Connector test not yet implemented"}
+        elif config.provider_type in ["connector", "vector_db", "speech", "search", "storage"]:
+            # Placeholder for other provider types
+            return {"success": True, "message": f"Configuration saved for {config.provider}. Connection test not yet implemented."}
         
-        return {"success": False, "message": "Unknown provider type"}
+        return {"success": False, "message": f"Unknown provider type: {config.provider_type}"}
     except Exception as e:
         logger.error(f"Error testing config {config_id}: {e}", exc_info=True)
         return {"success": False, "message": f"Connection test failed: {str(e)}"}

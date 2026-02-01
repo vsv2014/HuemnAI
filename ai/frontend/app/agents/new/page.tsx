@@ -33,6 +33,12 @@ export default function NewAgentPage() {
     loadTemplates();
   }, []);
 
+  useEffect(() => {
+    if (!isAuthenticated) {
+      router.push("/auth/login");
+    }
+  }, [isAuthenticated, router]);
+
   const loadTemplates = async () => {
     try {
       const response = await getAgentTemplates();
@@ -45,7 +51,6 @@ export default function NewAgentPage() {
   };
 
   if (!isAuthenticated) {
-    router.push("/auth/login");
     return null;
   }
 
@@ -181,9 +186,12 @@ export default function NewAgentPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-[#05070f] via-[#0a1020] to-[#05070f] text-white p-6">
-      <div className="max-w-3xl mx-auto">
-        <Link href="/agents" className="text-blue-400 hover:underline mb-4 inline-block">
+    <div className="min-h-screen text-white relative">
+      {/* Background removed to allow global animated background to show */}
+      {/* <div className="fixed inset-0 bg-gradient-to-br from-[#05070f] via-[#0a1020] to-[#05070f] z-0" /> */}
+      <div className="relative z-10 p-6 min-h-screen">
+        <div className="max-w-3xl mx-auto">
+          <Link href="/agents" className="text-blue-400 hover:underline mb-4 inline-block">
           ← Back to Agents
         </Link>
         
@@ -386,6 +394,7 @@ export default function NewAgentPage() {
           </div>
         </form>
       </div>
+    </div>
     </div>
   );
 }

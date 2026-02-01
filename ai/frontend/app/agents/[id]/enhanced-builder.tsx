@@ -71,6 +71,7 @@ export default function EnhancedAgentBuilder() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
 
   useEffect(() => {
     if (!isAuthenticated) {
@@ -406,19 +407,44 @@ export default function EnhancedAgentBuilder() {
 
       <div className="flex h-[calc(100vh-120px)]">
         {/* Sidebar - Node Palette */}
-        <div className="w-64 border-r border-white/10 bg-[#0b0f19]/50 p-4 overflow-y-auto">
+        <div className="w-64 border-r border-white/10 bg-[#0b0f19]/50 p-4 overflow-y-auto flex flex-col">
           <h3 className="font-semibold mb-4">Add Nodes</h3>
+          
+          {/* Search Bar */}
+          <div className="relative mb-4">
+            <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+              <svg className="h-4 w-4 text-white/40" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                <path fillRule="evenodd" d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z" clipRule="evenodd" />
+              </svg>
+            </div>
+            <input
+              type="text"
+              placeholder="Search nodes..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full pl-9 pr-3 py-2 bg-white/5 border border-white/10 rounded-lg text-sm text-white placeholder-white/40 focus:outline-none focus:ring-1 focus:ring-blue-500/50 transition-all"
+            />
+          </div>
+
           <div className="space-y-2">
-            {nodeTypes.map((nt) => (
-              <button
-                key={nt.type}
-                onClick={() => handleAddNode(nt.type)}
-                className="w-full px-4 py-2 rounded-lg hover:opacity-80 transition-opacity text-sm font-medium text-white"
-                style={{ backgroundColor: nt.color }}
-              >
-                + {nt.label}
-              </button>
+            {nodeTypes
+              .filter(nt => nt.label.toLowerCase().includes(searchQuery.toLowerCase()))
+              .map((nt) => (
+                <button
+                  key={nt.type}
+                  onClick={() => handleAddNode(nt.type)}
+                  className="w-full px-4 py-2 rounded-lg hover:opacity-90 transition-all text-sm font-medium text-white flex items-center gap-2 shadow-sm hover:shadow-md hover:scale-[1.02]"
+                  style={{ backgroundColor: nt.color }}
+                >
+                  <span className="text-lg leading-none">+</span>
+                  {nt.label}
+                </button>
             ))}
+            {nodeTypes.filter(nt => nt.label.toLowerCase().includes(searchQuery.toLowerCase())).length === 0 && (
+                <div className="text-center py-8 text-white/30 text-sm italic">
+                    No nodes found
+                </div>
+            )}
           </div>
         </div>
 
@@ -449,13 +475,15 @@ export default function EnhancedAgentBuilder() {
         {/* Right Panel - Node Configuration */}
         {selectedNode && (
           <div className="w-80 border-l border-white/10 bg-[#0b0f19]/50 p-4 overflow-y-auto">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="font-semibold">Node Configuration</h3>
+            <div className="flex items-center justify-between mb-6 pb-4 border-b border-white/10">
+              <h3 className="text-lg font-semibold text-white">Node Configuration</h3>
               <button
                 onClick={() => setSelectedNode(null)}
-                className="text-white/60 hover:text-white"
+                className="text-white/60 hover:text-white transition-colors"
               >
-                ✕
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                  <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+                </svg>
               </button>
             </div>
             
@@ -935,6 +963,374 @@ export default function EnhancedAgentBuilder() {
                 </div>
               )}
 
+              {selectedNode.data.nodeType === "entity" && (
+                <div className="space-y-4">
+                  <div className="p-3 bg-purple-500/10 border border-purple-500/20 rounded-lg">
+                    <p className="text-xs text-purple-300">
+                      💡 <strong>Entity Node:</strong> Extract information from user input. Configure IVR prompts and retry logic.
+                    </p>
+                  </div>
+
+                  {/* Basic Configuration */}
+                  <div className="space-y-3">
+                    <div>
+                      <label className="block text-sm text-white/70 mb-1">Target Variable</label>
+                      <input
+                        type="text"
+                        value={selectedNode.data.config?.variable || ""}
+                        onChange={(e) => updateNodeConfiguration(selectedNode.id, { variable: e.target.value })}
+                        placeholder="e.g. user_age"
+                        className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm text-white/70 mb-1">Entity Type</label>
+                      <select
+                        value={selectedNode.data.config?.entity_type || ""}
+                        onChange={(e) => updateNodeConfiguration(selectedNode.id, { entity_type: e.target.value })}
+                        className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white"
+                      >
+                        <option value="">Select Type...</option>
+                        <option value="sys.date">Date</option>
+                        <option value="sys.time">Time</option>
+                        <option value="sys.number">Number</option>
+                        <option value="sys.email">Email</option>
+                        <option value="sys.phone">Phone Number</option>
+                        <option value="sys.person">Person Name</option>
+                        <option value="sys.location">Location</option>
+                        <option value="custom">Custom (LLM Extraction)</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  {/* IVR Properties */}
+                  <div className="pt-4 border-t border-white/10 space-y-4">
+                    <h4 className="font-semibold text-sm text-white/90">IVR Settings</h4>
+                    
+                    {/* Prompts Section */}
+                    <div className="space-y-3">
+                        <label className="block text-xs text-white/50 uppercase tracking-wider">Prompts</label>
+                        
+                        {/* Prompt Type Selector */}
+                        <div className="flex bg-black/20 rounded-lg p-1 gap-1">
+                           {["initial", "timeout", "no_match", "error"].map(type => (
+                              <button
+                                key={type}
+                                onClick={() => {
+                                   updateNodeConfiguration(selectedNode.id, { _ui_active_prompt_tab: type });
+                                }}
+                                className={`flex-1 py-1 text-[10px] rounded ${selectedNode.data.config?._ui_active_prompt_tab === type || (!selectedNode.data.config?._ui_active_prompt_tab && type === 'initial') ? 'bg-purple-500/20 text-purple-300' : 'text-white/50 hover:text-white'}`}
+                              >
+                                {type.replace("_", " ").toUpperCase()}
+                              </button>
+                           ))}
+                        </div>
+
+                        {/* Prompt List Editor */}
+                        {(() => {
+                           const activeTab = selectedNode.data.config?._ui_active_prompt_tab || "initial";
+                           const propName = `${activeTab}_prompts`;
+                           const ivrProps = selectedNode.data.config?.ivr_properties || {};
+                           const prompts = ivrProps[propName] || [];
+
+                           return (
+                             <div className="space-y-2">
+                                <div className="flex items-center justify-between">
+                                   <span className="text-xs text-white/70 capitalize">{activeTab.replace("_", " ")} Prompts</span>
+                                   <button 
+                                      onClick={() => {
+                                         const newPrompts = [...prompts, ""];
+                                         updateNodeConfiguration(selectedNode.id, { 
+                                            ivr_properties: { ...ivrProps, [propName]: newPrompts } 
+                                         });
+                                      }}
+                                      className="text-[10px] text-blue-300 hover:text-blue-200"
+                                   >
+                                      + Add
+                                   </button>
+                                </div>
+                                {prompts.length === 0 && (
+                                   <div className="text-xs text-white/30 italic p-2 text-center border border-dashed border-white/10 rounded">
+                                      No prompts defined.
+                                   </div>
+                                )}
+                                {prompts.map((p: string, idx: number) => (
+                                   <div key={idx} className="flex gap-2">
+                                      <textarea
+                                         value={p}
+                                         onChange={(e) => {
+                                            const newPrompts = [...prompts];
+                                            newPrompts[idx] = e.target.value;
+                                            updateNodeConfiguration(selectedNode.id, { 
+                                               ivr_properties: { ...ivrProps, [propName]: newPrompts } 
+                                            });
+                                         }}
+                                         className="flex-1 px-2 py-1 bg-black/20 border border-white/10 rounded text-xs text-white resize-none"
+                                         rows={2}
+                                         placeholder="Enter prompt text..."
+                                      />
+                                      <button
+                                         onClick={() => {
+                                            const newPrompts = prompts.filter((_: any, i: number) => i !== idx);
+                                            updateNodeConfiguration(selectedNode.id, { 
+                                               ivr_properties: { ...ivrProps, [propName]: newPrompts } 
+                                            });
+                                         }}
+                                         className="text-white/30 hover:text-red-400 self-start mt-1"
+                                      >
+                                         ×
+                                      </button>
+                                   </div>
+                                ))}
+                             </div>
+                           );
+                        })()}
+                    </div>
+
+                    {/* IVR Parameters */}
+                    <div className="grid grid-cols-2 gap-3 pt-2">
+                       <div>
+                          <label className="block text-[10px] text-white/50 mb-1">Timeout (sec)</label>
+                          <input
+                             type="number"
+                             value={selectedNode.data.config?.ivr_properties?.timeout ?? 10}
+                             onChange={(e) => updateNodeConfiguration(selectedNode.id, { 
+                                ivr_properties: { ...(selectedNode.data.config?.ivr_properties || {}), timeout: parseInt(e.target.value) } 
+                             })}
+                             className="w-full px-2 py-1 bg-black/20 border border-white/10 rounded text-xs text-white"
+                          />
+                       </div>
+                       <div>
+                          <label className="block text-[10px] text-white/50 mb-1">Max Retries</label>
+                          <input
+                             type="number"
+                             value={selectedNode.data.config?.ivr_properties?.max_retries ?? 3}
+                             onChange={(e) => updateNodeConfiguration(selectedNode.id, { 
+                                ivr_properties: { ...(selectedNode.data.config?.ivr_properties || {}), max_retries: parseInt(e.target.value) } 
+                             })}
+                             className="w-full px-2 py-1 bg-black/20 border border-white/10 rounded text-xs text-white"
+                          />
+                       </div>
+                    </div>
+
+                    <div>
+                        <label className="flex items-center gap-2 cursor-pointer">
+                           <input 
+                              type="checkbox"
+                              checked={selectedNode.data.config?.ivr_properties?.barge_in ?? true}
+                              onChange={(e) => updateNodeConfiguration(selectedNode.id, { 
+                                 ivr_properties: { ...(selectedNode.data.config?.ivr_properties || {}), barge_in: e.target.checked } 
+                              })}
+                              className="rounded bg-white/10 border-white/20 text-purple-500 focus:ring-purple-500/20"
+                           />
+                           <span className="text-xs text-white/70">Allow Barge-in</span>
+                        </label>
+                    </div>
+
+                    {/* Instance Properties */}
+                    <div className="pt-4 border-t border-white/10 space-y-4">
+                        <h4 className="font-semibold text-sm text-white/90">Instance Properties</h4>
+                        
+                        {/* Exceeding Retries Behavior */}
+                        <div>
+                            <label className="block text-xs text-white/50 mb-2">Behavior on Exceeding Retries</label>
+                            <div className="space-y-1">
+                                <label className="flex items-center gap-2 cursor-pointer">
+                                    <input
+                                        type="radio"
+                                        name="on_exceed_retries"
+                                        checked={(selectedNode.data.config?.ivr_properties?.on_exceed_retries ?? "end_dialog") === "end_dialog"}
+                                        onChange={() => updateNodeConfiguration(selectedNode.id, {
+                                            ivr_properties: { ...(selectedNode.data.config?.ivr_properties || {}), on_exceed_retries: "end_dialog" }
+                                        })}
+                                        className="text-purple-500 bg-white/5 border-white/10"
+                                    />
+                                    <span className="text-xs text-white/70">End of Dialog</span>
+                                </label>
+                                <label className="flex items-center gap-2 cursor-pointer">
+                                    <input
+                                        type="radio"
+                                        name="on_exceed_retries"
+                                        checked={selectedNode.data.config?.ivr_properties?.on_exceed_retries === "transition"}
+                                        onChange={() => updateNodeConfiguration(selectedNode.id, {
+                                            ivr_properties: { ...(selectedNode.data.config?.ivr_properties || {}), on_exceed_retries: "transition" }
+                                        })}
+                                        className="text-purple-500 bg-white/5 border-white/10"
+                                    />
+                                    <span className="text-xs text-white/70">Transition to a Node</span>
+                                </label>
+                            </div>
+                        </div>
+
+                        {/* Auto Correct */}
+                        <div>
+                            <label className="flex items-center gap-2 cursor-pointer">
+                                <input 
+                                    type="checkbox"
+                                    checked={selectedNode.data.config?.extraction_options?.auto_correct ?? true}
+                                    onChange={(e) => updateNodeConfiguration(selectedNode.id, { 
+                                        extraction_options: { ...(selectedNode.data.config?.extraction_options || {}), auto_correct: e.target.checked } 
+                                    })}
+                                    className="rounded bg-white/10 border-white/20 text-purple-500 focus:ring-purple-500/20"
+                                />
+                                <span className="text-xs text-white/70">Auto Correct</span>
+                            </label>
+                        </div>
+
+                        {/* Entity Extraction Strategy */}
+                        <div>
+                            <label className="block text-xs text-white/50 mb-2">Entity Extraction</label>
+                            <div className="space-y-1">
+                                {[
+                                    { val: "unused_text", label: "Evaluate unused text from previous utterances" },
+                                    { val: "all_text", label: "Evaluate unused text and text used for extracting entities" },
+                                    { val: "explicit_prompt", label: "Do not evaluate previous utterances" }
+                                ].map((opt) => (
+                                    <label key={opt.val} className="flex items-center gap-2 cursor-pointer">
+                                        <input
+                                            type="radio"
+                                            name="extraction_strategy"
+                                            checked={(selectedNode.data.config?.extraction_options?.strategy ?? "unused_text") === opt.val}
+                                            onChange={() => updateNodeConfiguration(selectedNode.id, {
+                                                extraction_options: { ...(selectedNode.data.config?.extraction_options || {}), strategy: opt.val }
+                                            })}
+                                            className="text-purple-500 bg-white/5 border-white/10"
+                                        />
+                                        <span className="text-xs text-white/70">{opt.label}</span>
+                                    </label>
+                                ))}
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Advanced Controls */}
+                    <div className="pt-4 border-t border-white/10 space-y-4">
+                        <h4 className="font-semibold text-sm text-white/90">Advanced Controls</h4>
+                        
+                        {/* Intent Detection */}
+                        <div>
+                            <label className="block text-xs text-white/50 mb-2">Intent Detection</label>
+                            <div className="space-y-1">
+                                {[
+                                    { val: "accept_as_entity", label: "Accept input as entity value and discard intent" },
+                                    { val: "prefer_intent", label: "Prefer user input as intent (Hold & Resume)" },
+                                    { val: "ask_user", label: "Ask the user how to proceed" }
+                                ].map((opt) => (
+                                    <label key={opt.val} className="flex items-center gap-2 cursor-pointer">
+                                        <input
+                                            type="radio"
+                                            name="intent_detection"
+                                            checked={(selectedNode.data.config?.extraction_options?.intent_detection ?? "accept_as_entity") === opt.val}
+                                            onChange={() => updateNodeConfiguration(selectedNode.id, {
+                                                extraction_options: { ...(selectedNode.data.config?.extraction_options || {}), intent_detection: opt.val }
+                                            })}
+                                            className="text-purple-500 bg-white/5 border-white/10"
+                                        />
+                                        <span className="text-xs text-white/70">{opt.label}</span>
+                                    </label>
+                                ))}
+                            </div>
+                        </div>
+
+                        {/* Custom Tags */}
+                        <div>
+                            <label className="block text-xs text-white/50 mb-2">Custom Tags</label>
+                            <div className="space-y-2">
+                                {["message", "user", "session"].map((tagType) => (
+                                    <div key={tagType} className="p-2 bg-white/5 border border-white/10 rounded-lg">
+                                        <div className="flex items-center justify-between mb-2">
+                                            <span className="text-xs text-white/70 capitalize">{tagType} Tags</span>
+                                            <button
+                                                onClick={() => {
+                                                    const currentTags = selectedNode.data.config?.custom_tags?.[tagType] || {};
+                                                    updateNodeConfiguration(selectedNode.id, {
+                                                        custom_tags: {
+                                                            ...(selectedNode.data.config?.custom_tags || {}),
+                                                            [tagType]: { ...currentTags, "": "" }
+                                                        }
+                                                    });
+                                                }}
+                                                className="text-[10px] text-blue-300 hover:text-blue-200"
+                                            >
+                                                + Add
+                                            </button>
+                                        </div>
+                                        <div className="space-y-1">
+                                            {Object.entries(selectedNode.data.config?.custom_tags?.[tagType] || {}).map(([key, value], idx, arr) => (
+                                                <div key={idx} className="flex gap-1">
+                                                    <input
+                                                        placeholder="Key"
+                                                        value={key}
+                                                        onChange={(e) => {
+                                                            const currentTags = { ...(selectedNode.data.config?.custom_tags?.[tagType] || {}) };
+                                                            const newKey = e.target.value;
+                                                            const val = currentTags[key];
+                                                            delete currentTags[key];
+                                                            currentTags[newKey] = val;
+                                                            updateNodeConfiguration(selectedNode.id, {
+                                                                custom_tags: {
+                                                                    ...(selectedNode.data.config?.custom_tags || {}),
+                                                                    [tagType]: currentTags
+                                                                }
+                                                            });
+                                                        }}
+                                                        className="w-1/3 px-2 py-1 bg-black/20 border border-white/10 rounded text-[10px] text-white"
+                                                    />
+                                                    <input
+                                                        placeholder="Value"
+                                                        value={value as string}
+                                                        onChange={(e) => {
+                                                            const currentTags = { ...(selectedNode.data.config?.custom_tags?.[tagType] || {}) };
+                                                            currentTags[key] = e.target.value;
+                                                            updateNodeConfiguration(selectedNode.id, {
+                                                                custom_tags: {
+                                                                    ...(selectedNode.data.config?.custom_tags || {}),
+                                                                    [tagType]: currentTags
+                                                                }
+                                                            });
+                                                        }}
+                                                        className="flex-1 px-2 py-1 bg-black/20 border border-white/10 rounded text-[10px] text-white"
+                                                    />
+                                                    <button
+                                                        onClick={() => {
+                                                            const currentTags = { ...(selectedNode.data.config?.custom_tags?.[tagType] || {}) };
+                                                            delete currentTags[key];
+                                                            updateNodeConfiguration(selectedNode.id, {
+                                                                custom_tags: {
+                                                                    ...(selectedNode.data.config?.custom_tags || {}),
+                                                                    [tagType]: currentTags
+                                                                }
+                                                            });
+                                                        }}
+                                                        className="text-white/30 hover:text-red-400"
+                                                    >
+                                                        ×
+                                                    </button>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    </div>
+
+                    <div>
+                       <label className="block text-[10px] text-white/50 mb-1">Grammar (Optional)</label>
+                       <textarea
+                          value={selectedNode.data.config?.ivr_properties?.grammar || ""}
+                          onChange={(e) => updateNodeConfiguration(selectedNode.id, { 
+                             ivr_properties: { ...(selectedNode.data.config?.ivr_properties || {}), grammar: e.target.value } 
+                          })}
+                          placeholder="Speech grammar definition..."
+                          className="w-full px-2 py-1 bg-black/20 border border-white/10 rounded text-xs text-white font-mono"
+                          rows={3}
+                       />
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {selectedNode.data.nodeType === "llm" && (
                 <div>
                   <label className="block text-sm text-white/70 mb-1">Prompt</label>
@@ -1023,6 +1419,18 @@ export default function EnhancedAgentBuilder() {
                         value={selectedNode.data.config?.timeout || 10}
                         onChange={(e) => updateNodeConfiguration(selectedNode.id, { timeout: parseInt(e.target.value) })}
                         className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm text-white/70 mb-1">Max Retries</label>
+                      <input
+                        type="number"
+                        min="0"
+                        max="5"
+                        value={selectedNode.data.config?.retries || 0}
+                        onChange={(e) => updateNodeConfiguration(selectedNode.id, { retries: parseInt(e.target.value) })}
+                        className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white"
+                        title="0 = No Retry. Max 5."
                       />
                     </div>
                   </div>

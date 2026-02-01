@@ -27,6 +27,7 @@ class UserAccount(Base):
     password_hash = Column(String)  # Hashed password
     name = Column(String)
     ip_address = Column(String)  # For trial restriction
+    role = Column(String, default="viewer")  # "admin", "editor", "viewer"
     is_active = Column(Boolean, default=True)
     is_verified = Column(Boolean, default=False)
     created_at = Column(DateTime, default=datetime.utcnow)

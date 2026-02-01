@@ -1,8 +1,41 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { queryKnowledge, getKnowledgeSources, createKnowledgeSource, uploadKnowledgeDocument, deleteKnowledgeSource, crawlKnowledgeSource } from "../services/api";
+import { useRouter, usePathname } from "next/navigation";
+import Link from "next/link";
+import { 
+  getKnowledgeSources, 
+  createKnowledgeSource, 
+  uploadKnowledgeDocument, 
+  deleteKnowledgeSource, 
+  crawlKnowledgeSource,
+  chatWithKnowledge,
+  getConversation
+} from "../services/api";
 import { useAuthStore } from "../store/authStore";
+import ChatSidebar from "./ChatSidebar";
+import ToolSwitcher from "./ToolSwitcher";
+import { 
+  Search, 
+  Sparkles, 
+  BookOpen, 
+  Globe, 
+  FileText, 
+  ArrowRight, 
+  Trash2, 
+  RefreshCw, 
+  CheckCircle2, 
+  AlertCircle, 
+  History,
+  MessageSquare,
+  ChevronRight,
+  ChevronLeft,
+  ChevronDown,
+  LayoutGrid,
+  Layers,
+  Database,
+  Menu
+} from "lucide-react";
 
 interface KnowledgeSource {
   id: number;
@@ -20,17 +53,64 @@ interface KnowledgeSource {
   error_message?: string;
 }
 
+interface SearchResult {
+  id: string;
+  title: string;
+  body: string;
+  url?: string;
+  source_name?: string;
+  source_type?: string;
+  relevance_score?: number;
+  metadata?: any;
+}
+
+interface ChatMessage {
+  role: string;
+  content: string;
+  results?: SearchResult[];
+  followUps?: string[];
+  confidence?: number;
+}
+
+const AVAILABLE_TOOLS = [
+  { id: 'customer-service', name: 'Customer Service', icon: '🎧', path: '/chat/customer-service' },
+  { id: 'ticket-assigner', name: 'Ticket Assigner', icon: '🎫', path: '/chat/ticket-assigner' },
+  { id: 'ticket-solver', name: 'Ticket Solver', icon: '✅', path: '/chat/ticket-solver' },
+  { id: 'status-updater', name: 'Status Updater', icon: '📢', path: '/chat/status-updater' },
+  { id: 'hr-services', name: 'HR Services', icon: '👥', path: '/chat/hr-services' },
+  { id: 'knowledge-ai', name: 'Search AI', icon: '🧠', path: '/chat/knowledge-ai' },
+  { id: 'analytics-dashboard', name: 'Analytics', icon: '📊', path: '/chat/analytics-dashboard' },
+];
+
 export default function EnhancedKnowledgeAI() {
-  const { token, isAuthenticated } = useAuthStore();
+  const router = useRouter();
+  const pathname = usePathname();
+  const { token } = useAuthStore();
   const [activeTab, setActiveTab] = useState<"query" | "sources">("query");
+  
+  // Tool Switcher State
+  const [showToolSwitcher, setShowToolSwitcher] = useState(false);
+  const switcherRef = useRef<HTMLDivElement>(null);
+
+  // Close switcher on click outside
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (switcherRef.current && !switcherRef.current.contains(event.target as Node)) {
+        setShowToolSwitcher(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  // Sidebar & Conversation State
+  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [currentConversationId, setCurrentConversationId] = useState<number | null>(null);
   
   // Query state
   const [query, setQuery] = useState("");
-  const [results, setResults] = useState<any[]>([]);
-  const [solution, setSolution] = useState<string>("");
-  const [confidence, setConfidence] = useState<number>(0);
+  const [conversationHistory, setConversationHistory] = useState<ChatMessage[]>([]);
   const [loading, setLoading] = useState(false);
-  const [conversationHistory, setConversationHistory] = useState<Array<{role: string, text: string}>>([]);
   
   // Sources state
   const [sources, setSources] = useState<KnowledgeSource[]>([]);
@@ -42,35 +122,26 @@ export default function EnhancedKnowledgeAI() {
   const [autoCrawl, setAutoCrawl] = useState(false);
   const [uploadingFile, setUploadingFile] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  // Scroll to bottom on new message
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [conversationHistory, loading]);
+
   // Load sources on mount
   useEffect(() => {
     if (token && activeTab === "sources") {
       loadSources();
     }
   }, [token, activeTab]);
-  
-  // Auto-refresh sources if any are crawling
-  useEffect(() => {
-    if (activeTab !== "sources" || !token) return;
-    
-    const hasCrawling = sources.some(s => s.crawl_status === "crawling");
-    if (!hasCrawling) return;
-    
-    // Refresh every 5 seconds while crawling
-    const interval = setInterval(() => {
-      loadSources();
-    }, 5000);
-    
-    return () => clearInterval(interval);
-  }, [sources, activeTab, token]);
-  
-  async function loadSources() {
+
+  const loadSources = async () => {
     if (!token) return;
     setSourcesLoading(true);
     try {
       const res = await getKnowledgeSources(token);
-      if (res.success && res.sources) {
+      if (res.sources) {
         setSources(res.sources);
       }
     } catch (error) {
@@ -78,95 +149,114 @@ export default function EnhancedKnowledgeAI() {
     } finally {
       setSourcesLoading(false);
     }
-  }
-  
-  async function handleSearch(e?: any) {
-    if (e) e.preventDefault();
-    if (!query.trim()) return;
-    
+  };
+
+  const handleSelectConversation = async (id: number) => {
+    if (!token) return;
     setLoading(true);
-    const currentQuery = query.trim();
-    const updatedHistory = [...conversationHistory, { role: "user", text: currentQuery }];
+    setCurrentConversationId(id);
+    setActiveTab("query");
     
     try {
-      const res = await queryKnowledge(currentQuery, updatedHistory, token || undefined);
-      setResults(res.results ?? []);
-      setSolution(res.solution || "");
-      setConfidence(res.confidence || 0);
-      
-      if (res.solution) {
-        setConversationHistory([
-          ...updatedHistory,
-          { role: "assistant", text: res.solution }
-        ]);
+      const conv = await getConversation(id, token);
+      if (conv && conv.messages) {
+        const history = conv.messages.map((msg: any) => ({
+          role: msg.role,
+          content: msg.content,
+          results: msg.citations,
+          // Note: older messages might not have followUps/confidence stored
+          confidence: msg.citations && msg.citations.length > 0 ? 0.8 : 0 // approximate
+        }));
+        setConversationHistory(history);
       }
-    } catch (error) {
-      console.error("Error searching knowledge:", error);
-      setSolution("Error searching knowledge base. Please try again.");
+    } catch (e) {
+      console.error("Failed to load conversation", e);
     } finally {
       setLoading(false);
     }
-  }
-  
-  async function handleAddWebsite() {
-    // Get current values (trimmed)
-    const name = newSourceName.trim();
-    const url = newSourceUrl.trim();
+  };
+
+  const handleNewChat = () => {
+    setCurrentConversationId(null);
+    setConversationHistory([]);
+    setQuery("");
+  };
+
+  const handleSearch = async (e?: React.FormEvent, overrideQuery?: string) => {
+    if (e) e.preventDefault();
+    const searchQuery = overrideQuery || query;
+    if (!searchQuery.trim() || !token) return;
+
+    setLoading(true);
+    setQuery(""); // Clear input
     
-    // Debug logging
-    console.log("Adding website source:", { name, url, isAuthenticated, hasToken: !!token });
-    
-    // Check authentication
-    if (!isAuthenticated || !token) {
-      alert("Please log in to add knowledge sources. You need to be authenticated to use this feature.");
-      console.warn("Authentication check failed:", { isAuthenticated, hasToken: !!token });
-      return;
-    }
-    
-    // Validate name
-    if (!name) {
-      console.warn("Name validation failed:", { name, original: newSourceName });
-      alert("Please provide a name for the source");
-      return;
-    }
-    
-    // Validate URL
-    if (!url) {
-      console.warn("URL validation failed:", { url, original: newSourceUrl });
-      alert("Please provide a website URL");
-      return;
-    }
-    
-    // Validate URL format
+    // Add user message immediately
+    const userMsg: ChatMessage = { role: "user", content: searchQuery };
+    setConversationHistory(prev => [...prev, userMsg]);
+
     try {
-      new URL(url);
-    } catch (e) {
-      console.warn("URL format validation failed:", { url, error: e });
-      alert("Please provide a valid URL (e.g., https://example.com). Make sure it starts with http:// or https://");
-      return;
-    }
-    
-    try {
-      const res = await createKnowledgeSource({
-        name: name,
-        source_type: "website",
-        url: url,
-        auto_crawl: autoCrawl,
-        crawl_interval_hours: 24
-      }, token);
+      const res = await chatWithKnowledge(searchQuery, token, currentConversationId || undefined);
       
+      if (res.conversation_id) {
+        setCurrentConversationId(res.conversation_id);
+      }
+
+      // Add assistant message
+      const asstMsg: ChatMessage = {
+        role: "assistant",
+        content: res.solution || "I couldn't generate a response.",
+        results: res.results,
+        followUps: res.follow_up_questions,
+        confidence: res.confidence || (res.results && res.results.length > 0 ? 0.8 : 0)
+      };
+      
+      setConversationHistory(prev => [...prev, asstMsg]);
+
+    } catch (error) {
+      console.error("Search error:", error);
+      setConversationHistory(prev => [...prev, { role: "assistant", content: "An error occurred while searching. Please try again." }]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleAddSource = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!token) return;
+
+    try {
+      let res;
+      if (newSourceType === "document" && fileInputRef.current?.files?.[0]) {
+        setUploadingFile(true);
+        const createRes = await createKnowledgeSource({
+          name: newSourceName,
+          source_type: "document",
+          auto_crawl: false
+        }, token);
+        
+        if (createRes.success && createRes.id) {
+          res = await uploadKnowledgeDocument(fileInputRef.current.files[0], createRes.id, token);
+        } else {
+          res = { error: "Failed to create source container" };
+        }
+        setUploadingFile(false);
+      } else {
+        res = await createKnowledgeSource({
+          name: newSourceName,
+          source_type: newSourceType,
+          url: newSourceUrl,
+          auto_crawl: autoCrawl
+        }, token);
+      }
+
       if (res.success) {
         setNewSourceName("");
         setNewSourceUrl("");
         setAutoCrawl(false);
         setShowAddSource(false);
         await loadSources();
-        // Note: Backend automatically crawls sources, but we can trigger manual crawl if needed
         if (res.source?.id) {
-          // Give it a moment for auto-crawl to start, then refresh
-          setTimeout(async () => {
-            await loadSources();
-          }, 2000);
+            setTimeout(loadSources, 2000);
         }
       } else {
         alert(res.error || "Failed to add source");
@@ -175,456 +265,471 @@ export default function EnhancedKnowledgeAI() {
       console.error("Error adding source:", error);
       alert("Error adding source");
     }
-  }
-  
-  async function handleUploadDocument() {
-    if (!token || !fileInputRef.current?.files?.[0]) {
-      alert("Please select a file");
-      return;
-    }
-    
-    if (!newSourceName.trim()) {
-      alert("Please provide a name for the document");
-      return;
-    }
-    
-    const file = fileInputRef.current.files[0];
-    setUploadingFile(true);
-    
+  };
+
+  const handleDeleteSource = async (id: number) => {
+    if (!token || !confirm("Are you sure you want to delete this source?")) return;
     try {
-      const res = await uploadKnowledgeDocument(file, newSourceName, autoCrawl, token);
-      
-      if (res.success) {
-        setNewSourceName("");
-        setAutoCrawl(false);
-        setShowAddSource(false);
-        if (fileInputRef.current) {
-          fileInputRef.current.value = "";
-        }
-        await loadSources();
-        // Note: Backend automatically processes documents, but we can trigger manual process if needed
-        if (res.source?.id) {
-          // Give it a moment for auto-process to start, then refresh
-          setTimeout(async () => {
-            await loadSources();
-          }, 2000);
-        }
-      } else {
-        alert(res.error || "Failed to upload document");
-      }
-    } catch (error) {
-      console.error("Error uploading document:", error);
-      alert("Error uploading document");
-    } finally {
-      setUploadingFile(false);
-    }
-  }
-  
-  async function handleDelete(sourceId: number) {
-    if (!token) return;
-    if (!confirm("Are you sure you want to delete this source?")) return;
-    
-    try {
-      const { deleteKnowledgeSource } = await import("../services/api");
-      const res = await deleteKnowledgeSource(sourceId, token);
-      if (res.success) {
-        await loadSources();
-      } else {
-        alert(res.error || "Failed to delete source");
-      }
+      await deleteKnowledgeSource(id.toString(), token);
+      await loadSources();
     } catch (error) {
       console.error("Error deleting source:", error);
-      alert("Error deleting source");
     }
-  }
-  
-  async function handleCrawl(sourceId: number) {
+  };
+
+  const handleCrawlSource = async (id: number) => {
     if (!token) return;
-    
     try {
-      const res = await crawlKnowledgeSource(sourceId, token);
-      if (res.success) {
-        alert(`Successfully crawled ${res.content_count || 0} content chunks`);
-        await loadSources();
-        // Refresh again after a delay to get updated status
-        setTimeout(async () => {
-          await loadSources();
-        }, 2000);
-      } else {
-        alert(res.error || "Failed to crawl source");
-        await loadSources(); // Refresh to show error message
-      }
-    } catch (error: any) {
+      await crawlKnowledgeSource(id.toString(), token);
+      await loadSources();
+    } catch (error) {
       console.error("Error crawling source:", error);
-      const errorMsg = error?.message || error?.error || "Error crawling source";
-      alert(`Error: ${errorMsg}`);
-      await loadSources(); // Refresh to show error message
     }
-  }
-  
+  };
+
+  const renderSolutionWithCitations = (text: string, results: SearchResult[] = []) => {
+    if (!text) return null;
+    
+    const parts = text.split(/(\[\d+\])/g);
+    
+    return parts.map((part, i) => {
+      if (part.match(/^\[\d+\]$/)) {
+        const index = parseInt(part.replace(/[\[\]]/g, "")) - 1;
+        const source = results[index];
+        return (
+          <sup 
+            key={i}
+            className="inline-flex items-center justify-center w-5 h-5 ml-0.5 text-[10px] font-bold text-blue-400 bg-blue-500/10 rounded-full cursor-pointer hover:bg-blue-500 hover:text-white transition-colors"
+            title={source ? source.title : "Source"}
+            onClick={() => document.getElementById(`source-${index}`)?.scrollIntoView({ behavior: 'smooth' })}
+          >
+            {index + 1}
+          </sup>
+        );
+      }
+      return <span key={i}>{part}</span>;
+    });
+  };
+
+  const getSourceIcon = (type: string) => {
+    switch (type?.toLowerCase()) {
+      case 'website': return <Globe className="w-4 h-4" />;
+      case 'document': return <FileText className="w-4 h-4" />;
+      case 'jira': return <Layers className="w-4 h-4" />;
+      case 'database': return <Database className="w-4 h-4" />;
+      default: return <BookOpen className="w-4 h-4" />;
+    }
+  };
+
   return (
-    <div className="min-h-screen bg-[#0b0f19] p-6">
-      <div className="max-w-6xl mx-auto">
-        <h1 className="text-3xl font-bold text-white mb-2">Knowledge AI</h1>
-        <p className="text-white/60 mb-6">
-          Search your knowledge base, add websites and documents, and get intelligent answers powered by LLM.
-        </p>
+    <div className="flex h-screen bg-[#0b0f19] text-white font-sans selection:bg-blue-500/30 overflow-hidden">
+      
+      {/* Sidebar */}
+      <ChatSidebar 
+        isOpen={sidebarOpen} 
+        setIsOpen={setSidebarOpen}
+        currentConversationId={currentConversationId}
+        onSelectConversation={handleSelectConversation}
+        onNewChat={handleNewChat}
+      />
+
+      {/* Main Content */}
+      <div className={`flex-1 flex flex-col h-full transition-all duration-300 ${sidebarOpen ? 'ml-64' : 'ml-0'}`}>
         
-        {/* Tabs */}
-        <div className="flex gap-4 mb-6 border-b border-white/10">
-          <button
-            onClick={() => setActiveTab("query")}
-            className={`px-4 py-2 font-medium transition-colors ${
-              activeTab === "query"
-                ? "text-white border-b-2 border-blue-500"
-                : "text-white/60 hover:text-white"
-            }`}
-          >
-            Query Knowledge Base
-          </button>
-          <button
-            onClick={() => setActiveTab("sources")}
-            className={`px-4 py-2 font-medium transition-colors ${
-              activeTab === "sources"
-                ? "text-white border-b-2 border-blue-500"
-                : "text-white/60 hover:text-white"
-            }`}
-          >
-            Manage Sources
-          </button>
-        </div>
-        
-        {/* Query Tab */}
-        {activeTab === "query" && (
-          <div>
-            <form onSubmit={handleSearch} className="mb-6 flex gap-2">
-              <input
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                className="flex-1 rounded-md bg-black/30 px-4 py-3 text-white border border-white/10 focus:border-blue-500 focus:outline-none"
-                placeholder="Ask questions about your knowledge base, documents, or past tickets..."
-              />
-              <button
-                type="submit"
-                disabled={loading}
-                className="px-6 py-3 bg-blue-500 text-white rounded-md hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {loading ? "Searching..." : "Search"}
-              </button>
-            </form>
-            
-            {solution && (
-              <div className="mb-6 p-6 rounded-lg bg-white/5 border border-white/10">
-                <div className="flex items-center justify-between mb-3">
-                  <h2 className="text-xl font-semibold text-white">AI-Powered Answer</h2>
-                  {confidence > 0 && (
-                    <span className="text-sm text-white/60">
-                      Confidence: {(confidence * 100).toFixed(0)}%
-                    </span>
-                  )}
-                </div>
-                <div className="whitespace-pre-wrap text-white/90 leading-relaxed">{solution}</div>
+        {/* Navigation Header */}
+        <div className="bg-transparent border-b border-white/5 z-20">
+          <div className="max-w-7xl mx-auto px-6 h-14 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2 mr-2">
+                <Link 
+                  href="/" 
+                  className="p-1.5 text-white/40 hover:text-white hover:bg-white/5 rounded-lg transition-colors"
+                  title="Go to Home"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
+                    <polyline points="9 22 9 12 15 12 15 22"/>
+                  </svg>
+                </Link>
+                <span className="text-white/10">|</span>
+                {/* Back Button */}
+                <button
+                  onClick={() => router.back()}
+                  className="p-1.5 text-white/40 hover:text-white hover:bg-white/5 rounded-lg transition-colors"
+                  title="Go Back"
+                >
+                  <ChevronLeft className="w-5 h-5" />
+                </button>
               </div>
-            )}
+
+              {!sidebarOpen && (
+                <button onClick={() => setSidebarOpen(true)} className="mr-2 text-white/60 hover:text-white">
+                  <Menu className="w-5 h-5" />
+                </button>
+              )}
+
+              {/* Tool Switcher */}
+              <ToolSwitcher variant="minimal" />
+            </div>
             
-            {results.length > 0 && (
-              <div className="mb-6">
-                <h2 className="text-lg font-semibold text-white mb-3">
-                  Relevant Sources ({results.length})
-                </h2>
-                <div className="space-y-3">
-                  {results.map((r: any, idx: number) => (
-                    <div key={idx} className="p-4 rounded-lg bg-white/5 border border-white/10">
-                      <div className="flex items-start justify-between mb-2">
-                        <div className="font-semibold text-white">{r.title ?? r.id}</div>
-                        <div className="flex items-center gap-2">
-                          {r.relevance_score && (
-                            <span className="text-xs text-white/60">
-                              {(r.relevance_score * 100).toFixed(0)}% match
-                            </span>
-                          )}
-                          {r.id?.startsWith("KB-") && (
-                            <span className="text-xs px-2 py-1 rounded bg-blue-500/20 text-blue-300">
-                              Knowledge Base
-                            </span>
-                          )}
+            <div className="flex gap-1 bg-white/5 p-0.5 rounded-lg">
+              <button
+                onClick={() => setActiveTab("query")}
+                className={`px-3 py-1 text-xs font-medium rounded-md transition-all ${
+                  activeTab === "query"
+                    ? "bg-white/10 text-white shadow-sm"
+                    : "text-white/60 hover:text-white"
+                }`}
+              >
+                Chat
+              </button>
+              <button
+                onClick={() => setActiveTab("sources")}
+                className={`px-3 py-1 text-xs font-medium rounded-md transition-all ${
+                  activeTab === "sources"
+                    ? "bg-white/10 text-white shadow-sm"
+                    : "text-white/60 hover:text-white"
+                }`}
+              >
+                Sources
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Content Area */}
+        <div className="flex-1 overflow-hidden relative">
+          
+          {/* QUERY TAB */}
+          {activeTab === "query" && (
+            <div className="h-full flex flex-col">
+              
+              {/* Messages Area */}
+              <div className="flex-1 overflow-y-auto custom-scrollbar p-6">
+                {conversationHistory.length === 0 ? (
+                   // Welcome / Empty State
+                   <div className="h-full flex flex-col justify-center items-center max-w-2xl mx-auto text-center space-y-8">
+                      <h1 className="text-4xl md:text-5xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-400 via-purple-400 to-white animate-in fade-in slide-in-from-bottom-4 duration-700">
+                        What would you like to know?
+                      </h1>
+                      <p className="text-white/50 text-lg animate-in fade-in slide-in-from-bottom-5 duration-700 delay-100">
+                        Search across tickets, documents, and the web instantly.
+                      </p>
+                      
+                      {/* Search Bar (Centered for empty state) */}
+                      <div className="w-full max-w-xl animate-in fade-in slide-in-from-bottom-6 duration-700 delay-200">
+                         <form onSubmit={(e) => handleSearch(e)} className="relative group">
+                            <div className="absolute inset-0 bg-gradient-to-r from-blue-500/20 to-purple-500/20 rounded-xl blur-xl transition-opacity opacity-0 group-hover:opacity-100" />
+                            <div className="relative flex items-center bg-[#131722] border border-white/10 rounded-xl shadow-2xl overflow-hidden">
+                              <Search className="w-5 h-5 ml-4 text-white/40" />
+                              <input
+                                value={query}
+                                onChange={(e) => setQuery(e.target.value)}
+                                className="flex-1 bg-transparent border-none text-white px-4 py-4 focus:outline-none placeholder:text-white/30 text-lg"
+                                placeholder="Ask anything..."
+                                autoFocus
+                              />
+                              <button 
+                                type="submit"
+                                disabled={!query.trim()}
+                                className="mr-2 p-2 rounded-lg bg-white/5 hover:bg-white/10 text-white/60 hover:text-white transition-colors disabled:opacity-30"
+                              >
+                                <ArrowRight className="w-5 h-5" />
+                              </button>
+                            </div>
+                          </form>
+                      </div>
+                   </div>
+                ) : (
+                  // Chat History
+                  <div className="max-w-4xl mx-auto space-y-8 pb-4">
+                    {conversationHistory.map((msg, idx) => (
+                      <div key={idx} className={`animate-in fade-in slide-in-from-bottom-2 duration-500`}>
+                        {msg.role === "user" ? (
+                          <div className="flex justify-end">
+                             <div className="bg-[#1e2330] text-white px-6 py-4 rounded-2xl rounded-tr-sm max-w-[80%] border border-white/5">
+                               <p className="whitespace-pre-wrap text-lg">{msg.content}</p>
+                             </div>
+                          </div>
+                        ) : (
+                          <div className="space-y-6">
+                            {/* AI Answer Card */}
+                            <div className="bg-[#131722] rounded-xl border border-white/10 overflow-hidden shadow-lg relative group">
+                              <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-blue-500 via-purple-500 to-pink-500 opacity-50" />
+                              
+                              <div className="p-6">
+                                <div className="flex items-center justify-between mb-4">
+                                  <div className="flex items-center gap-2 text-blue-400">
+                                    <Sparkles className="w-5 h-5" />
+                                    <span className="font-semibold tracking-wide uppercase text-xs">AI Answer</span>
+                                  </div>
+                                  {(msg.confidence || 0) > 0 && (
+                                    <div className="flex items-center gap-1.5 px-2 py-1 rounded bg-green-500/10 border border-green-500/20">
+                                      <CheckCircle2 className="w-3 h-3 text-green-400" />
+                                      <span className="text-xs font-medium text-green-400">{((msg.confidence || 0) * 100).toFixed(0)}% Confidence</span>
+                                    </div>
+                                  )}
+                                </div>
+                                
+                                <div className="prose prose-invert prose-p:leading-relaxed prose-a:text-blue-400 max-w-none text-white/90">
+                                  <p className="whitespace-pre-wrap">{renderSolutionWithCitations(msg.content, msg.results)}</p>
+                                </div>
+
+                                {/* Follow-up Questions */}
+                                {msg.followUps && msg.followUps.length > 0 && (
+                                  <div className="mt-6 pt-6 border-t border-white/5">
+                                    <h4 className="text-xs font-semibold text-white/40 uppercase tracking-wider mb-3 flex items-center gap-2">
+                                      <MessageSquare className="w-3 h-3" />
+                                      Related Questions
+                                    </h4>
+                                    <div className="flex flex-wrap gap-2">
+                                      {msg.followUps.map((q, i) => (
+                                        <button
+                                          key={i}
+                                          onClick={() => handleSearch(undefined, q)}
+                                          className="px-3 py-2 rounded-lg bg-white/5 hover:bg-white/10 border border-white/5 hover:border-white/20 text-sm text-white/80 hover:text-white transition-all text-left flex items-center gap-2 group/btn"
+                                        >
+                                          <span>{q}</span>
+                                          <ChevronRight className="w-3 h-3 opacity-0 group-hover/btn:opacity-100 transition-opacity" />
+                                        </button>
+                                      ))}
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+
+                            {/* Sources List for this message */}
+                            {msg.results && msg.results.length > 0 && (
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                {msg.results.map((r, i) => (
+                                  <div 
+                                    key={i} 
+                                    id={`source-${idx}-${i}`}
+                                    className="p-4 rounded-xl bg-[#131722]/50 border border-white/5 hover:border-white/10 hover:bg-[#131722] transition-all group"
+                                  >
+                                    <div className="flex items-start justify-between mb-2">
+                                      <div className="flex items-center gap-2 text-blue-400 mb-1">
+                                        <div className="p-1 rounded bg-blue-500/10">
+                                          {getSourceIcon(r.source_type || 'document')}
+                                        </div>
+                                        <span className="text-xs font-medium uppercase tracking-wider text-blue-300/80">
+                                          {r.source_type || 'Source'}
+                                        </span>
+                                      </div>
+                                    </div>
+                                    <h4 className="text-sm font-medium text-blue-300 group-hover:text-blue-400 transition-colors mb-1 line-clamp-1">
+                                      {r.title || "Untitled"}
+                                    </h4>
+                                    <p className="text-xs text-white/50 line-clamp-2">
+                                      {r.body}
+                                    </p>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                    
+                    {loading && (
+                      <div className="space-y-6 animate-in fade-in duration-500">
+                        <div className="bg-[#131722] rounded-xl border border-white/10 p-6 space-y-4">
+                          <div className="flex items-center gap-2 text-blue-400 mb-2">
+                            <Sparkles className="w-5 h-5 animate-spin" />
+                            <span className="font-medium">Thinking...</span>
+                          </div>
+                          <div className="h-4 bg-white/5 rounded w-3/4 animate-pulse" />
+                          <div className="h-4 bg-white/5 rounded w-full animate-pulse delay-75" />
+                          <div className="h-4 bg-white/5 rounded w-5/6 animate-pulse delay-150" />
                         </div>
                       </div>
-                      <div className="text-sm text-white/70 mb-2 line-clamp-3">{r.body}</div>
-                      {r.url && (
-                        <a
-                          href={r.url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-xs text-blue-400 hover:text-blue-300"
+                    )}
+                    <div ref={messagesEndRef} />
+                  </div>
+                )}
+              </div>
+
+              {/* Bottom Input Area (only when chat is active) */}
+              {conversationHistory.length > 0 && (
+                <div className="p-4 bg-[#0b0f19]/80 backdrop-blur-md border-t border-white/5">
+                  <div className="max-w-4xl mx-auto">
+                    <form onSubmit={(e) => handleSearch(e)} className="relative group">
+                      <div className="absolute inset-0 bg-gradient-to-r from-blue-500/20 to-purple-500/20 rounded-xl blur-xl transition-opacity opacity-0 group-hover:opacity-100" />
+                      <div className="relative flex items-center bg-[#131722] border border-white/10 rounded-xl shadow-2xl focus-within:border-blue-500/50 focus-within:ring-1 focus-within:ring-blue-500/50 transition-all overflow-hidden">
+                        <input
+                          value={query}
+                          onChange={(e) => setQuery(e.target.value)}
+                          className="flex-1 bg-transparent border-none text-white px-4 py-4 focus:outline-none placeholder:text-white/30 text-base"
+                          placeholder="Ask follow-up question..."
+                          autoFocus
+                        />
+                        <button 
+                          type="submit"
+                          disabled={loading || !query.trim()}
+                          className="mr-2 p-2 rounded-lg bg-white/5 hover:bg-white/10 text-white/60 hover:text-white transition-colors disabled:opacity-30"
                         >
-                          View Source →
-                        </a>
-                      )}
-                      {r.source_name && (
-                        <div className="text-xs text-white/50 mt-2">
-                          Source: {r.source_name} ({r.source_type})
+                          <ArrowRight className="w-5 h-5" />
+                        </button>
+                      </div>
+                    </form>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* SOURCES TAB */}
+          {activeTab === "sources" && (
+            <div className="p-6 h-full overflow-y-auto custom-scrollbar">
+              <div className="max-w-5xl mx-auto">
+                <div className="flex justify-between items-center mb-8">
+                  <div>
+                    <h2 className="text-2xl font-bold text-white mb-2">Knowledge Sources</h2>
+                    <p className="text-white/50">Manage the data sources your AI learns from.</p>
+                  </div>
+                  <button
+                    onClick={() => setShowAddSource(true)}
+                    className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg transition-colors font-medium shadow-lg shadow-blue-500/20"
+                  >
+                    <Plus className="w-4 h-4" />
+                    Add Source
+                  </button>
+                </div>
+
+                {/* Sources Grid */}
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                  {sources.map((source) => (
+                    <div key={source.id} className="bg-[#131722] border border-white/5 rounded-xl p-5 hover:border-white/10 transition-all group">
+                      <div className="flex justify-between items-start mb-4">
+                        <div className="p-2 bg-blue-500/10 rounded-lg text-blue-400 group-hover:bg-blue-500/20 transition-colors">
+                          {getSourceIcon(source.source_type)}
                         </div>
-                      )}
-                      {r.solution && (
-                        <div className="text-sm text-green-400/80 mt-2">
-                          <strong>Solution:</strong> {r.solution}
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => handleCrawlSource(source.id)}
+                            className="p-1.5 text-white/40 hover:text-blue-400 hover:bg-blue-500/10 rounded transition-colors"
+                            title="Re-index"
+                          >
+                            <RefreshCw className="w-4 h-4" />
+                          </button>
+                          <button
+                            onClick={() => handleDeleteSource(source.id)}
+                            className="p-1.5 text-white/40 hover:text-red-400 hover:bg-red-500/10 rounded transition-colors"
+                            title="Delete"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
                         </div>
-                      )}
+                      </div>
+                      
+                      <h3 className="font-semibold text-white mb-1 truncate" title={source.name}>{source.name}</h3>
+                      <p className="text-sm text-white/40 mb-4 truncate">{source.url || source.file_path || "No URL"}</p>
+                      
+                      <div className="flex items-center justify-between text-xs text-white/30 border-t border-white/5 pt-3">
+                        <span className="flex items-center gap-1">
+                          <Database className="w-3 h-3" />
+                          {source.content_count} chunks
+                        </span>
+                        <span className={`px-2 py-0.5 rounded-full ${source.crawl_status === 'completed' ? 'bg-green-500/10 text-green-400' : 'bg-yellow-500/10 text-yellow-400'}`}>
+                          {source.crawl_status}
+                        </span>
+                      </div>
                     </div>
                   ))}
                 </div>
               </div>
-            )}
-            
-            {!loading && !solution && query && (
-              <div className="text-center text-white/60 py-8">
-                No results found. Try rephrasing your query or add more sources.
-              </div>
-            )}
-          </div>
-        )}
-        
-        {/* Sources Tab */}
-        {activeTab === "sources" && (
-          <div>
-            <div className="flex justify-between items-center mb-4">
-              <h2 className="text-xl font-semibold text-white">Knowledge Sources</h2>
-              <div className="flex gap-2">
-                <button
-                  onClick={() => {
-                    setNewSourceType("document");
-                    setShowAddSource(true);
-                    // Trigger file input click
-                    setTimeout(() => {
-                      fileInputRef.current?.click();
-                    }, 100);
-                  }}
-                  className="px-4 py-2 bg-green-500/20 text-green-300 rounded-md hover:bg-green-500/30 border border-green-500/30 flex items-center gap-2"
-                  title="Upload Document"
-                >
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
-                  </svg>
-                  Upload Document
-                </button>
-                <button
-                  onClick={() => {
-                    setNewSourceType("website");
-                    setShowAddSource(!showAddSource);
-                  }}
-                  className="px-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600 flex items-center gap-2"
-                  title="Add Website"
-                >
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
-                  </svg>
-                  {showAddSource && newSourceType === "website" ? "Cancel" : "Add Website"}
-                </button>
-              </div>
             </div>
-            
-            {showAddSource && (
-              <div className="mb-6 p-6 rounded-lg bg-white/5 border border-white/10">
-                <h3 className="text-lg font-semibold text-white mb-4">Add New Source</h3>
-                <div className="space-y-4">
+          )}
+          
+          {/* Add Source Modal */}
+          {showAddSource && (
+            <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+              <div className="bg-[#131722] border border-white/10 rounded-2xl p-6 max-w-md w-full shadow-2xl animate-in fade-in zoom-in duration-300">
+                <h3 className="text-xl font-bold text-white mb-6">Add Knowledge Source</h3>
+                <form onSubmit={handleAddSource} className="space-y-4">
                   <div>
-                    <label className="block text-sm text-white/80 mb-2">Source Type</label>
-                    <select
-                      value={newSourceType}
-                      onChange={(e) => setNewSourceType(e.target.value as "website" | "document")}
-                      className="w-full rounded-md bg-black/30 px-4 py-2 text-white border border-white/10 focus:border-blue-500 focus:outline-none"
-                    >
-                      <option value="website">Website</option>
-                      <option value="document">Document (PDF, DOCX, TXT, etc.)</option>
-                    </select>
-                  </div>
-                  
-                  <div>
-                    <label className="block text-sm text-white/80 mb-2">Name</label>
+                    <label className="block text-sm font-medium text-white/60 mb-1">Source Name</label>
                     <input
-                      type="text"
+                      required
                       value={newSourceName}
                       onChange={(e) => setNewSourceName(e.target.value)}
-                      className="w-full rounded-md bg-black/30 px-4 py-2 text-white border border-white/10 focus:border-blue-500 focus:outline-none"
-                      placeholder="e.g., Product Documentation, Support Articles"
+                      className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-blue-500"
+                      placeholder="e.g., Company Wiki"
                     />
                   </div>
                   
+                  <div>
+                    <label className="block text-sm font-medium text-white/60 mb-1">Type</label>
+                    <select
+                      value={newSourceType}
+                      onChange={(e) => setNewSourceType(e.target.value as any)}
+                      className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-blue-500"
+                    >
+                      <option value="website">Website URL</option>
+                      <option value="document">Upload Document</option>
+                    </select>
+                  </div>
+
                   {newSourceType === "website" ? (
                     <div>
-                      <label className="block text-sm text-white/80 mb-2">Website URL</label>
+                      <label className="block text-sm font-medium text-white/60 mb-1">URL</label>
                       <input
+                        required
                         type="url"
                         value={newSourceUrl}
                         onChange={(e) => setNewSourceUrl(e.target.value)}
-                        className="w-full rounded-md bg-black/30 px-4 py-2 text-white border border-white/10 focus:border-blue-500 focus:outline-none"
-                        placeholder="https://example.com"
+                        className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-blue-500"
+                        placeholder="https://..."
                       />
+                      <div className="mt-2 flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          id="autoCrawl"
+                          checked={autoCrawl}
+                          onChange={(e) => setAutoCrawl(e.target.checked)}
+                          className="rounded bg-white/5 border-white/10"
+                        />
+                        <label htmlFor="autoCrawl" className="text-sm text-white/60">Auto-crawl daily</label>
+                      </div>
                     </div>
                   ) : (
                     <div>
-                      <label className="block text-sm text-white/80 mb-2">Document File</label>
-                      <div className="relative">
-                        <input
-                          ref={fileInputRef}
-                          type="file"
-                          accept=".pdf,.docx,.doc,.txt,.md,.html,.csv,.json"
-                          onChange={(e) => {
-                            if (e.target.files?.[0] && !newSourceName.trim()) {
-                              // Auto-fill name from filename if name is empty
-                              const fileName = e.target.files[0].name.replace(/\.[^/.]+$/, "");
-                              setNewSourceName(fileName);
-                            }
-                          }}
-                          className="w-full rounded-md bg-black/30 px-4 py-2 text-white border border-white/10 focus:border-blue-500 focus:outline-none"
-                        />
-                        <button
-                          type="button"
-                          onClick={() => fileInputRef.current?.click()}
-                          className="absolute right-2 top-1/2 -translate-y-1/2 p-2 text-white/60 hover:text-white"
-                          title="Browse Files"
-                        >
-                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
-                          </svg>
-                        </button>
-                      </div>
-                      <p className="text-xs text-white/60 mt-1">
-                        Supported: PDF, DOCX, DOC, TXT, Markdown, HTML, CSV, JSON
-                      </p>
+                      <label className="block text-sm font-medium text-white/60 mb-1">Document</label>
+                      <input
+                        required
+                        type="file"
+                        ref={fileInputRef}
+                        accept=".pdf,.docx,.txt,.md"
+                        className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-blue-500 file:mr-4 file:py-1 file:px-3 file:rounded-md file:border-0 file:text-xs file:font-semibold file:bg-blue-500 file:text-white hover:file:bg-blue-600"
+                      />
                     </div>
                   )}
-                  
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      id="autoCrawl"
-                      checked={autoCrawl}
-                      onChange={(e) => setAutoCrawl(e.target.checked)}
-                      className="rounded"
-                    />
-                    <label htmlFor="autoCrawl" className="text-sm text-white/80">
-                      Auto-crawl daily (for websites)
-                    </label>
-                  </div>
-                  
-                  {!isAuthenticated && (
-                    <div className="p-3 rounded-md bg-yellow-500/20 border border-yellow-500/30 text-yellow-300 text-sm">
-                      ⚠️ Please log in to add knowledge sources
-                    </div>
-                  )}
-                  
-                  <div className="flex gap-2">
+
+                  <div className="flex gap-3 mt-6">
                     <button
                       type="button"
-                      onClick={newSourceType === "website" ? handleAddWebsite : handleUploadDocument}
-                      disabled={uploadingFile || !isAuthenticated || !token}
-                      className="px-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      {uploadingFile ? "Uploading..." : "Add Source"}
-                    </button>
-                    <button
-                      onClick={() => {
-                        setShowAddSource(false);
-                        setNewSourceName("");
-                        setNewSourceUrl("");
-                        setAutoCrawl(false);
-                      }}
-                      className="px-4 py-2 bg-white/10 text-white rounded-md hover:bg-white/20"
+                      onClick={() => setShowAddSource(false)}
+                      className="flex-1 px-4 py-2 bg-white/5 hover:bg-white/10 text-white rounded-lg transition-colors"
                     >
                       Cancel
                     </button>
+                    <button
+                      type="submit"
+                      disabled={uploadingFile}
+                      className="flex-1 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg transition-colors disabled:opacity-50"
+                    >
+                      {uploadingFile ? "Uploading..." : "Add Source"}
+                    </button>
                   </div>
-                </div>
+                </form>
               </div>
-            )}
-            
-            {sourcesLoading ? (
-              <div className="text-center text-white/60 py-8">Loading sources...</div>
-            ) : sources.length === 0 ? (
-              <div className="text-center text-white/60 py-8">
-                No sources added yet. Add a website or document to get started.
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {sources.map((source) => (
-                  <div key={source.id} className="p-4 rounded-lg bg-white/5 border border-white/10">
-                    <div className="flex items-start justify-between mb-2">
-                      <div>
-                        <h3 className="font-semibold text-white">{source.name}</h3>
-                        <p className="text-sm text-white/60">
-                          {source.source_type} • {source.content_count} content chunks
-                        </p>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <span className={`text-xs px-2 py-1 rounded ${
-                          source.crawl_status === "completed" ? "bg-green-500/20 text-green-300" :
-                          source.crawl_status === "crawling" ? "bg-yellow-500/20 text-yellow-300" :
-                          source.crawl_status === "failed" ? "bg-red-500/20 text-red-300" :
-                          "bg-gray-500/20 text-gray-300"
-                        }`}>
-                          {source.crawl_status}
-                        </span>
-                        {source.auto_crawl && (
-                          <span className="text-xs px-2 py-1 rounded bg-blue-500/20 text-blue-300">
-                            Auto-crawl
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                    {source.url && (
-                      <a
-                        href={source.url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-sm text-blue-400 hover:text-blue-300"
-                      >
-                        {source.url}
-                      </a>
-                    )}
-                    {source.last_crawled_at && (
-                      <p className="text-xs text-white/50 mt-2">
-                        Last crawled: {new Date(source.last_crawled_at).toLocaleString()}
-                      </p>
-                    )}
-                    {source.error_message && (
-                      <div className="mt-2 p-2 rounded bg-red-500/20 border border-red-500/30">
-                        <p className="text-xs text-red-300">
-                          <strong>Error:</strong> {source.error_message}
-                        </p>
-                      </div>
-                    )}
-                    {source.crawl_status === "crawling" && (
-                      <div className="mt-2 p-2 rounded bg-yellow-500/20 border border-yellow-500/30">
-                        <p className="text-xs text-yellow-300">
-                          ⏳ Crawling in progress... This may take a few minutes depending on the website size.
-                        </p>
-                      </div>
-                    )}
-                    <div className="flex gap-2 mt-3">
-                      <button
-                        onClick={() => handleCrawl(source.id)}
-                        disabled={source.crawl_status === "crawling"}
-                        className="px-3 py-1.5 text-sm bg-blue-500/20 text-blue-300 rounded hover:bg-blue-500/30 disabled:opacity-50"
-                      >
-                        {source.crawl_status === "crawling" ? "Crawling..." : "Crawl Now"}
-                      </button>
-                      <button
-                        onClick={() => handleDelete(source.id)}
-                        className="px-3 py-1.5 text-sm bg-red-500/20 text-red-300 rounded hover:bg-red-500/30"
-                      >
-                        Delete
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
+            </div>
+          )}
+
+        </div>
       </div>
     </div>
   );
 }
-

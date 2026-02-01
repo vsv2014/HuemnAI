@@ -219,6 +219,9 @@ class AgentConversation(Base):
     current_node_id = Column(Integer, ForeignKey("agent_nodes.id"), nullable=True)
     execution_history = Column(JSON, nullable=True)  # History of node executions
     
+    # Observability
+    debug_trace = Column(JSON, nullable=True)  # Full execution trace for debugging
+    
     # Status
     is_active = Column(Boolean, default=True)
     ended_at = Column(DateTime(timezone=True), nullable=True)

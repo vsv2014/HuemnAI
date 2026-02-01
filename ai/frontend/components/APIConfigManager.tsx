@@ -4,6 +4,15 @@ import { useState, useEffect } from "react";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "http://127.0.0.1:8000";
 
+const PROVIDER_TYPE_LABELS: Record<string, string> = {
+  llm: "LLM Providers",
+  vector_db: "Vector Databases",
+  connector: "Connectors",
+  speech: "Speech Services",
+  search: "Search Services",
+  storage: "Storage Providers",
+};
+
 interface ProviderField {
   type: string;
   required: boolean;
@@ -37,6 +46,7 @@ export default function APIConfigManager() {
   const [selectedProviderType, setSelectedProviderType] = useState<string>("llm");
   const [selectedProvider, setSelectedProvider] = useState<string>("");
   const [formData, setFormData] = useState<Record<string, any>>({});
+  const [searchQuery, setSearchQuery] = useState("");
   const [testing, setTesting] = useState<number | null>(null);
   const [editingId, setEditingId] = useState<number | null>(null);
 
@@ -58,8 +68,16 @@ export default function APIConfigManager() {
       const data = await res.json();
       if (data && data.providers) {
         setProviders(data.providers);
-        if (data.providers.llm && Object.keys(data.providers.llm).length > 0) {
-          setSelectedProvider(Object.keys(data.providers.llm)[0]);
+        
+        // Dynamically select the first available provider type and provider
+        const availableTypes = Object.keys(data.providers);
+        if (availableTypes.length > 0) {
+          const firstType = availableTypes[0];
+          setSelectedProviderType(firstType);
+          
+          if (data.providers[firstType] && Object.keys(data.providers[firstType]).length > 0) {
+            setSelectedProvider(Object.keys(data.providers[firstType])[0]);
+          }
         }
       } else {
         console.error("Invalid response structure:", data);
@@ -115,7 +133,10 @@ export default function APIConfigManager() {
     // Collect all field values
     const fields: Record<string, any> = {};
     Object.keys(providerDef.fields).forEach((fieldName) => {
-      const value = formData[fieldName];
+      const fieldDef = providerDef.fields[fieldName];
+      // Use formData value if present, otherwise use default from definition
+      const value = formData[fieldName] ?? fieldDef.default ?? "";
+      
       if (value !== undefined && value !== "") {
         fields[fieldName] = value;
       }
@@ -140,7 +161,7 @@ export default function APIConfigManager() {
           setShowAddModal(false);
           loadConfigs();
         } else {
-          alert("Error: " + (data.message || "Failed to update configuration"));
+          alert("Error: " + (data.message || data.detail || "Failed to update configuration"));
         }
       } else {
         // Create
@@ -162,7 +183,7 @@ export default function APIConfigManager() {
           setShowAddModal(false);
           loadConfigs();
         } else {
-          alert("Error: " + (data.message || "Failed to create configuration"));
+          alert("Error: " + (data.message || data.detail || "Failed to create configuration"));
         }
       }
     } catch (error) {
@@ -307,16 +328,37 @@ export default function APIConfigManager() {
         </button>
       </div>
 
+      {/* Search Bar */}
+      <div className="mb-6 relative">
+        <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+          <svg className="h-5 w-5 text-white/40" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+            <path fillRule="evenodd" d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z" clipRule="evenodd" />
+          </svg>
+        </div>
+        <input
+          type="text"
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          placeholder="Search configurations..."
+          className="w-full rounded-lg bg-white/5 border border-white/10 pl-10 pr-4 py-2 text-white placeholder-white/40 focus:border-purple-500/50 focus:outline-none focus:bg-white/10 transition-colors"
+        />
+      </div>
+
       {/* Configurations List */}
       <div className="space-y-4 w-full">
         {providers && Object.keys(providers).length > 0 ? Object.entries(providers).map(([type, typeProviders]) => (
           <div key={type} className="rounded-lg border border-white/10 bg-white/5 p-4 w-full overflow-hidden">
             <h2 className="text-lg font-semibold text-white mb-4 capitalize">
-              {type === "llm" ? "LLM Providers" : "Connectors"}
+              {PROVIDER_TYPE_LABELS[type] || type.replace("_", " ")}
             </h2>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 w-full">
               {configs
                 .filter((c) => c.provider_type === type)
+                .filter((c) => 
+                  searchQuery === "" || 
+                  c.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
+                  c.provider.toLowerCase().includes(searchQuery.toLowerCase())
+                )
                 .map((config) => (
                   <div
                     key={config.id}
@@ -433,8 +475,11 @@ export default function APIConfigManager() {
                   disabled={!!editingId}
                   className="w-full rounded-lg bg-black/30 px-4 py-2 text-white border border-white/10 focus:border-purple-500/50 focus:outline-none disabled:opacity-50"
                 >
-                  <option value="llm">LLM Provider</option>
-                  <option value="connector">Connector</option>
+                  {Object.keys(providers).map((type) => (
+                    <option key={type} value={type} className="bg-gray-800">
+                      {PROVIDER_TYPE_LABELS[type] || type.replace("_", " ")}
+                    </option>
+                  ))}
                 </select>
               </div>
               
@@ -551,4 +596,3 @@ export default function APIConfigManager() {
     </div>
   );
 }
-

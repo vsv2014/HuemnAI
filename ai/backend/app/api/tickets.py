@@ -1,6 +1,11 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, UploadFile, File
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, List
+from pathlib import Path
+import shutil
+import uuid
+import os
+
 from app.services.ticket_service import (
     create_ticket_with_info,
     get_ticket,
@@ -10,6 +15,8 @@ from app.services.agent_router import select_best_agent, reassign_ticket_if_need
 
 router = APIRouter()
 
+UPLOAD_DIR = Path("uploads/tickets")
+UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 class CreateTicketPayload(BaseModel):
     title: str
@@ -17,10 +24,33 @@ class CreateTicketPayload(BaseModel):
     priority: str = "medium"
     connector_type: Optional[str] = None
     customer_info: Optional[dict] = None
+    attachments: Optional[List[str]] = None
 
 
 class ReassignTicketPayload(BaseModel):
     ticket_id: int
+
+
+@router.post("/upload")
+async def upload_ticket_attachment(file: UploadFile = File(...)):
+    """Upload a file attachment for a ticket"""
+    try:
+        file_ext = Path(file.filename).suffix
+        file_id = str(uuid.uuid4())
+        filename = f"{file_id}{file_ext}"
+        file_path = UPLOAD_DIR / filename
+        
+        with open(file_path, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+            
+        return {
+            "success": True,
+            "filename": file.filename,
+            "url": f"/uploads/tickets/{filename}",
+            "path": str(file_path)
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/")
@@ -32,7 +62,8 @@ async def create_ticket_endpoint(payload: CreateTicketPayload):
             description=payload.description,
             customer_info=payload.customer_info,
             connector_type=payload.connector_type,
-            priority=payload.priority
+            priority=payload.priority,
+            attachments=payload.attachments
         )
         return {
             "success": True,
@@ -41,7 +72,8 @@ async def create_ticket_endpoint(payload: CreateTicketPayload):
                 "title": ticket.title,
                 "assigned_to": ticket.assigned_to,
                 "status": ticket.status,
-                "priority": ticket.priority
+                "priority": ticket.priority,
+                "attachments": ticket.attachments
             }
         }
     except Exception as e:

@@ -14,22 +14,15 @@ const TOOL_SLUG_TO_NAME: Record<string, string> = {
   "status-updater": "status_updater",
   "hr-services": "hr_services",
   "knowledge-ai": "knowledge_ai",
-  "ticket-booking-agent": "ticket_booking_agent",
   "analytics-dashboard": "analytics_dashboard",
-  "economic-trends": "economic_trends",
 };
 
 const ALL_TOOLS = [
   { title: "🤖 Agent Builder", desc: "Build your own AI agents with visual flow builder. Create chatbots, IVR agents, and more with unlimited nodes, LLM integration, and API connections.", slug: "agent-builder", isMain: true },
-  { title: "Customer Service", desc: "Customer-facing assistance and conversational support for users.", slug: "customer-service" },
-  { title: "Ticket Assigner", desc: "Automated ticket routing and intelligent assignment to teams and agents.", slug: "ticket-assigner" },
-  { title: "Ticket Solver", desc: "Agent interface to view, reply to, and resolve assigned tickets. Manage customer conversations and update ticket status.", slug: "ticket-solver" },
-  { title: "Status Updater", desc: "Automated status updates for requests, incidents, and workflows.", slug: "status-updater" },
+  { title: "Customer Service & Agent Console", desc: "Unified platform for customer support and agent ticket resolution. Handles L1 analysis, auto-assignment, and ticket solving.", slug: "customer-service" },
   { title: "HR Services", desc: "Employee lifecycle support: hiring, onboarding, policies, and HR queries.", slug: "hr-services" },
   { title: "Knowledge AI", desc: "Search and surface SOPs, documents, and internal knowledge effectively.", slug: "knowledge-ai" },
-  { title: "Ticket Booking Agent", desc: "Compare and book tickets across multiple platforms: flights, trains, buses, restaurants, and more.", slug: "ticket-booking-agent" },
   { title: "Analytics Dashboard", desc: "Track performance, ticket solving rate, SLA metrics, team workload, and comprehensive analytics with futuristic visualizations.", slug: "analytics-dashboard" },
-  { title: "Economic Trends Tracker", desc: "Track national, international, and state-level economic trends with AI-powered analysis and guidance. Reimagine AI for Human with HUEMN.Ai.", slug: "economic-trends" },
   { title: "⚙️ Settings & Configuration", desc: "Configure API keys, LLM providers, and integrations. Manage all your settings securely from one place.", slug: "settings", isSettings: true },
 ];
 
@@ -106,19 +99,25 @@ export default function ProductGrid() {
   return (
     <div className="max-w-6xl mx-auto">
       {!isAuthenticated && (
-        <div className="mb-6 px-4 sm:px-0">
-          <div className="bg-blue-500/10 border border-blue-500/30 rounded-lg p-6 text-center">
-            <h3 className="text-xl font-bold text-white mb-2">Access All Tools</h3>
-            <p className="text-blue-300 text-sm mb-4">
-              Please log in to access our AI-powered tools. Start with a 14-day free trial!
-            </p>
-            <div className="flex gap-3 justify-center">
-              <a href="/auth/login" className="px-6 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors">
-                Login
-              </a>
-              <a href="/pricing" className="px-6 py-2 border border-blue-500/30 text-blue-300 rounded-lg hover:bg-blue-500/10 transition-colors">
-                Start Free Trial
-              </a>
+        <div className="mb-8 px-4 sm:px-0">
+          <div className="relative overflow-hidden rounded-3xl bg-white/10 border border-white/20 p-8 text-center backdrop-blur-xl shadow-[0_0_50px_rgba(59,130,246,0.15)]">
+            <div className="absolute top-0 left-0 w-full h-full bg-[url('/grid.svg')] opacity-10" />
+            <div className="absolute -top-24 -right-24 w-64 h-64 bg-blue-500/30 rounded-full blur-[80px]" />
+            <div className="absolute -bottom-24 -left-24 w-64 h-64 bg-purple-500/30 rounded-full blur-[80px]" />
+            
+            <div className="relative z-10">
+              <h3 className="text-3xl font-bold text-white mb-3 tracking-tight drop-shadow-md">Unlock the Future of Work</h3>
+              <p className="text-blue-100 text-lg mb-8 max-w-2xl mx-auto font-light">
+                Access our complete suite of AI-powered tools. Automate workflows, enhance productivity, and scale your business with intelligent agents.
+              </p>
+              <div className="flex flex-col sm:flex-row gap-4 justify-center">
+                <a href="/auth/login" className="px-8 py-3 bg-white text-black font-bold rounded-full hover:scale-105 transition-transform shadow-[0_0_20px_rgba(255,255,255,0.4)]">
+                  Login to Console
+                </a>
+                <a href="/pricing" className="px-8 py-3 border border-white/30 bg-white/10 text-white font-bold rounded-full hover:bg-white/20 transition-colors backdrop-blur-md">
+                  Start 14-Day Free Trial
+                </a>
+              </div>
             </div>
           </div>
         </div>

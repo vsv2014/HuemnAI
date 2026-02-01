@@ -1,64 +1,77 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from typing import List, Optional
-from app.services.hr_service import (
-    handle_hr_request,
-    post_job,
-    shortlist_candidates,
-    notify_manager
-)
+from app.services import hr_service
 
 router = APIRouter()
 
-
-class HRPayload(BaseModel):
-    message: str
-
+class SearchPayload(BaseModel):
+    query: str
+    user_id: Optional[str] = "anonymous"
 
 class PostJobPayload(BaseModel):
     title: str
     description: str
     requirements: Optional[List[str]] = None
 
+class ApplicationPayload(BaseModel):
+    job_id: int
+    candidate_name: str
+    candidate_email: str
+    resume_text: Optional[str] = ""
 
-class ShortlistPayload(BaseModel):
-    skills: List[str]
-    job_title: Optional[str] = None
-    experience_years: Optional[int] = None
-    limit: int = 5
+class PostEmailPayload(BaseModel):
+    title: str
+    content: str
+    email_address: Optional[str] = None
+    type: Optional[str] = "activity"
 
+@router.get("/jobs")
+async def get_jobs(q: Optional[str] = None):
+    """Get all active jobs, optionally filtered by query"""
+    return hr_service.get_all_jobs(query=q)
 
-@router.post("/")
-async def hr_entry(payload: HRPayload):
-    """
-    Main HR service endpoint.
-    Handles job posting, candidate shortlisting, and manager notifications.
-    Supports natural language requests.
-    """
-    return handle_hr_request(payload.message)
+@router.post("/apply")
+async def apply_for_job(payload: ApplicationPayload):
+    """Submit an application for a job"""
+    return hr_service.apply_for_job(
+        payload.job_id, 
+        payload.candidate_name, 
+        payload.candidate_email, 
+        payload.resume_text
+    )
 
+@router.post("/search-log")
+async def log_search(payload: SearchPayload):
+    """Log a candidate search for HR visibility"""
+    hr_service.log_search(payload.query, payload.user_id)
+    return {"status": "logged"}
+
+@router.get("/live-searches")
+async def get_live_searches():
+    """Get real-time feed of what candidates are searching for"""
+    return hr_service.get_live_searches()
 
 @router.post("/post-job")
-async def post_job_endpoint(payload: PostJobPayload):
-    """Post a job to Greenhouse and LinkedIn"""
-    return post_job(payload.title, payload.description, payload.requirements)
+async def post_job(payload: PostJobPayload):
+    return hr_service.post_job(payload.title, payload.description, payload.requirements)
 
+@router.get("/emails")
+async def get_emails():
+    """Get all HR emails/announcements"""
+    return hr_service.get_emails()
 
-@router.post("/shortlist")
-async def shortlist_endpoint(payload: ShortlistPayload):
-    """Shortlist candidates based on skills, job title, and experience"""
-    candidates = shortlist_candidates(
-        skills=payload.skills,
-        job_title=payload.job_title,
-        experience_years=payload.experience_years,
-        limit=payload.limit
+@router.post("/emails")
+async def post_email(payload: PostEmailPayload):
+    """Post a new HR email/announcement"""
+    return hr_service.post_email(
+        payload.title, 
+        payload.content, 
+        payload.email_address, 
+        payload.type
     )
-    
-    # Notify manager
-    notification = notify_manager(candidates, payload.job_title or "Position")
-    
-    return {
-        "candidates": candidates,
-        "count": len(candidates),
-        "notification": notification
-    }
+
+@router.post("/")
+async def hr_chat(payload: dict):
+    """Legacy chat endpoint"""
+    return hr_service.handle_hr_request(payload.get("message", ""))

@@ -5,13 +5,8 @@ router = APIRouter()
 PRODUCTS = [
     {
         "slug": "customer-service",
-        "title": "Customer Service",
-        "desc": "Customer-facing assistance and conversational support for users.",
-    },
-    {
-        "slug": "ticket-assigner",
-        "title": "Ticket Assigner",
-        "desc": "Automated ticket routing and intelligent assignment to teams and agents.",
+        "title": "Customer Service & Agent Console",
+        "desc": "Unified platform for customer support and agent ticket resolution. Handles L1 analysis, auto-assignment, and ticket solving.",
     },
     {
         "slug": "status-updater",
@@ -27,11 +22,6 @@ PRODUCTS = [
         "slug": "knowledge-ai",
         "title": "Knowledge AI",
         "desc": "Search and surface SOPs, documents, and internal knowledge effectively.",
-    },
-    {
-        "slug": "economic-trends",
-        "title": "Economic Trends Tracker",
-        "desc": "Track national, international, and state-level economic trends with AI-powered analysis and guidance.",
     },
 ]
 

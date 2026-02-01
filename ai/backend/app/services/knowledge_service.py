@@ -300,6 +300,38 @@ async def query_with_solution(query: str, limit: int = 3, conversation_history: 
     # Combine tickets and crawled content
     all_results = tickets + crawled_content
     
+    # If no local results found, try web search
+    if not all_results:
+        try:
+            logger.info(f"No local results found for '{query}'. Attempting web search...")
+            web_service = WebSearchService()
+            web_results = web_service.search(query)
+            
+            if web_results:
+                # Format web results for the context
+                formatted_web_results = []
+                for res in web_results:
+                    formatted_web_results.append({
+                        "id": f"WEB-{hash(res.get('href', ''))}",
+                        "title": res.get('title', 'Web Result'),
+                        "body": res.get('body', ''),
+                        "url": res.get('href', ''),
+                        "source_name": "DuckDuckGo",
+                        "source_type": "web_search",
+                        "relevance_score": 0.8, # Assume reasonably relevant if returned by search engine
+                        "metadata": {"query": query}
+                    })
+                
+                all_results.extend(formatted_web_results)
+                
+                # Auto-learn from these results in the background (if user_id is present)
+                if user_id:
+                    # We use a thread to not block the response
+                    Thread(target=web_service.learn_from_search, args=(query, web_results, user_id)).start()
+                    logger.info(f"Triggered background learning for query: {query}")
+        except Exception as e:
+            logger.error(f"Error performing web search: {e}")
+
     if not all_results:
         # Generate contextual, helpful response even when no tickets found using LLM
         query_lower = query.lower()
@@ -392,71 +424,63 @@ User's Current Query: "{query}"
 {context}
 
 Instructions:
-1. Analyze the query and match it to relevant past tickets
-2. Provide a clear, step-by-step solution based on what worked in similar cases
-3. If multiple tickets are relevant, synthesize the best approach
-4. Be specific and actionable - don't just repeat generic advice
-5. If the query is different from past tickets, acknowledge this and provide general guidance
-6. Make your response unique and tailored to this specific query - avoid generic templates
-7. Use a conversational, helpful tone
+1. Analyze the query and match it to relevant past tickets/knowledge.
+2. Provide a clear, step-by-step solution based on what worked in similar cases.
+3. If multiple items are relevant, synthesize the best approach.
+4. Be specific and actionable - don't just repeat generic advice.
+5. CITE YOUR SOURCES: When using information from a specific context item, append its index number like [1], [2] at the end of the sentence.
+6. If the query is different from past tickets, acknowledge this and provide general guidance.
 
-Provide your solution in a clear, helpful format. Be specific and unique for this query:"""
+At the very end of your response, strictly following the separator "---FOLLOW_UP---", provide 3 short, relevant follow-up questions the user might ask next.
+Format:
+[Solution text with citations...]
+
+---FOLLOW_UP---
+- [Question 1]
+- [Question 2]
+- [Question 3]
+"""
+    
+    solution_text = ""
+    follow_up_questions = []
     
     try:
-        # Use LLM to generate solution
-        solution_text = ""
+        full_response = ""
         async for token in explain(prompt):
-            solution_text += token
-        
-        # If solution is too short or generic, enhance it
-        if len(solution_text.strip()) < 50:
-            # Build enhanced fallback from ticket data
-            solution_parts = []
-            solution_parts.append(f"Based on {len(tickets)} similar ticket(s), here's what worked:")
+            full_response += token
             
-            for i, ticket in enumerate(tickets[:2], 1):  # Top 2 tickets
-                if ticket.get('solution'):
-                    solution_parts.append(f"\n{i}. From a similar case: {ticket.get('solution')}")
-            
-            if tickets[0].get('title'):
-                solution_parts.append(f"\nMost relevant case: {tickets[0].get('title')}")
-            
-            solution_text = " ".join(solution_parts) if solution_parts else solution_text
-        
-        # Calculate average relevance score
-        avg_score = sum(t.get("relevance_score", 0) for t in all_results) / len(all_results) if all_results else 0
-        
-        return {
-            "results": all_results,
-            "solution": solution_text.strip(),
-            "confidence": round(avg_score, 2),
-            "tickets_found": len(tickets),
-            "knowledge_found": len(crawled_content),
-            "query": query  # Include query for debugging
-        }
-    except Exception as e:
-        logger.error(f"Error generating solution: {e}", exc_info=True)
-        # Enhanced fallback response
-        best_item = all_results[0] if all_results else {}
-        
-        # Build solution from available results
-        if all_results:
-            fallback_solution = f"Found {len(all_results)} relevant result(s). "
-            if best_item.get('solution'):
-                fallback_solution += f"Solution from most relevant case: {best_item.get('solution')}"
-            else:
-                fallback_solution += f"Most relevant: {best_item.get('title', 'N/A')}. Review the details above for more information."
+        # Parse solution and follow-ups
+        if "---FOLLOW_UP---" in full_response:
+            parts = full_response.split("---FOLLOW_UP---")
+            solution_text = parts[0].strip()
+            # Parse questions
+            q_text = parts[1].strip()
+            for line in q_text.split('\n'):
+                line = line.strip()
+                if line.startswith('- ') or line.startswith('• '):
+                    follow_up_questions.append(line[2:].strip())
+                elif line and line[0].isdigit() and '. ' in line:
+                     follow_up_questions.append(line.split('. ', 1)[1].strip())
         else:
-            fallback_solution = "Please contact support for assistance with this issue."
-        
-        return {
-            "results": all_results,
-            "solution": fallback_solution,
-            "confidence": best_item.get("relevance_score", 0.0),
-            "tickets_found": len(tickets),
-            "knowledge_found": len(crawled_content),
-            "query": query
-        }
+            solution_text = full_response.strip()
+            
+    except Exception as e:
+        logger.error(f"Error generating solution: {e}")
+        solution_text = "I found some relevant information but couldn't generate a specific solution. Please check the sources below."
+
+    # Calculate average confidence
+    avg_confidence = 0.0
+    if all_results:
+        scores = [r.get('relevance_score', 0) for r in all_results]
+        avg_confidence = sum(scores) / len(scores)
+
+    return {
+        "results": all_results,
+        "solution": solution_text,
+        "follow_up_questions": follow_up_questions,
+        "confidence": round(avg_confidence, 2),
+        "tickets_found": len(all_results)
+    }
 
 
 def add_solution(ticket_id: str, solution: str):

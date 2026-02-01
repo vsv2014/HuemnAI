@@ -10,12 +10,14 @@ import ConnectorConfig from "@/components/ConnectorConfig";
 import StatusUpdaterPage from "./StatusUpdaterPage";
 import TicketAssignerPage from "./TicketAssignerPage";
 import TicketSolverPage from "./TicketSolverPage";
+import HRServicesPage from "./HRServicesPage";
 import { TOOLS } from "@/config/tools";
 import Link from "next/link";
 import TrialBanner from "@/components/TrialBanner";
 import { useAuthStore } from "@/store/authStore";
 import { startToolSession, consumeToken } from "@/services/api";
 import EnhancedKnowledgeAI from "@/components/EnhancedKnowledgeAI";
+import ToolSwitcher from "@/components/ToolSwitcher";
 
 // Map URL slugs to tool IDs
 const TOOL_SLUG_MAP: Record<string, string> = {
@@ -25,7 +27,6 @@ const TOOL_SLUG_MAP: Record<string, string> = {
   "status-updater": TOOLS.STATUS_UPDATER,
   "hr-services": TOOLS.HR_SERVICES,
   "knowledge-ai": TOOLS.KNOWLEDGE_AI,
-  "ticket-booking-agent": TOOLS.TICKET_BOOKING_AGENT,
 };
 
 // Map tool IDs to display names
@@ -36,7 +37,6 @@ const TOOL_NAMES: Record<string, string> = {
   [TOOLS.STATUS_UPDATER]: "Status Updater",
   [TOOLS.HR_SERVICES]: "HR Services",
   [TOOLS.KNOWLEDGE_AI]: "Knowledge AI",
-  [TOOLS.TICKET_BOOKING_AGENT]: "Ticket Booking Agent",
 };
 
 // Map tool slugs to tool names for API
@@ -47,9 +47,7 @@ const TOOL_SLUG_TO_NAME: Record<string, string> = {
   "status-updater": "status_updater",
   "hr-services": "hr_services",
   "knowledge-ai": "knowledge_ai",
-  "ticket-booking-agent": "ticket_booking_agent",
   "analytics-dashboard": "analytics_dashboard",
-  "economic-trends": "economic_trends",
 };
 
 export default function ToolPage() {
@@ -61,11 +59,12 @@ export default function ToolPage() {
   const apiToolName = TOOL_SLUG_TO_NAME[toolSlug] || "customer_service";
   
   const { messages, loading, sendMessage, tool, setTool } = useChatStore();
-  const { token, subscriptionStatus } = useAuthStore();
+  const { token, subscriptionStatus, user } = useAuthStore();
   const [input, setInput] = useState("");
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [showConnectorConfig, setShowConnectorConfig] = useState(false);
   const [sessionStarted, setSessionStarted] = useState(false);
+  const [debugMode, setDebugMode] = useState<'auto' | 'agent' | 'customer'>('auto');
 
   // Set the tool when page loads
   useEffect(() => {
@@ -157,40 +156,146 @@ export default function ToolPage() {
     return <StatusUpdaterPage toolName={toolName} toolId={toolId} />;
   }
 
-  // Special handling for Ticket Assigner - show assignment interface
+  // Special handling for Ticket Assigner
   if (toolId === TOOLS.TICKET_ASSIGNER) {
     return <TicketAssignerPage toolName={toolName} toolId={toolId} />;
   }
 
-  // Special handling for Ticket Solver - show agent ticket solving interface
+  // Special handling for Ticket Solver (Direct Access)
   if (toolId === TOOLS.TICKET_SOLVER) {
-    return <TicketSolverPage toolName={toolName} toolId={toolId} />;
+    return (
+      <div className="p-6 max-w-6xl mx-auto">
+        <TrialBanner />
+        <div className="mb-4 flex items-start justify-between">
+          <div>
+            <div className="flex items-center gap-3 mb-2">
+              <div className="flex items-center gap-2">
+                <Link 
+                  href="/" 
+                  className="text-white/60 hover:text-white transition-colors p-1.5 rounded-md hover:bg-white/10"
+                  title="Go to Home"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
+                    <polyline points="9 22 9 12 15 12 15 22"/>
+                  </svg>
+                </Link>
+                <span className="text-white/20">|</span>
+                <button 
+                  onClick={() => router.back()} 
+                  className="text-white/60 hover:text-white text-sm transition-colors"
+                >
+                  ← Back
+                </button>
+              </div>
+              <span className="text-white/40">|</span>
+              <h1 className="text-2xl font-semibold">{toolName}</h1>
+            </div>
+            <p className="text-sm text-white/60">
+              Manage and resolve support tickets assigned to you.
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <ToolSwitcher />
+            <button
+              onClick={() => setShowConnectorConfig(true)}
+              className="text-sm px-3 py-1.5 rounded-md bg-white/10 hover:bg-white/20 border border-white/20"
+              title="Configure external tool integrations"
+            >
+              ⚙️ Configure Tools
+            </button>
+          </div>
+        </div>
+        <TicketSolverPage toolName={toolName} toolId={toolId} />
+      </div>
+    );
+  }
+
+  if (toolId === TOOLS.HR_SERVICES) {
+    return <HRServicesPage toolName={toolName} toolId={toolId} />;
   }
 
   // Special handling for Knowledge AI - show enhanced interface
   if (toolId === TOOLS.KNOWLEDGE_AI) {
     return (
-      <div>
-        <TrialBanner />
-        <EnhancedKnowledgeAI />
-      </div>
+      <EnhancedKnowledgeAI />
     );
   }
 
   // Special handling for Customer Service - show advanced chat interface
   if (toolId === TOOLS.CUSTOMER_SERVICE) {
+    // Determine effective mode (Agent vs Customer)
+    // Default to 'auto' which uses user role, but allow manual override for testing
+    const isAgentMode = debugMode === 'agent' || (debugMode === 'auto' && (user?.role === 'agent' || user?.role === 'admin'));
+
+    // Agent/Admin Mode: Show Ticket Inbox (Agent Console)
+    if (isAgentMode) {
+      return (
+        <div className="relative">
+          <div className="absolute top-4 right-4 z-50 flex gap-2">
+             <div className="bg-black/50 backdrop-blur-md rounded-lg p-1 border border-white/10 flex text-xs">
+                <button 
+                  onClick={() => setDebugMode('customer')}
+                  className={`px-3 py-1.5 rounded-md transition-colors ${debugMode === 'customer' ? 'bg-blue-600 text-white' : 'text-white/60 hover:text-white hover:bg-white/5'}`}
+                >
+                  Customer View
+                </button>
+                <button 
+                  onClick={() => setDebugMode('agent')}
+                  className={`px-3 py-1.5 rounded-md transition-colors ${debugMode === 'agent' || (debugMode === 'auto' && (user?.role === 'agent' || user?.role === 'admin')) ? 'bg-purple-600 text-white' : 'text-white/60 hover:text-white hover:bg-white/5'}`}
+                >
+                  Agent Console
+                </button>
+             </div>
+          </div>
+          <TicketSolverPage toolName={toolName} toolId={toolId} />
+        </div>
+      );
+    }
+
+    // Customer Mode: Show Support Chat
     return (
-      <div className="p-6 max-w-6xl mx-auto">
+      <div className="p-6 max-w-6xl mx-auto relative">
+        <div className="absolute top-6 right-20 z-50 flex gap-2">
+             <div className="bg-black/50 backdrop-blur-md rounded-lg p-1 border border-white/10 flex text-xs">
+                <button 
+                  onClick={() => setDebugMode('customer')}
+                  className={`px-3 py-1.5 rounded-md transition-colors ${debugMode === 'customer' || (debugMode === 'auto' && user?.role !== 'agent' && user?.role !== 'admin') ? 'bg-blue-600 text-white' : 'text-white/60 hover:text-white hover:bg-white/5'}`}
+                >
+                  Customer View
+                </button>
+                <button 
+                  onClick={() => setDebugMode('agent')}
+                  className={`px-3 py-1.5 rounded-md transition-colors ${debugMode === 'agent' ? 'bg-purple-600 text-white' : 'text-white/60 hover:text-white hover:bg-white/5'}`}
+                >
+                  Agent Console
+                </button>
+             </div>
+        </div>
+
         <TrialBanner />
         <div className="mb-6 flex items-start justify-between">
           <div>
             <div className="flex items-center gap-3 mb-2">
-              <Link 
-                href="/" 
-                className="text-white/60 hover:text-white text-sm transition-colors"
-              >
-                ← Back to Home
-              </Link>
+              <div className="flex items-center gap-2">
+                <Link 
+                  href="/" 
+                  className="text-white/60 hover:text-white transition-colors p-1.5 rounded-md hover:bg-white/10"
+                  title="Go to Home"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
+                    <polyline points="9 22 9 12 15 12 15 22"/>
+                  </svg>
+                </Link>
+                <span className="text-white/20">|</span>
+                <button 
+                  onClick={() => router.back()} 
+                  className="text-white/60 hover:text-white text-sm transition-colors"
+                >
+                  ← Back
+                </button>
+              </div>
               <span className="text-white/40">|</span>
               <h1 className="text-2xl font-semibold">{toolName}</h1>
             </div>
@@ -198,13 +303,16 @@ export default function ToolPage() {
               Advanced ticket creation system with intelligent troubleshooting and priority assignment.
             </p>
           </div>
-          <button
-            onClick={() => setShowConnectorConfig(true)}
-            className="text-sm px-3 py-1.5 rounded-md bg-white/10 hover:bg-white/20 border border-white/20"
-            title="Configure external tool integrations"
-          >
-            ⚙️ Configure Tools
-          </button>
+          <div className="flex items-center gap-2">
+            <ToolSwitcher />
+            <button
+              onClick={() => setShowConnectorConfig(true)}
+              className="text-sm px-3 py-1.5 rounded-md bg-white/10 hover:bg-white/20 border border-white/20"
+              title="Configure external tool integrations"
+            >
+              ⚙️ Configure Tools
+            </button>
+          </div>
         </div>
         
         {showConnectorConfig && (
@@ -226,12 +334,25 @@ export default function ToolPage() {
       <div className="mb-4 flex items-start justify-between">
         <div>
           <div className="flex items-center gap-3 mb-2">
-            <Link 
-              href="/" 
-              className="text-white/60 hover:text-white text-sm transition-colors"
-            >
-              ← Back to Home
-            </Link>
+            <div className="flex items-center gap-2">
+              <Link 
+                href="/" 
+                className="text-white/60 hover:text-white transition-colors p-1.5 rounded-md hover:bg-white/10"
+                title="Go to Home"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
+                  <polyline points="9 22 9 12 15 12 15 22"/>
+                </svg>
+              </Link>
+              <span className="text-white/20">|</span>
+              <button 
+                onClick={() => router.back()} 
+                className="text-white/60 hover:text-white text-sm transition-colors"
+              >
+                ← Back
+              </button>
+            </div>
             <span className="text-white/40">|</span>
             <h1 className="text-2xl font-semibold">{toolName}</h1>
           </div>
@@ -239,13 +360,16 @@ export default function ToolPage() {
             Interact with {toolName}. Activity is automatically tracked.
           </p>
         </div>
-        <button
-          onClick={() => setShowConnectorConfig(true)}
-          className="text-sm px-3 py-1.5 rounded-md bg-white/10 hover:bg-white/20 border border-white/20"
-          title="Configure external tool integrations"
-        >
-          ⚙️ Configure Tools
-        </button>
+        <div className="flex items-center gap-2">
+          <ToolSwitcher />
+          <button
+            onClick={() => setShowConnectorConfig(true)}
+            className="text-sm px-3 py-1.5 rounded-md bg-white/10 hover:bg-white/20 border border-white/20"
+            title="Configure external tool integrations"
+          >
+            ⚙️ Configure Tools
+          </button>
+        </div>
       </div>
       
       {showConnectorConfig && (

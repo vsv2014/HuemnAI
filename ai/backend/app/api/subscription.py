@@ -383,15 +383,11 @@ async def get_subscribed_tools(
     # During trial, all tools are accessible with 50,000 tokens each
     if user.subscription_status == "trial":
         all_tools_data = [
-            {"tool_name": "customer_service", "tool_display_name": "Customer Service"},
-            {"tool_name": "ticket_assigner", "tool_display_name": "Ticket Assigner"},
-            {"tool_name": "ticket_solver", "tool_display_name": "Ticket Solver"},
-            {"tool_name": "status_updater", "tool_display_name": "Status Updater"},
-            {"tool_name": "hr_services", "tool_display_name": "HR Services"},
+            {"tool_name": "customer_service", "tool_display_name": "Customer Service & Agent Console"},
             {"tool_name": "knowledge_ai", "tool_display_name": "Knowledge AI"},
-            {"tool_name": "ticket_booking_agent", "tool_display_name": "Ticket Booking Agent"},
+            {"tool_name": "hr_services", "tool_display_name": "HR Services"},
+            {"tool_name": "status_updater", "tool_display_name": "Status Updater"},
             {"tool_name": "analytics_dashboard", "tool_display_name": "Analytics Dashboard"},
-            {"tool_name": "economic_trends", "tool_display_name": "Economic Trends Tracker"},
         ]
         
         # Get or create tool subscriptions with tokens

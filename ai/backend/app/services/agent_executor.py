@@ -3,9 +3,12 @@ Agent Flow Execution Engine
 Executes agent flows by processing nodes conditionally based on their configuration
 """
 from typing import Dict, Any, Optional, List
+from fastapi import BackgroundTasks
 from sqlalchemy.orm import Session
+from app.db.session import SessionLocal
 from app.db.models.agent import Agent, AgentNode, AgentConnection, AgentConversation, NodeType, AgentAnalyticsEvent
 from app.db.models.scheduled_task import ScheduledTask
+from app.db.models.evaluation import EvaluationLog
 from app.schemas.node_configs import NODE_CONFIG_REGISTRY
 from app.llm.registry import get_available_llm, get_llm
 from app.llm.openai_llm import OpenAILLM
@@ -15,17 +18,121 @@ import json
 import logging
 import os
 import shutil
+import time
 from pathlib import Path
 import math
+import difflib
 
 logger = logging.getLogger(__name__)
+
+def persist_analytics_event(
+    agent_id: int, 
+    event_type: str, 
+    event_name: str, 
+    properties: Dict[str, Any] = None,
+    conversation_id: Optional[int] = None
+):
+    """
+    Standalone function to persist analytics events in background.
+    Creates its own DB session to ensure thread safety and independent lifecycle.
+    """
+    db = SessionLocal()
+    try:
+        analytics_event = AgentAnalyticsEvent(
+            agent_id=agent_id,
+            conversation_id=conversation_id,
+            event_type=event_type,
+            event_name=event_name,
+            properties=properties
+        )
+        db.add(analytics_event)
+        db.commit()
+    except Exception as e:
+        logger.error(f"Failed to track analytics event (async): {e}")
+    finally:
+        db.close()
+
+async def run_shadow_execution(
+    agent_id: int,
+    node_id: int,
+    conversation_id: Optional[int],
+    input_data: Dict[str, Any],
+    messages: List[Dict[str, str]],
+    primary_response: Dict[str, Any],
+    primary_latency: float,
+    shadow_config: Dict[str, Any]
+):
+    """
+    Background task to run shadow model execution and log results.
+    """
+    start_time = time.time()
+    db = SessionLocal()
+    
+    try:
+        shadow_model = shadow_config.get("model")
+        if not shadow_model:
+            return
+
+        # Use OpenAILLM directly for shadow execution to leverage model override
+        # Assuming shadow mode uses OpenAI for now
+        llm = OpenAILLM()
+        
+        shadow_response_text = ""
+        # We use the 'messages' list for full context
+        # Note: OpenAILLM.stream has been updated to accept 'messages' and 'model'
+        async for token in llm.stream("", messages=messages, model=shadow_model):
+            shadow_response_text += token
+            
+        shadow_latency = (time.time() - start_time) * 1000 # ms
+        
+        # Calculate semantic similarity
+        # 0.0 to 1.0 where 1.0 is identical
+        p_text = str(primary_response.get("response", ""))
+        s_text = shadow_response_text
+        
+        try:
+            from app.services.embeddings_service import get_embedding, cosine_similarity
+            # Basic caching optimization could be added here if needed
+            emb_p = get_embedding(p_text)
+            emb_s = get_embedding(s_text)
+            similarity = cosine_similarity(emb_p, emb_s)
+            
+            # Clamp value between 0 and 1
+            similarity = max(0.0, min(1.0, similarity))
+        except Exception as e:
+            logger.warning(f"Embedding similarity failed, falling back to difflib: {e}")
+            matcher = difflib.SequenceMatcher(None, p_text, s_text)
+            similarity = matcher.ratio()
+        
+        # Log to EvaluationLog
+        eval_log = EvaluationLog(
+            agent_id=agent_id,
+            conversation_id=conversation_id,
+            node_id=node_id,
+            input_data=input_data,
+            primary_response=primary_response,
+            shadow_response={"response": shadow_response_text},
+            primary_latency_ms=primary_latency,
+            shadow_latency_ms=shadow_latency,
+            shadow_config=shadow_config,
+            similarity_score=similarity
+        )
+        db.add(eval_log)
+        db.commit()
+        
+    except Exception as e:
+        logger.error(f"Shadow execution failed: {e}")
+    finally:
+        db.close()
+
 
 
 class AgentExecutor:
     """Executes agent flows node by node"""
     
-    def __init__(self, db: Session):
+    def __init__(self, db: Session, background_tasks: Optional[BackgroundTasks] = None):
         self.db = db
+        self.background_tasks = background_tasks
         self.debug_trace = []  # Track execution flow for debugging
     
     def _track_analytics_event(
@@ -37,24 +144,96 @@ class AgentExecutor:
         conversation_id: Optional[int] = None
     ):
         """Helper to track analytics events"""
-        try:
-            # Create a new session for analytics to avoid transaction conflicts
-            # or just use the existing one if safe. 
-            # Using existing self.db should be fine as we commit immediately.
-            analytics_event = AgentAnalyticsEvent(
+        
+        # Enterprise Grade: Use BackgroundTasks if available for non-blocking I/O
+        if self.background_tasks:
+            self.background_tasks.add_task(
+                persist_analytics_event,
                 agent_id=agent_id,
-                conversation_id=conversation_id,
                 event_type=event_type,
                 event_name=event_name,
-                properties=properties
+                properties=properties,
+                conversation_id=conversation_id
             )
-            self.db.add(analytics_event)
-            self.db.commit()
+            return
+
+        # Fallback to async execution via thread pool (for WebSockets/etc)
+        # This prevents database I/O from blocking the main event loop
+        try:
+            import asyncio
+            from functools import partial
+            
+            loop = asyncio.get_running_loop()
+            loop.run_in_executor(
+                None, 
+                partial(
+                    persist_analytics_event,
+                    agent_id=agent_id,
+                    event_type=event_type,
+                    event_name=event_name,
+                    properties=properties,
+                    conversation_id=conversation_id
+                )
+            )
         except Exception as e:
-            logger.error(f"Failed to track analytics event: {e}")
-            # Don't raise, just log - analytics shouldn't break flow
+            # If no loop (sync context) or other error, try sync fallback as last resort
+            # or just log error to avoid breaking flow
+            if "no running event loop" in str(e).lower():
+                try:
+                    persist_analytics_event(
+                        agent_id=agent_id, 
+                        event_type=event_type, 
+                        event_name=event_name, 
+                        properties=properties, 
+                        conversation_id=conversation_id
+                    )
+                except Exception as sync_e:
+                    logger.error(f"Failed to track analytics event (sync fallback): {sync_e}")
+            else:
+                logger.error(f"Failed to dispatch analytics event: {e}")
 
     
+    async def _execute_shadow_run(self, shadow_agent_id: int, user_message: str, original_context: Dict[str, Any]):
+        """
+        Execute a shadow agent run in the background.
+        This does NOT affect the main conversation but logs the result for comparison.
+        """
+        try:
+            logger.info(f"Starting SHADOW MODE run for Agent {shadow_agent_id}")
+            # Create a temporary/shadow conversation context
+            shadow_context = original_context.copy() if original_context else {}
+            shadow_context["is_shadow_mode"] = True
+            
+            # Fetch shadow agent
+            shadow_agent = self.db.query(Agent).filter(Agent.id == shadow_agent_id).first()
+            if not shadow_agent:
+                logger.error(f"Shadow agent {shadow_agent_id} not found")
+                return
+
+            # Create a dummy conversation object for execution
+            # We don't save this to DB to avoid polluting metrics
+            shadow_conversation = AgentConversation(
+                agent_id=shadow_agent_id,
+                session_id=f"shadow-{uuid.uuid4()}",
+                context=shadow_context,
+                status="shadow"
+            )
+            
+            # Execute (this calls self.execute recursively but on shadow agent)
+            # We use a new executor instance or be careful about state
+            # Since 'execute' resets debug_trace, we should be fine if we are careful,
+            # but 'execute' is async and modifies 'self.debug_trace'.
+            # Ideally we should instantiate a new executor for safety.
+            executor = AgentExecutor(self.db, None) # No background tasks for shadow to avoid infinite loops
+            result = await executor.execute(shadow_agent, shadow_conversation, user_message)
+            
+            logger.info(f"SHADOW MODE Result for Agent {shadow_agent_id}: {result.get('response')[:100]}...")
+            
+            # TODO: Store comparison result in EvaluationLog table
+            
+        except Exception as e:
+            logger.error(f"Shadow mode execution failed: {e}")
+
     async def execute(
         self,
         agent: Agent,
@@ -67,6 +246,16 @@ class AgentExecutor:
         Returns:
             Dict with response, next_node_id, context, metadata, and debug_trace
         """
+        # SHADOW MODE TRIGGER
+        if hasattr(agent, "shadow_mode_enabled") and agent.shadow_mode_enabled and agent.shadow_agent_id:
+            if self.background_tasks:
+                self.background_tasks.add_task(
+                    self._execute_shadow_run,
+                    agent.shadow_agent_id,
+                    user_message,
+                    conversation.context
+                )
+
         # Reset debug trace for new execution
         self.debug_trace = []
         
@@ -656,7 +845,7 @@ class AgentExecutor:
     async def _execute_start_node(self, node: AgentNode, context: Dict[str, Any]) -> Dict[str, Any]:
         """Execute start node - usually just passes through"""
         config = node.config or {}
-        welcome_message = config.get("message", "Hello! How can I help you?")
+        # welcome_message = config.get("message", "Hello! How can I help you?")
         
         # Apply initial context
         initial_context = config.get("initial_context", {})
@@ -671,11 +860,10 @@ class AgentExecutor:
             # We don't block execution for missing vars in start node usually, as they might come later
             
         return {
-            "response": welcome_message,
+            "response": "",  # Empty response to ensure flow continues to next node
             "next_node_id": None,  # Will be determined by connections
             "context": context,
             "metadata": {
-                "has_welcome_message": bool(welcome_message),
                 "trigger_type": config.get("trigger_type", "message"),
                 "initial_context_applied": bool(initial_context)
             }
@@ -734,21 +922,40 @@ class AgentExecutor:
                     else:
                         messages.append({"role": "system", "content": f"Output must be valid JSON with keys: {', '.join(fields_to_extract)}"})
 
-            # Build prompt from messages
-            prompt = ""
-            for msg in messages:
-                if msg["role"] == "system":
-                    prompt += f"System: {msg['content']}\n\n"
-                elif msg["role"] == "user":
-                    prompt += f"User: {msg['content']}\n\n"
-                elif msg["role"] == "assistant":
-                    prompt += f"Assistant: {msg['content']}\n\n"
-            
             # Get response (streaming, but we'll collect it)
+            start_time = time.time()
             llm_response = ""
-            async for token in llm.stream(prompt):
+            
+            # Pass full messages list to LLM for better context handling
+            # We pass empty string for message since we provide full messages list
+            async for token in llm.stream("", messages=messages, model=model):
                 llm_response += token
             
+            primary_latency = (time.time() - start_time) * 1000 # ms
+            
+            # Shadow Mode: Check if enabled and dispatch background task
+            if self.background_tasks and node.agent:
+                # Need to access settings carefully (lazy load might trigger)
+                try:
+                    shadow_settings = node.agent.settings.get("shadow_mode", {}) if node.agent.settings else {}
+                    if shadow_settings.get("enabled"):
+                         # Ensure conversation_id is available
+                         conv_id = context.get("conversation_id")
+                         
+                         self.background_tasks.add_task(
+                            run_shadow_execution,
+                            agent_id=node.agent_id,
+                            node_id=node.id,
+                            conversation_id=conv_id,
+                            input_data={"prompt": prompt, "system_prompt": system_prompt},
+                            messages=messages,
+                            primary_response={"response": llm_response},
+                            primary_latency=primary_latency,
+                            shadow_config=shadow_settings
+                         )
+                except Exception as shadow_err:
+                    logger.warning(f"Failed to dispatch shadow execution: {shadow_err}")
+
             # Extract any entities or structured data from response
             extracted_values = {}
             if force_json:
@@ -800,143 +1007,285 @@ class AgentExecutor:
             }
     
     async def _execute_entity_extraction_node(self, node: AgentNode, context: Dict[str, Any]) -> Dict[str, Any]:
-        """Execute entity extraction node with UI options support"""
+        """Execute entity extraction node with IVR support"""
         config = node.config or {}
-        # Support both list of entities and single entity name
-        entities_to_extract = config.get("entities", [])
-        if config.get("entity_name"):
-            entities_to_extract.append(config.get("entity_name"))
+        import random
         
-        # Remove duplicates
+        # 1. Configuration & Schema Mapping
+        target_variable = config.get("variable")
+        # entity_type = config.get("entity_type") # Used for validation if implemented
+        ivr_props = config.get("ivr_properties", {})
+        extraction_options = config.get("extraction_options", {})
+        custom_tags = config.get("custom_tags", {})
+        
+        # Determine what to extract
+        entities_to_extract = []
+        if target_variable:
+            entities_to_extract = [target_variable]
+        else:
+            # Fallback to legacy
+            entities_to_extract = config.get("entities", [])
+            if config.get("entity_name"):
+                entities_to_extract.append(config.get("entity_name"))
+        
         entities_to_extract = list(set(entities_to_extract))
-            
+        
+        # Parameters
         model = config.get("model", "gpt-3.5-turbo")
         user_message = context.get("last_user_message", "")
         ui_options = config.get("ui_options", [])
-        required = config.get("required", False)
-        prompt = config.get("prompt", f"Please provide: {', '.join(entities_to_extract)}")
-        pattern = config.get("pattern")
         
+        # Logic Flags
+        # New nodes with 'variable' are likely required by default, but respect config
+        required = config.get("required", True if target_variable else False)
+
+        max_retries = ivr_props.get("max_retries", config.get("max_retries", 3))
+        
+        retry_count_key = f"entity_retry_{node.id}"
+        current_retries = context.get(retry_count_key, 0)
+        
+        # Check for timeout event
+        is_timeout = user_message.strip().upper() == "TIMEOUT"
+
+        # Check Extraction Strategy
+        strategy = extraction_options.get("strategy", "unused_text")
+        skip_extraction = False
+        
+        # If strategy is explicit_prompt, we skip extraction on the first entry (before any prompt)
+        # assuming the previous message was not meant for this node.
+        if strategy == "explicit_prompt" and current_retries == 0 and not is_timeout:
+            skip_extraction = True
+
+        # Auto-Correction Logic
+        if not skip_extraction and extraction_options.get("auto_correct", False):
+            try:
+                llm_service = get_llm(model.split("-")[0] if "-" in model else "openai")
+                correction_prompt = f"Correct the spelling and grammar of this user message. Return ONLY the corrected text. Message: {user_message}"
+                corrected_msg = ""
+                async for token in llm_service.stream(correction_prompt):
+                    corrected_msg += token
+                # Only accept if it's a reasonable length
+                if corrected_msg and len(corrected_msg) < len(user_message) * 2:
+                    user_message = corrected_msg.strip()
+            except Exception as e:
+                logger.warning(f"Auto-correct failed: {e}")
+
+        # Intent Detection Logic
+        intent_strategy = extraction_options.get("intent_detection", "accept_as_entity")
+        
+        # Check if we are already confirming an intent switch (priority over everything)
+        if context.get("confirming_intent_switch"):
+             if "yes" in user_message.lower():
+                 # Confirm cancellation
+                 return {
+                     "response": "Cancelling task.",
+                     "next_node_id": None, # End flow or similar
+                     "prevent_default_connection": True,
+                     "context": {**context, "confirming_intent_switch": False},
+                     "metadata": {"intent_detected": True}
+                 }
+             else:
+                 # User said no, resume normal execution
+                 context["confirming_intent_switch"] = False
+                 # If user said "no", we probably shouldn't treat "no" as the entity value.
+                 # But for simplicity, we'll let it fall through or maybe skip extraction for this turn?
+                 # Let's let it fall through, maybe "no" is a valid answer for some entities.
+                 pass
+
+        if not skip_extraction and intent_strategy == "ask_user":
+            # Heuristic check for potential intent switching (e.g., Cancel, Help)
+            potential_intents = ["cancel", "stop", "help", "restart", "menu"]
+            if any(intent in user_message.lower() for intent in potential_intents):
+                context["confirming_intent_switch"] = True
+                return {
+                    "response": f"It looks like you want to switch topics. Do you want to cancel the current task?",
+                    "next_node_id": node.id,
+                    "prevent_default_connection": True,
+                    "context": context,
+                    "metadata": {"ivr": {"barge_in": True}, "intent_detection": "ask_user"}
+                }
+
+        # 2. Extraction Logic
         if not entities_to_extract:
              return {
                 "response": "",
                 "next_node_id": None,
                 "context": context,
-                "metadata": {"warning": "No entities configured to extract"}
+                "metadata": {"warning": "No entities configured"}
             }
 
         extracted_data = {}
         
-        # 1. Try Direct Option Match (if options exist)
-        if ui_options:
-            for option in ui_options:
-                val = option.get("value")
-                label = option.get("label")
-                # Check exact match with value or label
-                if (val and user_message.strip().lower() == val.lower()) or \
-                   (label and user_message.strip().lower() == label.lower()):
-                    # Assuming single entity target for UI options mode
-                    target_entity = config.get("entity_name") or entities_to_extract[0]
-                    extracted_data[target_entity] = val or label
-                    break
-        
-        # 2. Try Regex Match (if pattern exists and not already found)
-        if not extracted_data and pattern:
-            import re
-            try:
-                match = re.search(pattern, user_message, re.IGNORECASE)
-                if match:
-                    target_entity = config.get("entity_name") or entities_to_extract[0]
-                    extracted_data[target_entity] = match.group(0)
-            except Exception as e:
-                logger.error(f"Regex error: {e}")
-
-        # 3. LLM Extraction (if still needed)
-        # Check what's missing
-        missing_entities = [e for e in entities_to_extract if e not in extracted_data]
-        
-        if missing_entities:
-            # Use LLM to extract remaining entities
-            extraction_prompt = f"""Extract the following entities from this message: {', '.join(missing_entities)}
+        if not skip_extraction:
+            # 2.1 Try Direct Option Match (if options exist)
+            if ui_options:
+                for option in ui_options:
+                    val = option.get("value")
+                    label = option.get("label")
+                    synonyms = option.get("synonyms", [])
+                    
+                    if (val and user_message.strip().lower() == val.lower()) or \
+                       (label and user_message.strip().lower() == label.lower()) or \
+                       (any(s.lower() == user_message.strip().lower() for s in synonyms)):
+                        target = target_variable or config.get("entity_name") or entities_to_extract[0]
+                        extracted_data[target] = val or label
+                        break
             
+            # 2.2 Try Regex Match
+            pattern = config.get("pattern") or ivr_props.get("grammar") # Treat grammar as regex/pattern for now
+            if not extracted_data and pattern:
+                import re
+                try:
+                    # If pattern is simple regex
+                    match = re.search(pattern, user_message, re.IGNORECASE)
+                    if match:
+                        target = target_variable or config.get("entity_name") or entities_to_extract[0]
+                        extracted_data[target] = match.group(0)
+                except Exception as e:
+                    logger.error(f"Regex error: {e}")
+
+            # 2.3 LLM Extraction
+            missing_entities = [e for e in entities_to_extract if e not in extracted_data]
+            
+            if missing_entities:
+                extraction_prompt = f"""Extract the following entities from this message: {', '.join(missing_entities)}
+                
 Message: {user_message}
 
 Return a JSON object with the extracted entities as keys. If an entity is not found, use null.
 Do not include any markdown formatting, just the raw JSON."""
-            
-            try:
-                llm = get_llm(model.split("-")[0] if "-" in model else "openai")
-                response_text = ""
-                async for token in llm.stream(extraction_prompt):
-                    response_text += token
                 
-                # Parse JSON response with robust cleanup
-                import json
-                clean_response = response_text.strip()
-                if clean_response.startswith("```json"):
-                    clean_response = clean_response[7:]
-                if clean_response.startswith("```"):
-                    clean_response = clean_response[3:]
-                if clean_response.endswith("```"):
-                    clean_response = clean_response[:-3]
+                try:
+                    llm = get_llm(model.split("-")[0] if "-" in model else "openai")
+                    response_text = ""
+                    async for token in llm.stream(extraction_prompt):
+                        response_text += token
                     
-                llm_extracted = json.loads(clean_response.strip() or "{}")
-                
-                # Merge LLM results
-                for k, v in llm_extracted.items():
-                    if v is not None: # Only add if found
-                        extracted_data[k] = v
+                    # Parse JSON
+                    clean_response = response_text.strip()
+                    if clean_response.startswith("```json"):
+                        clean_response = clean_response[7:]
+                    if clean_response.startswith("```"):
+                        clean_response = clean_response[3:]
+                    if clean_response.endswith("```"):
+                        clean_response = clean_response[:-3]
                         
-            except Exception as e:
-                logger.error(f"Entity extraction error: {str(e)}")
+                    import json
+                    llm_extracted = json.loads(clean_response.strip() or "{}")
+                    
+                    for k, v in llm_extracted.items():
+                        if v is not None:
+                            extracted_data[k] = v
+                            
+                except Exception as e:
+                    logger.error(f"Entity extraction error: {str(e)}")
 
-        # 4. Check results
-        # Clean up nulls
+        # 3. Validation & Response Logic
         final_extracted = {k: v for k, v in extracted_data.items() if v is not None}
         
-        # Check if we found everything needed
-        # (For now, if we found ANY entity, we consider it progress, but if required is True, we might be strict)
-        # Let's be strict if 'required' is True: ALL entities must be found
-        all_found = all(e in final_extracted for e in entities_to_extract)
-        
-        if all_found or (final_extracted and not required):
-            # Success! Update context and move on
+        if target_variable:
+            success = target_variable in final_extracted
+        else:
+            success = all(e in final_extracted for e in entities_to_extract)
+            
+        if success or (not required and final_extracted):
+            # Success
             context["entities"] = {**context.get("entities", {}), **final_extracted}
             
+            # Also set as top-level variables
+            for k, v in final_extracted.items():
+                context[k] = v
+                
+            if retry_count_key in context:
+                del context[retry_count_key]
+            
+            metadata = {
+                "extracted": final_extracted,
+                "custom_tags": custom_tags
+            }
+            if extraction_options:
+                metadata["extraction_options"] = extraction_options.dict() if hasattr(extraction_options, "dict") else extraction_options
+
             return {
                 "response": "",
-                "next_node_id": None, # Continue flow
+                "next_node_id": None,
                 "context": context,
-                "metadata": {
-                    "extracted_entities": final_extracted,
-                    "model": model
-                }
-            }
-        
-        # 5. Handle Missing / Required
-        if required:
-            # We are missing entities and they are required.
-            # Ask the user.
-            return {
-                "response": prompt,
-                "next_node_id": node.id, # Stay on this node
-                "prevent_default_connection": True,
-                "context": context,
-                "metadata": {
-                    "ui_options": ui_options, # Frontend will render buttons
-                    "missing_entities": [e for e in entities_to_extract if e not in final_extracted]
-                }
+                "metadata": metadata
             }
             
-        # Not required, just move on
-        context["entities"] = {**context.get("entities", {}), **final_extracted}
+        # 4. Handle Failure / Retry
+        if not required:
+            return {"response": "", "next_node_id": None, "context": context, "metadata": {"warning": "Not found, skipping"}}
+            
+        if current_retries >= max_retries:
+            # Failed
+            if retry_count_key in context:
+                del context[retry_count_key]
+            
+            prompts = ivr_props.get("error_prompts", [])
+            if not prompts:
+                prompts = [config.get("fallback_message", "I couldn't understand. Moving on.")]
+            
+            response_text = random.choice(prompts) if prompts else "Error processing input."
+            
+            # Check Exceed Retries Behavior
+            exceed_action = ivr_props.get("on_exceed_retries", "end_flow")
+            prevent_default = True # Default to stopping (end_flow)
+            
+            if exceed_action == "transition":
+                prevent_default = False
+            
+            return {
+                "response": response_text,
+                "next_node_id": None, 
+                "prevent_default_connection": prevent_default,
+                "context": context,
+                "metadata": {"error": "max_retries_exceeded", "custom_tags": custom_tags}
+            }
+            
+        # Increment Retry
+        context[retry_count_key] = current_retries + 1
+        
+        # Pick Prompt
+        prompt_text = ""
+        
+        # Check for timeout event
+        is_timeout = user_message.strip().upper() == "TIMEOUT"
+        
+        if current_retries == 0 and not is_timeout:
+            # First failure (likely from trigger message) -> Ask Initial Question
+            prompts = ivr_props.get("initial_prompts", [])
+            if not prompts:
+                prompts = [config.get("prompt", f"Please provide {target_variable or entities_to_extract[0]}")]
+            prompt_text = random.choice(prompts) if prompts else "Please provide input."
+        else:
+            # Subsequent failures -> No Match / Error / Timeout
+            prompts = []
+            if is_timeout:
+                prompts = ivr_props.get("timeout_prompts", [])
+            
+            if not prompts:
+                prompts = ivr_props.get("no_match_prompts", [])
+            
+            if not prompts:
+                prompts = ivr_props.get("initial_prompts", [])
+                if not prompts:
+                    prompts = [config.get("prompt", "Please try again.")]
+            prompt_text = random.choice(prompts) if prompts else "Invalid input."
+            
         return {
-            "response": "",
-            "next_node_id": None,
+            "response": prompt_text,
+            "next_node_id": node.id,
+            "prevent_default_connection": True,
             "context": context,
             "metadata": {
-                "extracted_entities": final_extracted,
-                "warning": "Some entities not found"
+                "retry_count": current_retries + 1,
+                "ivr": {
+                    "timeout": ivr_props.get("timeout", 10),
+                    "barge_in": ivr_props.get("barge_in", True),
+                    "grammar": ivr_props.get("grammar")
+                },
+                "custom_tags": custom_tags
             }
         }
     
@@ -1079,13 +1428,21 @@ Return only the intent name that best matches."""
         }
     
     async def _execute_api_node(self, node: AgentNode, context: Dict[str, Any]) -> Dict[str, Any]:
-        """Execute API call node"""
+        """Execute API call node with Circuit Breaker and Retry logic"""
         config = node.config or {}
         url = config.get("url")
         method = config.get("method", "GET")
         headers = config.get("headers", {})
         body = config.get("body", {})
         timeout = config.get("timeout", 10)  # Default timeout 10s
+        
+        # Retry configuration
+        retries = config.get("retries", 0)
+        if isinstance(retries, str):
+            try:
+                retries = int(retries)
+            except ValueError:
+                retries = 0
         
         if not url:
             return {
@@ -1098,31 +1455,91 @@ Return only the intent name that best matches."""
         # Replace variables in URL, headers, and body
         url = self._replace_variables(url, context)
         body = self._replace_variables_in_dict(body, context)
+        headers = self._replace_variables_in_dict(headers, context)
+        
+        # Circuit Breaker Logic
+        from urllib.parse import urlparse
+        from app.core.reliability import get_circuit_breaker, CircuitBreakerOpenException
+        import asyncio
         
         try:
+            parsed_url = urlparse(url)
+            host = parsed_url.netloc
+            # Use host as key, or fallback to 'default_api'
+            breaker_name = f"api:{host}" if host else "api:default"
+        except Exception:
+            breaker_name = "api:default"
+            
+        breaker = get_circuit_breaker(breaker_name)
+        
+        async def _make_api_request():
             import aiohttp
             async with aiohttp.ClientSession() as session:
                 async with session.request(method, url, headers=headers, json=body, timeout=timeout) as response:
-                    result = await response.json()
-                    
-                    # Store result in context
-                    context["api_result"] = result
-                    
-                    return {
-                        "response": "",
-                        "next_node_id": None,
-                        "context": context,
-                        "metadata": {"status": response.status, "api_result": result}
+                    # Treat 5xx server errors and 429/408 as failures for circuit breaker and retry
+                    if 500 <= response.status < 600 or response.status in [429, 408]:
+                        raise Exception(f"Server Error or Throttling: {response.status}")
+                        
+                    try:
+                        result = await response.json()
+                    except:
+                        # Fallback for non-JSON response
+                        text = await response.text()
+                        result = {"text": text}
+                        
+                    return result, response.status
+
+        # Retry Loop
+        last_error = None
+        retry_delay = 1  # Start with 1s
+        max_delay = 10
+        
+        for attempt in range(retries + 1):
+            try:
+                # Execute with circuit breaker protection
+                result, status_code = await breaker.call(_make_api_request)
+                
+                # Store result in context
+                output_var = config.get("output_variable", "api_result")
+                context[output_var] = result
+                
+                return {
+                    "response": "",
+                    "next_node_id": None,
+                    "context": context,
+                    "metadata": {
+                        "status": "success", 
+                        "status_code": status_code,
+                        "api_result": result,
+                        "retries_used": attempt
                     }
-        except Exception as e:
-            logger.error(f"API node error: {str(e)}")
-            
-            return {
-                "response": "",
-                "next_node_id": None,
-                "context": context,
-                "metadata": {"error": str(e)}
-            }
+                }
+                
+            except CircuitBreakerOpenException:
+                logger.warning(f"Circuit breaker '{breaker_name}' is OPEN. Blocking API call to {url}")
+                return {
+                    "response": "Service temporarily unavailable due to high failure rate.",
+                    "next_node_id": None,
+                    "context": context,
+                    "metadata": {"error": f"Circuit breaker '{breaker_name}' is OPEN", "circuit_open": True}
+                }
+            except Exception as e:
+                last_error = e
+                logger.warning(f"API Node {node.id} attempt {attempt+1}/{retries+1} failed: {e}")
+                
+                if attempt < retries:
+                    # Wait before retry
+                    await asyncio.sleep(retry_delay)
+                    retry_delay = min(retry_delay * 2, max_delay)
+        
+        # All retries failed
+        logger.error(f"API node error after {retries+1} attempts: {str(last_error)}")
+        return {
+            "response": "",
+            "next_node_id": None,
+            "context": context,
+            "metadata": {"error": str(last_error), "retries_exhausted": True}
+        }
     
     async def _execute_database_node(self, node: AgentNode, context: Dict[str, Any]) -> Dict[str, Any]:
         """Execute database operation node"""

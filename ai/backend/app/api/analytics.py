@@ -62,6 +62,186 @@ def get_team_level(assigned_to: str) -> str:
         return "L1"  # Default to L1
 
 
+@router.get("/analytics/overview")
+async def get_analytics_overview():
+    """Get high-level analytics overview for the dashboard"""
+    db: Session = SessionLocal()
+    try:
+        # --- 1. Overview Stats ---
+        total_tickets = db.query(Ticket).count()
+        resolved_tickets = db.query(Ticket).filter(Ticket.status == "resolved").count()
+        pending_tickets = db.query(Ticket).filter(Ticket.status.in_(["open", "in_progress"])).count()
+        
+        solving_rate = (resolved_tickets / total_tickets * 100) if total_tickets > 0 else 0
+        pending_rate = (pending_tickets / total_tickets * 100) if total_tickets > 0 else 0
+        
+        yesterday = datetime.utcnow() - timedelta(days=1)
+        backlog = db.query(Ticket).filter(Ticket.status == "open", Ticket.created_at < yesterday).count()
+        
+        today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+        week_start = today_start - timedelta(days=7)
+        month_start = today_start - timedelta(days=30)
+        
+        inflow_today = db.query(Ticket).filter(Ticket.created_at >= today_start).count()
+        inflow_week = db.query(Ticket).filter(Ticket.created_at >= week_start).count()
+        inflow_month = db.query(Ticket).filter(Ticket.created_at >= month_start).count()
+        
+        critical_tickets = db.query(Ticket).filter(Ticket.priority.in_(["urgent", "high"]), Ticket.status != "resolved").count()
+        l1_pending = db.query(Ticket).filter(Ticket.assigned_to.ilike("l1%"), Ticket.status != "resolved").count()
+        l2_pending = db.query(Ticket).filter(Ticket.assigned_to.ilike("l2%"), Ticket.status != "resolved").count()
+        escalated = db.query(Ticket).filter(Ticket.assigned_to.ilike("l2%"), Ticket.status != "resolved").count()
+
+        # SLA Stats
+        recent_tickets = db.query(Ticket).order_by(Ticket.created_at.desc()).limit(1000).all()
+        sla_breached = 0
+        sla_satisfied = 0
+        sla_pending = 0
+        total_resolution_time = 0
+        resolution_count = 0
+        
+        for ticket in recent_tickets:
+            sla_status = calculate_sla_status(ticket)
+            if sla_status == "breached": sla_breached += 1
+            elif sla_status == "satisfied": sla_satisfied += 1
+            else: sla_pending += 1
+                
+            if ticket.status == "resolved" and ticket.resolved_at and ticket.created_at:
+                duration = (ticket.resolved_at - ticket.created_at).total_seconds() / 3600
+                total_resolution_time += duration
+                resolution_count += 1
+                
+        avg_resolution_time = (total_resolution_time / resolution_count) if resolution_count > 0 else 0
+        
+        overview_data = {
+            "total_tickets": total_tickets,
+            "solving_rate": round(solving_rate, 1),
+            "pending_rate": round(pending_rate, 1),
+            "backlog": backlog,
+            "inflow_today": inflow_today,
+            "inflow_week": inflow_week,
+            "inflow_month": inflow_month,
+            "critical_tickets": critical_tickets,
+            "l1_pending": l1_pending,
+            "l2_pending": l2_pending,
+            "escalated": escalated,
+            "sla_breached": sla_breached,
+            "sla_satisfied": sla_satisfied,
+            "sla_pending": sla_pending,
+            "avg_resolution_time_hours": round(avg_resolution_time, 1)
+        }
+
+        # --- 2. Time Series (Last 7 days) ---
+        time_series = []
+        end_date = datetime.utcnow()
+        start_date = end_date - timedelta(days=6) # 7 days total including today
+        current_date = start_date
+        while current_date <= end_date:
+            day_start = current_date.replace(hour=0, minute=0, second=0, microsecond=0)
+            day_end = day_start + timedelta(days=1)
+            
+            created = db.query(Ticket).filter(Ticket.created_at >= day_start, Ticket.created_at < day_end).count()
+            resolved = db.query(Ticket).filter(Ticket.resolved_at >= day_start, Ticket.resolved_at < day_end).count()
+            pending = db.query(Ticket).filter(Ticket.created_at < day_end, or_(Ticket.resolved_at == None, Ticket.resolved_at >= day_end)).count()
+            
+            time_series.append({
+                "date": day_start.strftime("%Y-%m-%d"),
+                "created": created,
+                "resolved": resolved,
+                "pending": pending
+            })
+            current_date += timedelta(days=1)
+
+        # --- 3. Priority Distribution ---
+        priorities = ["low", "medium", "high", "urgent"]
+        priority_dist = {}
+        for p in priorities:
+            priority_dist[p] = db.query(Ticket).filter(Ticket.priority == p).count()
+
+        # --- 4. Status Distribution ---
+        statuses = ["open", "in_progress", "resolved", "closed"]
+        status_dist = {}
+        for s in statuses:
+            status_dist[s] = db.query(Ticket).filter(Ticket.status == s).count()
+
+        # --- 5. SLA Metrics ---
+        total_sla = sla_breached + sla_satisfied + sla_pending
+        sla_metrics_data = {
+            "breached": sla_breached,
+            "satisfied": sla_satisfied,
+            "pending": sla_pending,
+            "breach_rate": round((sla_breached / total_sla * 100) if total_sla > 0 else 0, 1),
+            "satisfaction_rate": round((sla_satisfied / total_sla * 100) if total_sla > 0 else 0, 1)
+        }
+
+        # --- 6. Performance ---
+        # Tickets per day (avg over last 7 days)
+        total_week_tickets = sum(d['created'] for d in time_series)
+        tickets_per_day = round(total_week_tickets / 7, 1)
+        
+        performance_data = {
+            "tickets_per_day": tickets_per_day,
+            "resolution_rate": round(solving_rate, 1),
+            "escalation_rate": round((escalated / total_tickets * 100) if total_tickets > 0 else 0, 1)
+        }
+
+        return {
+            "overview": overview_data,
+            "time_series": time_series,
+            "priority_distribution": priority_dist,
+            "status_distribution": status_dist,
+            "sla_metrics": sla_metrics_data,
+            "performance": performance_data
+        }
+    finally:
+        db.close()
+
+
+@router.get("/analytics/trends")
+async def get_analytics_trends(days: int = 7):
+    """Get time-series trends for analytics"""
+    db: Session = SessionLocal()
+    try:
+        end_date = datetime.utcnow()
+        start_date = end_date - timedelta(days=days)
+        
+        trends = []
+        
+        # Loop through each day
+        current_date = start_date
+        while current_date <= end_date:
+            day_start = current_date.replace(hour=0, minute=0, second=0, microsecond=0)
+            day_end = day_start + timedelta(days=1)
+            
+            created_count = db.query(Ticket).filter(
+                Ticket.created_at >= day_start,
+                Ticket.created_at < day_end
+            ).count()
+            
+            resolved_count = db.query(Ticket).filter(
+                Ticket.resolved_at >= day_start,
+                Ticket.resolved_at < day_end
+            ).count()
+            
+            # Pending snapshot (approximation)
+            pending_count = db.query(Ticket).filter(
+                Ticket.created_at < day_end,
+                or_(Ticket.resolved_at == None, Ticket.resolved_at >= day_end)
+            ).count()
+            
+            trends.append({
+                "date": day_start.strftime("%Y-%m-%d"),
+                "created": created_count,
+                "resolved": resolved_count,
+                "pending": pending_count
+            })
+            
+            current_date += timedelta(days=1)
+            
+        return trends
+    finally:
+        db.close()
+
+
 @router.get("/analytics/va/flows/{agent_id}")
 async def get_flow_analytics(agent_id: int):
     """

@@ -38,10 +38,7 @@ const ALL_CONNECTORS = [
 const TOOL_CONNECTORS: Record<string, string[]> = {
   [TOOLS.CUSTOMER_SERVICE]: [
     "zendesk", "freshdesk", "intercom", "servicenow", "hubspot", 
-    "salesforce", "pipedrive"
-  ],
-  [TOOLS.TICKET_ASSIGNER]: [
-    "jira", "servicenow", "zendesk", "linear", "github", "gitlab",
+    "salesforce", "pipedrive", "jira", "linear", "github", "gitlab",
     "asana", "monday", "trello", "clickup"
   ],
   [TOOLS.KNOWLEDGE_AI]: [
@@ -54,20 +51,14 @@ const TOOL_CONNECTORS: Record<string, string[]> = {
   [TOOLS.STATUS_UPDATER]: [
     "slack", "microsoft_teams", "notion"
   ],
-  [TOOLS.TICKET_BOOKING_AGENT]: [
-    // Ticket Booking Agent doesn't need external connectors
-    // It works with booking platforms directly
-  ],
 };
 
 // Get tool display name
 const TOOL_NAMES: Record<string, string> = {
-  [TOOLS.CUSTOMER_SERVICE]: "Customer Service",
-  [TOOLS.TICKET_ASSIGNER]: "Ticket Assigner",
+  [TOOLS.CUSTOMER_SERVICE]: "Customer Service & Agent Console",
   [TOOLS.KNOWLEDGE_AI]: "Knowledge AI",
   [TOOLS.HR_SERVICES]: "HR Services",
   [TOOLS.STATUS_UPDATER]: "Status Updater",
-  [TOOLS.TICKET_BOOKING_AGENT]: "Ticket Booking Agent",
 };
 
 export default function ConnectorConfig({ onClose, currentTool }: ConnectorConfigProps) {

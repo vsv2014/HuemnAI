@@ -18,6 +18,7 @@ class Ticket(Base):
     customer_info = Column(JSON, nullable=True)  # Store collected customer information
     troubleshooting_steps = Column(JSON, nullable=True)  # Store troubleshooting steps taken
     conversation_history = Column(JSON, nullable=True)  # Store conversation between agent and customer
+    attachments = Column(JSON, nullable=True)  # Store file paths/URLs of attachments
     external_ticket_id = Column(String, nullable=True)  # ID from external system (Jira, Zendesk, etc.)
     connector_type = Column(String, nullable=True)  # jira, zendesk, salesforce, etc.
     severity = Column(String, nullable=True)  # critical, high, medium, low

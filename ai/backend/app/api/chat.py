@@ -43,6 +43,7 @@ class ChatPayload(BaseModel):
     message: str
     connector_type: Optional[str] = None  # jira, zendesk, etc.
     conversation_history: Optional[List[Dict]] = None
+    attachments: Optional[List[str]] = None
 
 
 @router.get("/stream")
@@ -281,6 +282,11 @@ async def handle_chat(payload: ChatPayload):
                     issue_type = question_flow_state.get("issue_type", "general")
                     current_question_index = question_flow_state.get("_question_index", 0)
                     
+                    # Accumulate attachments
+                    existing_attachments = question_flow_state.get("attachments", [])
+                    new_attachments = payload.attachments or []
+                    all_attachments = list(set(existing_attachments + new_attachments))
+
                     # Update collected info with new answer
                     if customer_info:
                         collected_info.update(customer_info)
@@ -304,6 +310,7 @@ async def handle_chat(payload: ChatPayload):
                             "flow_state": {
                                 **question_flow_state,
                                 "collected_info": collected_info,
+                                "attachments": all_attachments,
                                 "_question_index": next_question_index
                             }
                         }
@@ -315,6 +322,7 @@ async def handle_chat(payload: ChatPayload):
                             connector_type=connector_type,
                             collected_info=collected_info,
                             question_index=next_question_index,
+                            attachments=all_attachments,
                             operation_mode=operation_mode
                         )
                         
@@ -356,6 +364,7 @@ async def handle_chat(payload: ChatPayload):
                             "similar_ticket_id": similar_ticket_id,
                             "historical_response_used": True
                         },
+                        attachments=payload.attachments,
                         operation_mode=operation_mode
                     )
                     
@@ -398,6 +407,7 @@ async def handle_chat(payload: ChatPayload):
                         "similar_tickets": [t["ticket_id"] for t in similar_tickets[:3]] if similar_tickets else [],
                         "history_response": history_response
                     },
+                    attachments=payload.attachments,
                     operation_mode=operation_mode
                 )
                 

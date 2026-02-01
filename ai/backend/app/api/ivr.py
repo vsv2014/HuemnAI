@@ -2,7 +2,7 @@
 IVR (Interactive Voice Response) API Endpoints
 Handles phone calls, voice interactions, and IVR flows
 """
-from fastapi import APIRouter, HTTPException, Depends, Request, Form, Header
+from fastapi import APIRouter, HTTPException, Depends, Request, Form, Header, BackgroundTasks
 from fastapi.responses import Response, PlainTextResponse
 from sqlalchemy.orm import Session
 from typing import Optional, Dict, Any
@@ -24,6 +24,7 @@ router = APIRouter()
 @router.post("/call-handler")
 async def handle_incoming_call(
     request: Request,
+    background_tasks: BackgroundTasks,
     CallSid: str = Form(None),
     From: str = Form(None),
     To: str = Form(None),
@@ -145,7 +146,7 @@ async def handle_incoming_call(
             db.add(user_message)
             
             # Execute agent flow
-            executor = AgentExecutor(db)
+            executor = AgentExecutor(db, background_tasks=background_tasks)
             result = await executor.execute(agent, conversation, user_input)
             
             # Get response

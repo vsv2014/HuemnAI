@@ -92,12 +92,25 @@ export default function DemoRequestPage() {
       <div className="max-w-3xl mx-auto">
         {/* Header */}
         <div className="text-center mb-12">
-          <Link
-            href="/"
-            className="inline-block mb-6 text-white/60 hover:text-white transition-colors"
-          >
-            ← Back to Home
-          </Link>
+          <div className="flex items-center justify-center gap-2 mb-6">
+            <Link
+              href="/"
+              className="text-white/60 hover:text-white transition-colors p-1.5 rounded-md hover:bg-white/10"
+              title="Go to Home"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
+                <polyline points="9 22 9 12 15 12 15 22"/>
+              </svg>
+            </Link>
+            <span className="text-white/20">|</span>
+            <button
+              onClick={() => router.back()}
+              className="text-white/60 hover:text-white text-sm transition-colors"
+            >
+              ← Back
+            </button>
+          </div>
           <h1 className="text-4xl md:text-5xl font-bold text-white mb-4">
             Request a Demo
           </h1>

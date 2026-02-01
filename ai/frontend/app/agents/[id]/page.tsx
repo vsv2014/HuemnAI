@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback, useRef, useMemo } from "react";
 import { createPortal } from "react-dom";
 import { useRouter, useParams } from "next/navigation";
 import Link from "next/link";
@@ -155,6 +155,12 @@ const CustomNode = ({ data, selected }: { data: any; selected: boolean }) => {
   const nodeConfig = NODE_TYPES.find((n) => n.type === data?.nodeType) || NODE_TYPES[0];
   const [isHovered, setIsHovered] = useState(false);
   
+  // Random animation values to prevent synchronized movement
+  const animDuration = useMemo(() => `${12 + Math.random() * 6}s`, []); // 12-18s (Slowed down)
+  const animDelay = useMemo(() => `-${Math.random() * 5}s`, []); // Start at random point
+  const innerAnimDuration = useMemo(() => `${8 + Math.random() * 6}s`, []); // 8-14s (Slowed down)
+  const innerAnimDelay = useMemo(() => `-${Math.random() * 4}s`, []);
+  
   // Check if a connection is currently being dragged (anywhere in the flow)
   const connectionNodeId = useStore((s) => s.connectionNodeId);
   const isConnecting = !!connectionNodeId;
@@ -164,40 +170,53 @@ const CustomNode = ({ data, selected }: { data: any; selected: boolean }) => {
   const isClickConnecting = data?.isClickConnectingSource;
 
   return (
-    <div 
-      className={`organic-membrane group flex flex-col items-center justify-center p-4 min-w-[140px] min-h-[140px] transition-all duration-500 ${selected ? 'selected' : ''}`}
-      onMouseEnter={() => setIsHovered(true)}
-      onMouseLeave={() => setIsHovered(false)}
-      style={{
-        // Dynamic color injection for the membrane border/glow
-        ['--membrane-border' as any]: selected ? nodeConfig.color : `${nodeConfig.color}60`,
-        boxShadow: isClickConnecting
-          ? `0 0 40px ${nodeConfig.color}, inset 0 0 20px ${nodeConfig.color}40` // Stronger glow in connect mode
-          : selected 
-            ? `0 0 50px ${nodeConfig.color}60, inset 0 0 30px ${nodeConfig.color}40`
-            : isHovered 
-              ? `0 0 30px ${nodeConfig.color}40, inset 0 0 20px ${nodeConfig.color}20`
-              : undefined,
-        cursor: isClickConnecting ? 'crosshair' : 'grab',
-        borderColor: isClickConnecting ? nodeConfig.color : undefined,
-        borderWidth: isClickConnecting ? '2px' : undefined,
-        borderStyle: isClickConnecting ? 'dashed' : undefined,
-      }}
-    >
-      {/* Click-Connect Mode Indicator */}
-      {isClickConnecting && (
-        <div className="absolute -top-10 left-1/2 transform -translate-x-1/2 bg-black/80 text-white text-[10px] px-3 py-1.5 rounded-full border border-white/20 whitespace-nowrap z-50 pointer-events-none animate-bounce">
-          Select Target Node
-        </div>
-      )}
-
-      {/* Fluid Interior Glow */}
+    <>
       <div 
-        className="membrane-glow" 
-        style={{ 
-          background: `radial-gradient(circle at 30% 30%, ${nodeConfig.color}20, transparent 70%)` 
-        }} 
-      />
+        className={`organic-membrane group flex flex-col items-center justify-center p-4 min-w-[140px] min-h-[140px] transition-all duration-500 ${selected ? 'selected' : ''}`}
+        onMouseEnter={() => setIsHovered(true)}
+        onMouseLeave={() => setIsHovered(false)}
+        style={{
+          // Dynamic color injection for the membrane border/glow
+          ['--membrane-border' as any]: selected ? nodeConfig.color : `${nodeConfig.color}60`,
+          
+          // Animation Logic: Only animate when selected
+          // We combine membrane-morph (shape) and membrane-pulse (glow/scale) when selected
+          animationName: selected ? 'membrane-morph, membrane-pulse' : 'none',
+          animationDuration: selected ? `${animDuration}, 2s` : '0s',
+          animationDelay: selected ? `${animDelay}, 0s` : '0s',
+          animationIterationCount: 'infinite',
+          animationDirection: 'alternate, normal', // morph alternates, pulse loops normally
+          
+          boxShadow: isClickConnecting
+            ? `0 0 40px ${nodeConfig.color}, inset 0 0 20px ${nodeConfig.color}40` // Stronger glow in connect mode
+            : selected 
+              ? `0 0 50px ${nodeConfig.color}60, inset 0 0 30px ${nodeConfig.color}40`
+              : isHovered 
+                ? `0 0 30px ${nodeConfig.color}40, inset 0 0 20px ${nodeConfig.color}20`
+                : undefined,
+          cursor: isClickConnecting ? 'crosshair' : 'grab',
+          borderColor: isClickConnecting ? nodeConfig.color : undefined,
+          borderWidth: isClickConnecting ? '2px' : undefined,
+          borderStyle: isClickConnecting ? 'dashed' : undefined,
+        }}
+      >
+        {/* Click-Connect Mode Indicator */}
+        {isClickConnecting && (
+          <div className="absolute -top-10 left-1/2 transform -translate-x-1/2 bg-black/80 text-white text-[10px] px-3 py-1.5 rounded-full border border-white/20 whitespace-nowrap z-50 pointer-events-none animate-bounce">
+            Select Target Node
+          </div>
+        )}
+
+        {/* Fluid Interior Glow */}
+        <div 
+          className="membrane-glow" 
+          style={{ 
+            background: `radial-gradient(circle at 30% 30%, ${nodeConfig.color}20, transparent 70%)`,
+            animationName: selected ? 'membrane-inner-pulse' : 'none',
+            animationDuration: selected ? innerAnimDuration : '0s',
+            animationDelay: selected ? innerAnimDelay : '0s',
+          }} 
+        />
 
       {/* Target Handle (Receiver) - Always present but transparent */}
       {data?.nodeType !== "start" && (
@@ -298,6 +317,7 @@ const CustomNode = ({ data, selected }: { data: any; selected: boolean }) => {
         />
       )}
     </div>
+    </>
   );
 };
 
@@ -2293,7 +2313,6 @@ function FlowCanvas({
                       <option value="hr_services">HR Services</option>
                       <option value="ticket_assigner">Ticket Assigner</option>
                       <option value="status_updater">Status Updater</option>
-                      <option value="ticket_booking_agent">Ticket Booking Agent</option>
                     </select>
                   </div>
                   {selectedNode.data.config?.service_type === "knowledge_ai" && (
@@ -6681,6 +6700,7 @@ export default function AgentBuilderPage() {
     analytics: false,
     settings: false,
   });
+  const [searchQuery, setSearchQuery] = useState("");
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
 
   useEffect(() => {
@@ -6732,7 +6752,7 @@ export default function AgentBuilderPage() {
 
   return (
     <div 
-      className="fixed inset-0 bg-gradient-to-br from-[#05070f] via-[#0a1020] to-[#05070f] text-white flex flex-col no-drag"
+      className="fixed inset-0 bg-gradient-to-br from-[#05070f] via-[#0a1020] to-[#05070f] text-white flex flex-col no-drag z-[100]"
       style={{ 
         height: "100vh", 
         width: "100vw", 
@@ -6976,10 +6996,35 @@ export default function AgentBuilderPage() {
                   className="bg-[#0f1419]/60 p-2 max-h-[calc(100vh-300px)] overflow-y-auto"
                   style={{ pointerEvents: 'auto' }}
                 >
+                  {/* Search Bar */}
+                  <div className="px-2 mb-3">
+                    <div className="relative">
+                      <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                        <svg className="h-4 w-4 text-white/40" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                          <path fillRule="evenodd" d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z" clipRule="evenodd" />
+                        </svg>
+                      </div>
+                      <input
+                        type="text"
+                        placeholder="Search nodes..."
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                        className="w-full pl-9 pr-3 py-2 bg-white/5 border border-white/10 rounded-lg text-sm text-white placeholder-white/40 focus:outline-none focus:ring-1 focus:ring-blue-500/50 transition-all"
+                      />
+                    </div>
+                  </div>
+
                   <div className="text-xs text-white/50 mb-3 px-2 font-semibold uppercase tracking-wider">All Node Types</div>
                   <div className="space-y-3">
                     {["basic", "ai", "integration", "data", "communication", "automation"].map((category) => {
-                      const categoryNodes = NODE_TYPES.filter((n) => n.category === category);
+                      const categoryNodes = NODE_TYPES.filter((n) => {
+                        const matchesCategory = n.category === category;
+                        const matchesSearch = !searchQuery || 
+                                              n.label.toLowerCase().includes(searchQuery.toLowerCase()) || 
+                                              n.description?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                                              n.type.toLowerCase().includes(searchQuery.toLowerCase());
+                        return matchesCategory && matchesSearch;
+                      });
                       if (categoryNodes.length === 0) return null;
                       
                       return (
