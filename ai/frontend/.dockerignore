@@ -1,0 +1,8 @@
+node_modules
+.next
+.git
+.env
+npm-debug.log
+.DS_Store
+# Keep .env.local for build time config if present
+# .env.local 

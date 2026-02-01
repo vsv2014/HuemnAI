@@ -1,0 +1,28 @@
+version: '3.8'
+
+services:
+  backend:
+    build: ./ai/backend
+    container_name: huemn-backend
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./ai/backend:/app
+      # Avoid overwriting the container's python environment/cache if needed, 
+      # but for now mapping the whole dir is standard for dev. 
+      # We might want to exclude __pycache__ or similar if it causes issues.
+    environment:
+      - ENV=dev
+      # Ensure database file is accessible/writable
+    restart: always
+
+  frontend:
+    build: ./ai/frontend
+    container_name: huemn-frontend
+    ports:
+      - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_API_BASE=http://localhost:8000
+    depends_on:
+      - backend
+    restart: always
