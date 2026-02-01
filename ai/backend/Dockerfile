@@ -18,6 +18,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Install python dependencies
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
+# Install production server dependencies
+RUN pip install --no-cache-dir gunicorn uvloop
 
 # Copy project
 COPY . .
@@ -25,5 +27,6 @@ COPY . .
 # Expose port
 EXPOSE 8000
 
-# Run command
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Run command with Gunicorn + Uvicorn workers
+# Adjust workers based on CPU cores (2 * cores + 1)
+CMD ["gunicorn", "-k", "uvicorn.workers.UvicornWorker", "-w", "4", "--bind", "0.0.0.0:8000", "app.main:app"]

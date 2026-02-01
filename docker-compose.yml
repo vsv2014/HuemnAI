@@ -1,28 +1,55 @@
 version: '3.8'
 
 services:
+  nginx:
+    image: nginx:alpine
+    container_name: huemn-nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - backend
+      - frontend
+    restart: always
+    networks:
+      - huemn-network
+
   backend:
     build: ./ai/backend
     container_name: huemn-backend
-    ports:
-      - "8000:8000"
-    volumes:
-      - ./ai/backend:/app
-      # Avoid overwriting the container's python environment/cache if needed, 
-      # but for now mapping the whole dir is standard for dev. 
-      # We might want to exclude __pycache__ or similar if it causes issues.
+    # Expose port only to other containers (Nginx)
+    expose:
+      - "8000"
+    # Env vars
+    env_file:
+      - .env
     environment:
-      - ENV=dev
-      # Ensure database file is accessible/writable
+      - ENV=production
     restart: always
+    networks:
+      - huemn-network
 
   frontend:
     build: ./ai/frontend
     container_name: huemn-frontend
-    ports:
-      - "3000:3000"
+    # Expose port only to other containers
+    expose:
+      - "3000"
+    env_file:
+      - .env
     environment:
-      - NEXT_PUBLIC_API_BASE=http://localhost:8000
+      - NEXT_PUBLIC_API_BASE=http://localhost/api
+      # Internal API URL for SSR (Server Side Rendering) to reach backend
+      # Since SSR runs inside container, it needs to reach backend container name
+      - API_INTERNAL_URL=http://backend:8000
     depends_on:
       - backend
     restart: always
+    networks:
+      - huemn-network
+
+networks:
+  huemn-network:
+    driver: bridge

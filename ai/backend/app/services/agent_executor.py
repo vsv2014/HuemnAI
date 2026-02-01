@@ -825,15 +825,30 @@ class AgentExecutor:
                 "timestamp": datetime.utcnow().isoformat()
             })
         
-        # If there's a next node and we haven't sent a response yet, continue
-        if next_node_id and not result.get("response"):
-            return await self._execute_node(
+        # If there's a next node, continue execution (chaining)
+        # We continue even if there is a response, to allow "Think -> Act" or "Message -> Logic" chains
+        if next_node_id:
+            # Improved Chaining Logic:
+            next_result = await self._execute_node(
                 agent_id=agent_id,
                 node_id=next_node_id,
                 context=context,
                 conversation_id=conversation_id,
                 max_depth=max_depth - 1
             )
+            
+            # Merge responses
+            current_response = result.get("response", "")
+            next_response = next_result.get("response", "")
+            
+            if current_response and next_response:
+                # Add a newline separator if merging two text responses
+                next_result["response"] = f"{current_response}\n\n{next_result['response']}"
+            elif current_response:
+                # If next node didn't produce response (e.g. logic node), keep current response
+                next_result["response"] = current_response
+                
+            return next_result
         
         return {
             "response": result.get("response", ""),
