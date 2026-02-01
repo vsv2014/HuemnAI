@@ -19,6 +19,10 @@ ENV NEXT_TELEMETRY_DISABLED=1
 ENV SKIP_LINT=1
 ENV SKIP_TYPE_CHECK=1
 
+# Accept build arguments for environment variables
+ARG NEXT_PUBLIC_API_BASE
+ENV NEXT_PUBLIC_API_BASE=$NEXT_PUBLIC_API_BASE
+
 RUN npm run build
 
 # Stage 3: Production server
@@ -32,7 +36,6 @@ RUN addgroup --system --gid 1001 nodejs
 RUN adduser --system --uid 1001 nextjs
 
 # Copy necessary files
-COPY --from=builder /app/public ./public
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 

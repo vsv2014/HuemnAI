@@ -32,7 +32,10 @@ services:
       - huemn-network
 
   frontend:
-    build: ./ai/frontend
+    build:
+      context: ./ai/frontend
+      args:
+        NEXT_PUBLIC_API_BASE: ${NEXT_PUBLIC_API_BASE:-http://localhost/api}
     container_name: huemn-frontend
     # Expose port only to other containers
     expose:
