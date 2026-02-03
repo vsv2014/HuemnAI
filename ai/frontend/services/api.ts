@@ -283,6 +283,13 @@ export async function generateFlowFromPrompt(agentId: string | number, prompt: s
   });
 }
 
+export async function getAgentConversation(sessionId: string, token: string) {
+  if (!token) return { error: "No authentication token" };
+  return safeFetch(`${API_BASE}/api/agents/conversations/${sessionId}`, {
+    headers: { "Authorization": `Bearer ${token}` }
+  });
+}
+
 export async function processAgentMessage(messageData: any, token: string) {
   if (!token) return { error: "No authentication token" };
   return safeFetch(`${API_BASE}/api/agents/conversations`, {
@@ -475,11 +482,22 @@ export async function exportAuditLogs(token: string, format: string) {
   });
 }
 
-export async function getShadowEvaluations(token: string) {
+export async function getShadowEvaluations(agentId: number, token: string) {
   if (!token) return { error: "No authentication token" };
-  // Stub implementation
-  return safeFetch(`${API_BASE}/api/evaluations/shadow`, {
+  return safeFetch(`${API_BASE}/api/evaluation/agent/${agentId}`, {
     headers: { "Authorization": `Bearer ${token}` }
+  });
+}
+
+export async function createAgentFromTemplate(templateId: string, name: string, description: string, token: string) {
+  if (!token) return { error: "No authentication token" };
+  return safeFetch(`${API_BASE}/api/agents/template`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${token}`,
+    },
+    body: JSON.stringify({ template_id: templateId, name, description }),
   });
 }
 
@@ -488,6 +506,31 @@ export async function getAllAgentsAdmin(token: string) {
   // Stub implementation
   return safeFetch(`${API_BASE}/api/admin/agents`, {
     headers: { "Authorization": `Bearer ${token}` }
+  });
+}
+
+export async function getUsers(token: string, params?: { skip?: number; limit?: number; role?: string; search?: string }) {
+  if (!token) return { error: "No authentication token" };
+  const query = new URLSearchParams();
+  if (params?.skip) query.append("skip", params.skip.toString());
+  if (params?.limit) query.append("limit", params.limit.toString());
+  if (params?.role) query.append("role", params.role);
+  if (params?.search) query.append("search", params.search);
+  
+  return safeFetch(`${API_BASE}/api/admin/users?${query.toString()}`, {
+    headers: { "Authorization": `Bearer ${token}` }
+  });
+}
+
+export async function updateUserRole(userId: number, role: string, token: string) {
+  if (!token) return { error: "No authentication token" };
+  return safeFetch(`${API_BASE}/api/admin/users/${userId}/role`, {
+    method: "PUT",
+    headers: {
+      "Authorization": `Bearer ${token}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ role })
   });
 }
 
@@ -584,6 +627,72 @@ export async function crawlKnowledgeSource(id: number, token: string) {
       method: "POST",
       headers: { "Authorization": `Bearer ${token}` }
     });
+}
+
+/* ---------------- VOICE ---------------- */
+
+export async function getVoiceProfiles(token: string) {
+  if (!token) return { error: "No authentication token" };
+  return safeFetch(`${API_BASE}/api/voice/profiles`, {
+    headers: { "Authorization": `Bearer ${token}` }
+  });
+}
+
+export async function createVoiceProfile(profileData: any, token: string) {
+  if (!token) return { error: "No authentication token" };
+  return safeFetch(`${API_BASE}/api/voice/profiles`, {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${token}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(profileData)
+  });
+}
+
+export async function updateVoiceProfile(id: number, profileData: any, token: string) {
+  if (!token) return { error: "No authentication token" };
+  return safeFetch(`${API_BASE}/api/voice/profiles/${id}`, {
+    method: "PUT",
+    headers: {
+      "Authorization": `Bearer ${token}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(profileData)
+  });
+}
+
+export async function deleteVoiceProfile(id: number, token: string) {
+  if (!token) return { error: "No authentication token" };
+  return safeFetch(`${API_BASE}/api/voice/profiles/${id}`, {
+    method: "DELETE",
+    headers: { "Authorization": `Bearer ${token}` }
+  });
+}
+
+export async function syncHuemnVoices(token: string) {
+  if (!token) return { error: "No authentication token" };
+  return safeFetch(`${API_BASE}/api/voice/sync`, {
+    method: "POST",
+    headers: { "Authorization": `Bearer ${token}` }
+  });
+}
+
+export async function cloneVoice(name: string, description: string, files: File[], token: string) {
+  if (!token) return { error: "No authentication token" };
+  const formData = new FormData();
+  formData.append("name", name);
+  if (description) formData.append("description", description);
+  files.forEach((file) => formData.append("files", file));
+
+  return safeFetch(`${API_BASE}/api/voice/clone`, {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${token}`,
+      // Content-Type header handled automatically by FormData
+    },
+    body: formData
+  });
 }
 
 export async function uploadKnowledgeDocument(formData: FormData, token: string) {

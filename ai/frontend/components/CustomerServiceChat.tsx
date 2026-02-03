@@ -5,6 +5,8 @@ import { useChatStore } from "@/store/chatStore";
 import { useAuthStore } from "@/store/authStore";
 import { uploadTicketAttachment } from "@/services/api";
 import RichMessage from "./RichMessage";
+import { motion, AnimatePresence } from "framer-motion";
+import { toast } from "react-hot-toast";
 
 interface TicketFlowState {
   issueType?: string;
@@ -16,16 +18,284 @@ interface TicketFlowState {
 }
 
 export default function CustomerServiceChat() {
-  const { messages, sendMessage, loading, tool } = useChatStore();
+  const { messages, sendMessage, loading, tool, sessionId, agentId, fetchHistory } = useChatStore();
   const { token } = useAuthStore();
   const [input, setInput] = useState("");
   const [ticketFlow, setTicketFlow] = useState<TicketFlowState>({ isActive: false });
+  
+  // Load conversation history
+  useEffect(() => {
+    if (sessionId) {
+      fetchHistory(sessionId);
+    }
+  }, [sessionId, fetchHistory]);
   const [showPrioritySelector, setShowPrioritySelector] = useState(false);
   const [selectedPriority, setSelectedPriority] = useState<string>("");
   const [isUploading, setIsUploading] = useState(false);
   const [attachments, setAttachments] = useState<Array<{name: string, url: string}>>([]);
   const containerRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const wsRef = useRef<WebSocket | null>(null);
+  const audioQueueRef = useRef<ArrayBuffer[]>([]);
+  const isProcessingQueueRef = useRef(false);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const nextStartTimeRef = useRef(0);
+  const isStreamCompleteRef = useRef(false);
+  const scheduledChunksRef = useRef(0);
+  const playedChunksRef = useRef(0);
+  
+  // Speech Recognition
+  const [isListening, setIsListening] = useState(false);
+  const recognitionRef = useRef<any>(null);
+
+  // WebSocket Streaming Logic
+  useEffect(() => {
+    const lastMessage = messages[messages.length - 1];
+    if (lastMessage?.role === "assistant" && lastMessage.data?.metadata?.mode === "stream") {
+      const metadata = lastMessage.data.metadata;
+      if (metadata.ws_url) {
+        connectToStream(metadata.ws_url, metadata.payload);
+      }
+    }
+    
+    // Cleanup on unmount
+    return () => {
+      stopAudio();
+    };
+  }, [messages]);
+
+  const stopAudio = () => {
+    if (wsRef.current) {
+        wsRef.current.close();
+        wsRef.current = null;
+    }
+    audioQueueRef.current = [];
+    isProcessingQueueRef.current = false;
+    nextStartTimeRef.current = 0;
+    isStreamCompleteRef.current = false;
+    scheduledChunksRef.current = 0;
+    playedChunksRef.current = 0;
+    
+    if (audioContextRef.current) {
+        audioContextRef.current.close().catch(console.error);
+        audioContextRef.current = null;
+    }
+    setIsPlaying(false);
+  };
+
+  const connectToStream = (url: string, payload: any) => {
+    stopAudio(); // Ensure clean state before starting new stream
+
+    // Initialize AudioContext if needed
+    if (!audioContextRef.current) {
+      audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
+    }
+    
+    // Resume context if suspended (browser policy)
+    if (audioContextRef.current.state === 'suspended') {
+      audioContextRef.current.resume();
+    }
+
+    const ws = new WebSocket(url);
+    wsRef.current = ws;
+    ws.binaryType = "arraybuffer";
+
+    ws.onopen = () => {
+      console.log("Voice Stream Connected");
+      ws.send(JSON.stringify(payload));
+      setIsPlaying(true);
+    };
+
+    ws.onmessage = async (event) => {
+      if (event.data instanceof ArrayBuffer) {
+        // Audio chunk
+        audioQueueRef.current.push(event.data);
+        processAudioQueue();
+      } else {
+        // Text/Control message
+        try {
+          const data = JSON.parse(event.data);
+          if (data.status === "done" || data.type === "end") {
+             console.log("Stream ended");
+             isStreamCompleteRef.current = true;
+             // Check if we need to stop playing (if queue is empty and everything played)
+             if (audioQueueRef.current.length === 0 && scheduledChunksRef.current === playedChunksRef.current) {
+                 setIsPlaying(false);
+             }
+          } else if (data.error || data.type === "error") {
+             toast.error("Voice Error: " + (data.error || data.message));
+             setIsPlaying(false);
+          }
+        } catch (e) {
+          // Ignore parse errors for binary
+        }
+      }
+    };
+
+    ws.onerror = (e) => {
+      console.error("WebSocket Error:", e);
+      toast.error("Voice streaming connection failed");
+      setIsPlaying(false);
+    };
+    
+    ws.onclose = () => {
+      console.log("Voice Stream Closed");
+      // Don't set isPlaying false here immediately, let the queue finish
+    };
+  };
+
+  const processAudioQueue = async () => {
+    if (isProcessingQueueRef.current || audioQueueRef.current.length === 0 || !audioContextRef.current) return;
+
+    isProcessingQueueRef.current = true;
+    
+    try {
+        const chunk = audioQueueRef.current.shift();
+        if (chunk) {
+            const audioBuffer = await audioContextRef.current.decodeAudioData(chunk);
+            const source = audioContextRef.current.createBufferSource();
+            source.buffer = audioBuffer;
+            source.connect(audioContextRef.current.destination);
+            
+            const currentTime = audioContextRef.current.currentTime;
+            // Schedule next chunk slightly after current one to avoid gaps
+            // Ensure we don't schedule in the past
+            const startTime = Math.max(currentTime, nextStartTimeRef.current);
+            
+            source.start(startTime);
+            nextStartTimeRef.current = startTime + audioBuffer.duration;
+            scheduledChunksRef.current += 1;
+            
+            source.onended = () => {
+                playedChunksRef.current += 1;
+                // Check if queue is empty and we are done
+                if (audioQueueRef.current.length === 0 && 
+                    isStreamCompleteRef.current && 
+                    playedChunksRef.current >= scheduledChunksRef.current) {
+                     setIsPlaying(false);
+                }
+            };
+            
+            // Continue processing recursively but allow for async decoding overlap if we wanted (simplified here)
+            // For now, simple sequential processing
+            processAudioQueue(); 
+        }
+    } catch (e) {
+      console.error("Audio decode error:", e);
+    } finally {
+        isProcessingQueueRef.current = false;
+        // Trigger next check if items were added while processing
+        if (audioQueueRef.current.length > 0) {
+            processAudioQueue();
+        } else {
+            // If queue is empty, we might be done playing
+            if (audioContextRef.current && audioContextRef.current.currentTime >= nextStartTimeRef.current) {
+                 setIsPlaying(false);
+            }
+        }
+    }
+  };
+
+  const toggleListening = () => {
+    if (isListening) {
+      recognitionRef.current?.stop();
+      setIsListening(false);
+    } else {
+      startListening();
+    }
+  };
+
+  const startListening = () => {
+    if (typeof window !== 'undefined' && !('webkitSpeechRecognition' in window)) {
+      toast.error("Speech recognition not supported in this browser");
+      return;
+    }
+    
+    // @ts-ignore
+    const recognition = new window.webkitSpeechRecognition();
+    recognition.continuous = false;
+    recognition.interimResults = false;
+    recognition.lang = "en-US";
+    
+    recognition.onstart = () => setIsListening(true);
+    recognition.onend = () => setIsListening(false);
+    recognition.onresult = (event: any) => {
+      const transcript = event.results[0][0].transcript;
+      setInput(prev => prev + (prev ? " " : "") + transcript);
+    };
+    
+    recognitionRef.current = recognition;
+    recognition.start();
+  };
+
+  const [showVoiceModal, setShowVoiceModal] = useState(false);
+  const [phoneNumber, setPhoneNumber] = useState("");
+  const [callSid, setCallSid] = useState<string | null>(null);
+
+  // Poll call status
+  useEffect(() => {
+    if (!callSid || !token) return;
+
+    const interval = setInterval(async () => {
+      try {
+        const res = await fetch(`/api/ivr/call-status/${callSid}`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        const data = await res.json();
+        
+        if (data.success) {
+          // Check for terminal states
+          if (['completed', 'failed', 'busy', 'no-answer', 'canceled'].includes(data.status)) {
+            clearInterval(interval);
+            setCallSid(null);
+            toast.success(`Call ended (${data.status}). Updating transcript...`);
+            if (sessionId) fetchHistory(sessionId);
+          }
+        }
+      } catch (e) {
+        console.error("Error polling call status:", e);
+      }
+    }, 3000); // Poll every 3 seconds
+
+    return () => clearInterval(interval);
+  }, [callSid, token, sessionId, fetchHistory]);
+
+  const handleVoiceSwitch = async () => {
+    if (!phoneNumber) return;
+    
+    try {
+      const response = await fetch('/api/ivr/redirect-to-call', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          agent_id: agentId || 1, // Default to agent 1 if not set
+          phone_number: phoneNumber,
+          session_id: sessionId || "new-session",
+          context: {
+            recent_messages: messages.slice(-3).map(m => ({ role: m.role, content: m.text }))
+          }
+        })
+      });
+      
+      const data = await response.json();
+      if (data.success) {
+        toast.success("Call initiated! You will receive a call shortly.");
+        setShowVoiceModal(false);
+        if (data.call_sid) {
+            setCallSid(data.call_sid);
+        }
+      } else {
+        toast.error("Failed to initiate call: " + (data.error || "Unknown error"));
+      }
+    } catch (e) {
+      console.error("Error switching to voice:", e);
+      toast.error("Error initiating call");
+    }
+  };
 
   // Auto-scroll when messages update
   useEffect(() => {
@@ -34,6 +304,9 @@ export default function CustomerServiceChat() {
       el.scrollTop = el.scrollHeight;
     }
   }, [messages]);
+
+
+  // Removed duplicate voice playback logic
 
   // Check for question flow in messages
   useEffect(() => {
@@ -76,6 +349,7 @@ export default function CustomerServiceChat() {
 
   const handleSend = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
+    stopAudio(); // Interrupt current audio if any
     const messageText = input.trim();
     
     if (!messageText && attachments.length === 0) return;
@@ -143,9 +417,18 @@ export default function CustomerServiceChat() {
                 <div>
                   <span className="block text-sm font-bold text-white tracking-wide">SUPPORT TICKET IN PROGRESS</span>
                   <span className="text-xs text-white/50">Our AI agent is gathering details</span>
-                </div>
               </div>
-              {ticketFlow.severity && (
+            </div>
+            
+            <button 
+              onClick={() => setShowVoiceModal(true)}
+              className="px-3 py-1.5 rounded-lg bg-green-500/20 text-green-300 border border-green-500/30 text-xs font-bold hover:bg-green-500/30 transition-all flex items-center gap-2"
+            >
+              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" /></svg>
+              Switch to Voice
+            </button>
+          </div>
+          {ticketFlow.severity && (
                 <span className={`px-4 py-1.5 rounded-full text-xs font-bold tracking-wider shadow-lg backdrop-blur-md border border-white/10 ${getSeverityBadge(ticketFlow.severity)}`}>
                   {ticketFlow.severity.toUpperCase()}
                 </span>
@@ -253,6 +536,25 @@ export default function CustomerServiceChat() {
         </div>
       )}
 
+      {/* Voice Playback Indicator */}
+      <AnimatePresence>
+        {isPlaying && (
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 10 }}
+            className="absolute bottom-24 right-6 z-30 flex items-center gap-3 px-4 py-2 bg-purple-500/20 backdrop-blur-md border border-purple-500/30 rounded-full shadow-lg"
+          >
+            <div className="flex items-center gap-1">
+              <div className="w-1 h-3 bg-purple-400 rounded-full animate-[sound-wave_0.5s_ease-in-out_infinite]" style={{ animationDelay: '0ms' }} />
+              <div className="w-1 h-5 bg-purple-400 rounded-full animate-[sound-wave_0.5s_ease-in-out_infinite]" style={{ animationDelay: '100ms' }} />
+              <div className="w-1 h-3 bg-purple-400 rounded-full animate-[sound-wave_0.5s_ease-in-out_infinite]" style={{ animationDelay: '200ms' }} />
+            </div>
+            <span className="text-xs font-bold text-purple-200 uppercase tracking-wider">Agent Speaking</span>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Input Area */}
       <div className="mt-6 relative z-20">
         <div className="p-2 rounded-2xl bg-white/5 border border-white/10 backdrop-blur-xl shadow-2xl relative group transition-all duration-300 hover:bg-white/10 hover:border-white/20">
@@ -301,6 +603,28 @@ export default function CustomerServiceChat() {
                 ) : (
                   <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
+                  </svg>
+                )}
+              </button>
+
+              <button
+                type="button"
+                onClick={toggleListening}
+                className={`p-3 mb-1 rounded-xl transition-all active:scale-95 ${
+                  isListening 
+                    ? "text-red-400 bg-red-400/10 animate-pulse" 
+                    : "text-white/60 hover:text-white hover:bg-white/10"
+                }`}
+                title={isListening ? "Stop listening" : "Start voice input"}
+              >
+                {isListening ? (
+                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 10a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1v-4z" />
+                  </svg>
+                ) : (
+                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
                   </svg>
                 )}
               </button>
@@ -367,8 +691,49 @@ export default function CustomerServiceChat() {
           ))}
         </div>
       )}
+      {/* Voice Switch Modal */}
+      {showVoiceModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+          <div className="bg-[#1e1e1e] border border-white/10 rounded-2xl p-6 max-w-md w-full shadow-2xl relative overflow-hidden">
+             <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-green-500 to-blue-500"></div>
+             
+             <h3 className="text-xl font-bold text-white mb-2">Switch to Voice Call</h3>
+             <p className="text-white/60 text-sm mb-6">
+               Our AI agent will call you to continue this conversation over the phone. Context will be preserved.
+             </p>
+             
+             <div className="space-y-4">
+               <div>
+                 <label className="block text-xs font-medium text-white/40 uppercase tracking-wider mb-1">Phone Number</label>
+                 <input 
+                    type="tel" 
+                    placeholder="+1234567890" 
+                    value={phoneNumber}
+                    onChange={(e) => setPhoneNumber(e.target.value)}
+                    className="w-full bg-black/20 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-white/20 focus:outline-none focus:border-green-500/50 transition-colors"
+                 />
+               </div>
+               
+               <div className="flex gap-3 pt-2">
+                 <button 
+                   onClick={() => setShowVoiceModal(false)}
+                   className="flex-1 px-4 py-2 rounded-xl bg-white/5 text-white/60 hover:text-white hover:bg-white/10 transition-colors font-medium text-sm"
+                 >
+                   Cancel
+                 </button>
+                 <button 
+                   onClick={handleVoiceSwitch}
+                   disabled={!phoneNumber}
+                   className="flex-1 px-4 py-2 rounded-xl bg-green-500 text-black font-bold hover:bg-green-400 transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm"
+                 >
+                   Call Me Now
+                 </button>
+               </div>
+             </div>
+          </div>
+        </div>
+      )}
     </div>
-
   );
 }
 

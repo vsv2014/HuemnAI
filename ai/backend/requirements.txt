@@ -24,4 +24,5 @@ structlog
 redis
 celery[redis]
 psycopg2-binary
+prometheus-fastapi-instrumentator
 

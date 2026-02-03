@@ -137,3 +137,86 @@ async def list_all_agents_admin(
         return {"agents": out, "total": len(out)}
     finally:
         db.close()
+
+
+@router.get("/users")
+async def list_users(
+    skip: int = 0,
+    limit: int = 100,
+    role: Optional[str] = None,
+    search: Optional[str] = None,
+    current_user: UserAccount = Depends(get_current_user_optional)
+):
+    """List all users for RBAC management"""
+    if not current_user or current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="Requires admin privileges")
+        
+    from app.db.session import SessionLocal
+    from app.db.models.subscription import UserAccount
+    
+    db = SessionLocal()
+    try:
+        query = db.query(UserAccount)
+        
+        if role:
+            query = query.filter(UserAccount.role == role)
+            
+        if search:
+            query = query.filter(UserAccount.email.contains(search))
+            
+        users = query.offset(skip).limit(limit).all()
+        
+        return [
+            {
+                "id": u.id,
+                "email": u.email,
+                "role": u.role,
+                "is_active": u.is_active,
+                "is_company_account": u.is_company_account,
+                "organization_name": u.organization_name,
+                "last_login": u.last_login.isoformat() if u.last_login else None,
+                "created_at": u.created_at.isoformat() if u.created_at else None
+            }
+            for u in users
+        ]
+    finally:
+        db.close()
+
+
+class UserRoleUpdate(BaseModel):
+    role: str
+
+
+@router.put("/users/{user_id}/role")
+async def update_user_role(
+    user_id: int,
+    data: UserRoleUpdate,
+    current_user: UserAccount = Depends(get_current_user_optional)
+):
+    """Update user role (RBAC)"""
+    if not current_user or current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="Requires admin privileges")
+        
+    from app.db.session import SessionLocal
+    from app.db.models.subscription import UserAccount
+    from app.core.rbac import UserRole
+    
+    # Validate role
+    valid_roles = [r.value for r in UserRole]
+    if data.role not in valid_roles:
+        raise HTTPException(status_code=400, detail=f"Invalid role. Must be one of {valid_roles}")
+        
+    db = SessionLocal()
+    try:
+        user = db.query(UserAccount).filter(UserAccount.id == user_id).first()
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+            
+        # Prevent self-demotion if you are the only admin (optional safety check, skipping for now)
+        
+        user.role = data.role
+        db.commit()
+        
+        return {"message": "User role updated successfully", "user_id": user_id, "new_role": user.role}
+    finally:
+        db.close()

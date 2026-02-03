@@ -24,6 +24,7 @@ const ALL_TOOLS = [
   { title: "HR Services", desc: "Employee lifecycle support: hiring, onboarding, policies, and HR queries.", slug: "hr-services" },
   { title: "Knowledge AI", desc: "Search and surface SOPs, documents, and internal knowledge effectively.", slug: "knowledge-ai" },
   { title: "Analytics Dashboard", desc: "Track performance, ticket solving rate, SLA metrics, team workload, and comprehensive analytics with futuristic visualizations.", slug: "analytics-dashboard" },
+  { title: "🎙️ Voice Studio", desc: "Manage AI voices, clone custom voices, and configure speech settings.", slug: "voice", isSettings: true },
   { title: "⚙️ Settings & Configuration", desc: "Configure API keys, LLM providers, and integrations. Manage all your settings securely from one place.", slug: "settings", isSettings: true },
 ];
 

@@ -1606,6 +1606,355 @@ Start → Try Operation → On Error: Fallback → Response → End
 
 ---
 
+---
+
+## 7. Enterprise Flow Control Nodes
+
+### 39. Event Trigger Node
+**Purpose:** Registers a listener for system events or waits for external triggers.
+
+**When to Use:**
+- Triggering flows from external systems (Webhooks, Queues)
+- Pausing execution until an event occurs
+- Reacting to database changes
+
+**Configuration:**
+- **Event Source:** "webhook", "queue", "db_change", "timer"
+- **Event Pattern:** Regex or filter string to match specific events
+- **Queue Name:** Name of the queue (if source is queue)
+- **Timeout:** Maximum time to wait (seconds)
+
+**Example Configuration:**
+```json
+{
+  "event_source": "webhook",
+  "event_pattern": "payment.success",
+  "timeout_seconds": 3600
+}
+```
+
+### 40. Session State Node
+**Purpose:** Manages advanced session persistence, checkpoints, and rollback.
+
+**When to Use:**
+- Creating save points in long conversations
+- Implementing "Undo" functionality
+- Clearing session data for security
+- Managing multi-session memory
+
+**Configuration:**
+- **Action:** "checkpoint", "rollback", "clear"
+- **Checkpoint ID:** Unique identifier for the save point (e.g., "after_auth")
+- **Scope:** "session", "user", "global"
+
+**Example Configuration:**
+```json
+{
+  "action": "checkpoint",
+  "checkpoint_id": "pre_payment_step"
+}
+```
+
+  "checkpoint_id": "pre_payment_step"
+}
+```
+
+## 8. Identity & System Integration Nodes
+
+### 41. Auth Provider Node
+**Purpose:** Handles OAuth2, SSO, and Client Credentials authentication.
+
+**When to Use:**
+- Authenticating users via Google, Microsoft, Okta
+- Getting access tokens for third-party APIs
+- Managing service account credentials
+
+**Configuration:**
+- **Provider Type:** "google", "microsoft", "okta", "custom"
+- **Client ID/Secret:** Credentials (use secure variables)
+- **Scopes:** List of permissions (e.g., "email", "profile")
+- **Auth/Token URL:** For custom providers
+- **Output Variable:** Name of variable to store the token
+
+**Example Configuration:**
+```json
+{
+  "provider_type": "google",
+  "scopes": ["email", "profile", "https://www.googleapis.com/auth/calendar"],
+  "output_variable": "google_token"
+}
+```
+
+### 42. Queue Publisher Node
+**Purpose:** Publishes messages to enterprise message queues.
+
+**When to Use:**
+- Asynchronous processing
+- Decoupling services
+- Sending data to Kafka, RabbitMQ, SQS
+
+**Configuration:**
+- **Provider:** "kafka", "sqs", "rabbitmq", "redis"
+- **Queue Name:** Target queue or topic
+- **Message Body:** Content to send (JSON support)
+
+**Example Configuration:**
+```json
+{
+  "provider": "kafka",
+  "queue_name": "user-events",
+  "message_body": {
+    "event": "user_signup",
+    "user_id": "{{user.id}}"
+  }
+}
+```
+
+### 43. Queue Listener Node
+**Purpose:** Consumes messages from queues within a flow.
+
+**When to Use:**
+- Waiting for asynchronous job completion
+- Processing batches of messages
+
+**Configuration:**
+- **Provider:** "kafka", "sqs", "rabbitmq"
+- **Queue Name:** Source queue
+- **Timeout:** How long to wait for a message
+
+## 9. Advanced AI Intelligence Nodes
+
+### 44. Dialog Policy Node
+**Purpose:** Controls conversation flow based on confidence and ambiguity.
+
+**When to Use:**
+- Managing low-confidence intents
+- Handling ambiguous user inputs
+- Defining global fallback behavior
+
+**Configuration:**
+- **Strategy:** "hybrid" (Rules + ML)
+- **Confidence Threshold:** Score below which fallback triggers (e.g., 0.7)
+- **Fallback Action:** "ask_clarification", "handoff", "default_message"
+
+**Example Configuration:**
+```json
+{
+  "confidence_threshold": 0.65,
+  "fallback_action": "ask_clarification"
+}
+```
+
+### 45. Intent Flow Node
+**Purpose:** Restricts intent detection to a specific subset for multi-turn dialogs.
+
+**When to Use:**
+- "Slot filling" loops where only specific answers are valid
+- Disambiguating between similar intents in different contexts
+
+**Configuration:**
+- **Allowed Intents:** List of intent names valid in this scope
+- **Max Turns:** Maximum turns to stay in this scope before exiting
+
+**Example Configuration:**
+```json
+{
+  "allowed_intents": ["confirm_order", "cancel_order", "change_address"],
+  "max_turns": 3
+}
+```
+
+### 46. Persona Control Node
+**Purpose:** Dynamically adjusts the AI's personality and tone.
+
+**When to Use:**
+- Switching between "Support Agent" and "Sales Rep" personas
+- Enforcing brand voice constraints
+
+**Configuration:**
+- **Persona Name:** Identifier
+- **Tone:** "professional", "friendly", "empathetic"
+- **Constraints:** List of behavioral rules (e.g., "Never say 'I don't know'")
+
+**Example Configuration:**
+```json
+{
+  "persona_name": "Technical Support",
+  "tone": "concise",
+  "constraints": ["Use technical terminology", "Be direct"]
+}
+```
+
+### 47. KB Sync Node
+**Purpose:** Triggers synchronization of Knowledge Base sources.
+
+**When to Use:**
+- Auto-updating RAG knowledge from SharePoint/Web
+- Periodic re-indexing of documents
+
+**Configuration:**
+- **Source Type:** "web", "sharepoint", "s3"
+- **Source Path:** URL or bucket path
+
+## 10. Communication Enhancement Nodes
+
+### 48. Rich Message Node
+**Purpose:** Sends structured UI elements (Cards, Carousels, Forms) to the user.
+
+**When to Use:**
+- Displaying product catalogs (Carousel)
+- Collecting structured data (Form)
+- Showing flight details or receipts (Adaptive Card)
+
+**Configuration:**
+- **Template Type:** "card", "carousel", "list", "form"
+- **Items:** List of content objects (title, subtitle, image_url, buttons)
+- **Actions:** Interactive elements (buttons, quick replies)
+- **Fallback Text:** Text to display on channels that don't support rich UI
+
+**Example Configuration:**
+```json
+{
+  "template_type": "carousel",
+  "items": [
+    {
+      "title": "Product A",
+      "subtitle": "$100",
+      "image_url": "https://example.com/a.jpg",
+      "buttons": [{"label": "Buy", "value": "buy_a"}]
+    },
+    {
+      "title": "Product B",
+      "subtitle": "$150",
+      "image_url": "https://example.com/b.jpg",
+      "buttons": [{"label": "Buy", "value": "buy_b"}]
+    }
+  ],
+  "fallback_text": "Check out Product A ($100) and Product B ($150) on our website."
+}
+```
+
+### 49. Voice Translation Node
+**Purpose:** Real-time Speech-to-Speech translation.
+
+**When to Use:**
+- Breaking language barriers in voice calls
+- Multi-lingual customer support
+
+**Configuration:**
+- **Target Language:** Language code (e.g., "es", "fr", "de")
+- **Voice ID:** Specific TTS voice to use
+- **Preserve Tone:** Boolean (experimental feature to clone emotion)
+
+**Example Configuration:**
+```json
+{
+  "target_language": "es",
+  "preserve_tone": true
+}
+```
+
+### 50. Handoff Intelligence Node
+**Purpose:** Smartly detects if a conversation needs to be escalated to a human.
+
+**When to Use:**
+- Monitoring user sentiment
+- Detecting frustration or explicit requests for a human
+- Routing high-value customers to priority queues
+
+**Configuration:**
+- **Detection Strategy:** "sentiment", "intent", or "sentiment_intent" (both)
+- **Sentiment Threshold:** Score (-1.0 to 1.0) below which handoff triggers (e.g., -0.7)
+- **Escalation Intents:** List of intents that trigger immediate handoff
+- **Priority Level:** "low", "normal", "high" (for the ticket)
+
+**Example Configuration:**
+```json
+{
+  "detection_strategy": "sentiment_intent",
+  "sentiment_threshold": -0.6,
+  "escalation_intents": ["complaint", "speak_to_agent"],
+  "priority_level": "high"
+}
+```
+
+## 11. Data & Analytics Extensions
+
+### 51. Data Transformer Node
+**Purpose:** ETL operations, schema mapping, and data validation.
+
+**When to Use:**
+- Mapping API response format to internal variables
+- Filtering lists or validating JSON schemas
+
+**Configuration:**
+- **Transformation Type:** "map", "filter", "aggregate"
+- **Mapping Rules:** Key-Value pairs (Target Field = Source Variable)
+- **Validation Schema:** JSON Schema object
+
+### 52. DB Transaction Node
+**Purpose:** Manages atomic database operations.
+
+**When to Use:**
+- Ensuring multi-step DB updates either all succeed or all fail
+- Financial transactions
+
+**Configuration:**
+- **Operation:** "begin", "commit", "rollback"
+- **Connection ID:** Identifier for the database connection
+- **Isolation Level:** "read_committed", "serializable"
+
+### 53. AI Insight Node
+**Purpose:** Generates analytics/insights from text data.
+
+**When to Use:**
+- Auto-summarizing long conversations
+- Extracting keywords for tagging
+- Sentiment trend analysis
+
+**Configuration:**
+- **Insight Type:** "summarize", "keywords", "sentiment", "trends"
+- **Source Variable:** Variable to analyze (e.g., `chat_history`)
+- **Output Variable:** Where to store the result
+
+## 12. Automation & Orchestration
+
+### 54. Orchestrator Node
+**Purpose:** Manages long-running workflows and sub-processes.
+
+**When to Use:**
+- Triggering a separate "Order Fulfillment" workflow
+- Asynchronous background processing
+
+**Configuration:**
+- **Workflow ID:** ID of the sub-workflow
+- **Sync Mode:** "sync" (wait for completion) or "async" (fire and forget)
+- **Callback URL:** Optional webhook for completion
+
+### 55. Scheduler Cluster Node
+**Purpose:** Distributed job scheduling.
+
+**When to Use:**
+- Running periodic maintenance tasks
+- Batch processing jobs
+
+**Configuration:**
+- **Job Type:** Identifier for the job handler
+- **Cron Expression:** Schedule (e.g., `0 0 * * *`)
+- **Cluster Group:** Target worker group
+
+### 56. Adaptive Learner Node
+**Purpose:** Captures feedback to optimize agent performance.
+
+**When to Use:**
+- RLHF (Reinforcement Learning from Human Feedback) loops
+- Auto-tuning prompt parameters based on user ratings
+
+**Configuration:**
+- **Learning Goal:** "maximize_satisfaction", "minimize_turns"
+- **Feedback Source:** Variable containing the feedback signal (e.g., `user_rating`)
+- **Auto Tune:** Boolean to enable automatic parameter adjustment
+
 ## Support and Resources
 
 For additional help:

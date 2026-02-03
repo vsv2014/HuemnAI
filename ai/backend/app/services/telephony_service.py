@@ -77,25 +77,33 @@ class TelephonyService:
                     "message": "TWILIO_PHONE_NUMBER not set"
                 }
             
-            # Build webhook URL with agent context
-            if webhook_url:
-                # Add agent_id and context to webhook URL
-                params = []
-                if agent_id:
-                    params.append(f"agent_id={agent_id}")
-                if context:
-                    import urllib.parse
-                    params.append(f"context={urllib.parse.quote(json.dumps(context))}")
-                
-                if params:
-                    separator = "&" if "?" in webhook_url else "?"
-                    webhook_url = f"{webhook_url}{separator}{'&'.join(params)}"
+            # Determine webhook URL
+            final_webhook_url = webhook_url or f"{os.getenv('API_BASE_URL', 'http://localhost:8001')}/api/ivr/call-handler"
             
+            # Add agent_id and context to webhook URL
+            params = []
+            if agent_id:
+                params.append(f"agent_id={agent_id}")
+            if context:
+                import urllib.parse
+                params.append(f"context={urllib.parse.quote(json.dumps(context))}")
+            
+            if params:
+                separator = "&" if "?" in final_webhook_url else "?"
+                final_webhook_url = f"{final_webhook_url}{separator}{'&'.join(params)}"
+            
+            # Determine status callback URL
+            api_base = os.getenv('API_BASE_URL', 'http://localhost:8001')
+            status_callback_url = f"{api_base}/api/ivr/status-callback"
+
             call = self.twilio_client.calls.create(
                 to=to_number,
                 from_=from_number,
-                url=webhook_url or f"{os.getenv('API_BASE_URL', 'http://localhost:8001')}/api/ivr/call-handler",
-                method="POST"
+                url=final_webhook_url,
+                method="POST",
+                status_callback=status_callback_url,
+                status_callback_event=['initiated', 'ringing', 'answered', 'completed'],
+                status_callback_method='POST'
             )
             
             return {
@@ -166,7 +174,8 @@ class TelephonyService:
         num_digits: int = 1,
         action_url: Optional[str] = None,
         finish_on_key: str = "#",
-        timeout: int = 5
+        timeout: int = 5,
+        voice_id: Optional[str] = None
     ) -> str:
         """
         Generate TwiML for IVR voice response
@@ -178,6 +187,7 @@ class TelephonyService:
             action_url: URL to send input to
             finish_on_key: Key that finishes input collection
             timeout: Timeout in seconds
+            voice_id: Optional HuemnVoice voice ID. If provided, uses <Play> with TTS endpoint.
             
         Returns:
             TwiML XML string
@@ -187,18 +197,38 @@ class TelephonyService:
         
         response = VoiceResponse()
         
+        # Determine if we use HuemnVoice (Play) or Twilio (Say)
+        use_huemn_voice = voice_id is not None
+        
         if gather_input:
             gather = Gather(
                 num_digits=num_digits,
                 action=action_url or "",
                 finish_on_key=finish_on_key,
                 timeout=timeout,
-                input="dtmf"
+                input="dtmf speech", # Enable speech input as well
+                speechTimeout="auto"
             )
-            gather.say(message, voice="alice", language="en-US")
+            
+            if use_huemn_voice:
+                import urllib.parse
+                api_base = os.getenv('API_BASE_URL', 'http://localhost:8001')
+                encoded_message = urllib.parse.quote(message)
+                play_url = f"{api_base}/api/voice/twilio-speak?text={encoded_message}&voice_id={voice_id}"
+                gather.play(play_url)
+            else:
+                gather.say(message, voice="alice", language="en-US")
+                
             response.append(gather)
         else:
-            response.say(message, voice="alice", language="en-US")
+            if use_huemn_voice:
+                import urllib.parse
+                api_base = os.getenv('API_BASE_URL', 'http://localhost:8001')
+                encoded_message = urllib.parse.quote(message)
+                play_url = f"{api_base}/api/voice/twilio-speak?text={encoded_message}&voice_id={voice_id}"
+                response.play(play_url)
+            else:
+                response.say(message, voice="alice", language="en-US")
         
         # Fallback if no input
         if gather_input:

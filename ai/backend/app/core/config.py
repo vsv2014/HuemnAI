@@ -86,6 +86,10 @@ class Settings:
     TWILIO_PHONE_NUMBER = os.getenv("TWILIO_PHONE_NUMBER")
     API_BASE_URL = os.getenv("API_BASE_URL", "http://localhost:8000")  # Base URL for webhooks
 
+    # HuemnVoice / Voice Configuration
+    HUEMN_VOICE_API_KEY = os.getenv("HUEMN_VOICE_API_KEY", os.getenv("ELEVENLABS_API_KEY"))
+    DEEPGRAM_API_KEY = os.getenv("DEEPGRAM_API_KEY")
+
     # Sentry / Logging
     SENTRY_DSN = os.getenv("SENTRY_DSN", "")
     SENTRY_TRACES_SAMPLE_RATE = float(os.getenv("SENTRY_TRACES_SAMPLE_RATE", "0.0"))

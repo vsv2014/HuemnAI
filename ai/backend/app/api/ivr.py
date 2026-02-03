@@ -9,6 +9,7 @@ from typing import Optional, Dict, Any
 from datetime import datetime
 import logging
 import json
+import urllib.parse
 
 from app.db.session import get_db
 from app.db.models.agent import Agent, AgentConversation, AgentMessage, AgentType
@@ -83,8 +84,26 @@ async def handle_incoming_call(
                 )
                 return Response(content=twiml, media_type="application/xml")
         
-        # Get or create conversation
-        session_id = call_sid  # Use call SID as session ID
+        # Get context from query params if available (for chat->IVR continuity)
+        initial_context = {}
+        context_param = request.query_params.get("context")
+        if context_param:
+            try:
+                # It might be double encoded or just JSON
+                decoded = urllib.parse.unquote(context_param)
+                initial_context = json.loads(decoded)
+            except Exception as e:
+                logger.warning(f"Failed to parse context param: {e}")
+
+        # Get session_id from query params if available (for chat->IVR continuity)
+        query_session_id = request.query_params.get("session_id")
+        
+        # If not in query params, check in context
+        if not query_session_id and initial_context and "session_id" in initial_context:
+            query_session_id = initial_context["session_id"]
+            
+        session_id = query_session_id if query_session_id else call_sid
+        
         conversation = db.query(AgentConversation).filter(
             AgentConversation.agent_id == agent_id,
             AgentConversation.session_id == session_id,
@@ -92,16 +111,22 @@ async def handle_incoming_call(
         ).first()
         
         if not conversation:
+            context_data = {
+                "call_sid": call_sid,
+                "from_number": from_number,
+                "to_number": to_number,
+                "call_status": call_status
+            }
+            # Merge initial context if available
+            if initial_context:
+                context_data.update(initial_context)
+                context_data["source_channel"] = "chat_handoff"
+            
             conversation = AgentConversation(
                 agent_id=agent_id,
                 session_id=session_id,
                 channel="ivr",
-                context={
-                    "call_sid": call_sid,
-                    "from_number": from_number,
-                    "to_number": to_number,
-                    "call_status": call_status
-                }
+                context=context_data
             )
             db.add(conversation)
             db.commit()
@@ -118,16 +143,32 @@ async def handle_incoming_call(
         if not user_input and call_status == "ringing":
             welcome_message = agent.welcome_message or "Welcome. How can I help you today?"
             
+            # Check for configured voice
+            voice_id = None
+            if agent.settings:
+                # Try to get voice_id from settings
+                if isinstance(agent.settings, dict):
+                     voice_id = agent.settings.get("voice_id")
+                elif isinstance(agent.settings, str):
+                     try:
+                         settings_dict = json.loads(agent.settings)
+                         voice_id = settings_dict.get("voice_id")
+                     except:
+                         pass
+
             # Generate TwiML with input gathering
             api_base = settings.API_BASE_URL
             action_url = f"{api_base}/api/ivr/call-handler?agent_id={agent_id}"
+            if query_session_id:
+                action_url += f"&session_id={query_session_id}"
             
             twiml = telephony_service.generate_ivr_twiml(
                 welcome_message,
                 gather_input=True,
                 num_digits=1,
                 action_url=action_url,
-                timeout=10
+                timeout=10,
+                voice_id=voice_id
             )
             return Response(content=twiml, media_type="application/xml")
         
@@ -144,220 +185,134 @@ async def handle_incoming_call(
                 }
             )
             db.add(user_message)
+            db.commit()
             
-            # Execute agent flow
-            executor = AgentExecutor(db, background_tasks=background_tasks)
-            result = await executor.execute(agent, conversation, user_input)
-            
-            # Get response
-            response_text = result.get("response", agent.fallback_message or "I didn't understand that. Please try again.")
+            # Execute Agent Logic
+            executor = AgentExecutor(agent_id, session_id, db)
+            response_text = await executor.execute(user_input)
             
             # Save assistant response
             assistant_message = AgentMessage(
                 conversation_id=conversation.id,
                 role="assistant",
-                content=response_text
+                content=response_text,
+                message_metadata={"generated_by": "agent_executor"}
             )
             db.add(assistant_message)
-            
-            # Update conversation
-            conversation.current_node_id = result.get("node_id")
-            conversation.context = result.get("context", conversation.context)
-            conversation.updated_at = datetime.utcnow()
             db.commit()
             
+            # Check for configured voice
+            voice_id = None
+            if agent.settings:
+                if isinstance(agent.settings, dict):
+                     voice_id = agent.settings.get("voice_id")
+                elif isinstance(agent.settings, str):
+                     try:
+                         settings_dict = json.loads(agent.settings)
+                         voice_id = settings_dict.get("voice_id")
+                     except:
+                         pass
+
             # Generate TwiML response
             api_base = settings.API_BASE_URL
             action_url = f"{api_base}/api/ivr/call-handler?agent_id={agent_id}"
-            
-            # Check if flow is complete (END node reached)
-            if result.get("node_id") is None or conversation.current_node_id is None:
-                # End of flow - offer to continue or hang up
-                twiml = telephony_service.generate_ivr_twiml(
-                    f"{response_text} Press 1 to continue, or press 0 to end the call.",
-                    gather_input=True,
-                    num_digits=1,
-                    action_url=action_url
-                )
-            else:
-                # Continue flow - ask for next input
-                twiml = telephony_service.generate_ivr_twiml(
-                    response_text,
-                    gather_input=True,
-                    num_digits=1,
-                    action_url=action_url,
-                    timeout=10
-                )
-            
+            if query_session_id:
+                action_url += f"&session_id={query_session_id}"
+
+            twiml = telephony_service.generate_ivr_twiml(
+                response_text,
+                gather_input=True,
+                num_digits=1,
+                action_url=action_url,
+                timeout=10,
+                voice_id=voice_id
+            )
             return Response(content=twiml, media_type="application/xml")
-        
-        # Default response
-        twiml = telephony_service.generate_ivr_twiml(
-            "Please provide your input.",
-            gather_input=True,
-            num_digits=1,
-            action_url=f"{os.getenv('API_BASE_URL', 'http://localhost:8001')}/api/ivr/call-handler?agent_id={agent_id}"
-        )
-        return Response(content=twiml, media_type="application/xml")
-        
+            
+        return Response(content="<Response></Response>", media_type="application/xml")
+
     except Exception as e:
-        logger.error(f"Error handling IVR call: {str(e)}", exc_info=True)
+        logger.error(f"Error handling call: {str(e)}")
         twiml = telephony_service.generate_ivr_twiml(
-            "We encountered an error. Please try again later.",
+            "An error occurred. Please try again later.",
             gather_input=False
         )
         return Response(content=twiml, media_type="application/xml")
 
-
-@router.post("/make-call")
-async def make_call(
-    to_number: str,
-    agent_id: int,
-    from_number: Optional[str] = None,
-    context: Optional[Dict[str, Any]] = None,
-    db: Session = Depends(get_db)
-):
-    """
-    Make an outbound phone call to a user
-    
-    Args:
-        to_number: Phone number to call (E.164 format: +1234567890)
-        agent_id: Agent ID to use for the call
-        from_number: Phone number to call from (optional)
-        context: Additional context data
-    """
-    agent = db.query(Agent).filter(Agent.id == agent_id).first()
-    if not agent:
-        raise HTTPException(status_code=404, detail="Agent not found")
-    
-    if not agent.is_active:
-        raise HTTPException(status_code=400, detail="Agent is not active")
-    
-    # Build webhook URL
-    api_base = settings.API_BASE_URL
-    webhook_url = f"{api_base}/api/ivr/call-handler?agent_id={agent_id}"
-    
-    # Make the call
-    result = await telephony_service.make_call(
-        to_number=to_number,
-        from_number=from_number,
-        webhook_url=webhook_url,
-        agent_id=agent_id,
-        context=context
-    )
-    
-    if not result.get("success"):
-        raise HTTPException(status_code=500, detail=result.get("error", "Failed to make call"))
-    
-    return result
-
-
-@router.post("/transfer-call")
-async def transfer_call(
-    call_sid: str,
-    to_number: str
-):
-    """
-    Transfer an active call to another number (e.g., live agent)
-    
-    Args:
-        call_sid: Twilio Call SID
-        to_number: Number to transfer to
-    """
-    result = telephony_service.transfer_call(call_sid, to_number)
-    
-    if not result.get("success"):
-        raise HTTPException(status_code=500, detail=result.get("error", "Failed to transfer call"))
-    
-    return result
-
-
-@router.post("/hangup-call")
-async def hangup_call(call_sid: str):
-    """
-    Hang up an active call
-    
-    Args:
-        call_sid: Twilio Call SID
-    """
-    result = telephony_service.hangup_call(call_sid)
-    
-    if not result.get("success"):
-        raise HTTPException(status_code=500, detail=result.get("error", "Failed to hang up call"))
-    
-    return result
-
-
-@router.get("/call-status/{call_sid}")
-async def get_call_status(call_sid: str):
-    """
-    Get status of a call
-    
-    Args:
-        call_sid: Twilio Call SID
-    """
-    result = telephony_service.get_call_status(call_sid)
-    
-    if not result.get("success"):
-        raise HTTPException(status_code=500, detail=result.get("error", "Failed to get call status"))
-    
-    return result
-
-
 @router.post("/redirect-to-call")
 async def redirect_chat_to_call(
-    agent_id: int,
-    phone_number: str,
-    session_id: Optional[str] = None,
-    context: Optional[Dict[str, Any]] = None,
+    request: Request,
     db: Session = Depends(get_db)
 ):
     """
-    Redirect a chat conversation to a phone call
-    This allows users to seamlessly transition from chat to voice
-    
-    Args:
-        agent_id: IVR agent ID to use
-        phone_number: User's phone number to call
-        session_id: Optional chat session ID to continue context
-        context: Additional context from chat conversation
+    Initiate a call to the user (Outbound) or provide instructions for Inbound
     """
-    agent = db.query(Agent).filter(
-        Agent.id == agent_id,
-        Agent.agent_type == AgentType.IVR,
-        Agent.is_active == True
-    ).first()
-    
-    if not agent:
-        raise HTTPException(status_code=404, detail="IVR agent not found or not active")
-    
-    # Build webhook URL with context
-    api_base = settings.API_BASE_URL
-    webhook_url = f"{api_base}/api/ivr/call-handler?agent_id={agent_id}"
-    
-    if session_id:
-        webhook_url += f"&session_id={session_id}"
-    
-    if context:
-        import urllib.parse
-        webhook_url += f"&context={urllib.parse.quote(json.dumps(context))}"
-    
-    # Make the call
-    result = await telephony_service.make_call(
-        to_number=phone_number,
-        webhook_url=webhook_url,
-        agent_id=agent_id,
-        context=context
-    )
-    
-    if not result.get("success"):
-        raise HTTPException(status_code=500, detail=result.get("error", "Failed to initiate call"))
-    
-    return {
-        "success": True,
-        "call_sid": result.get("call_sid"),
-        "message": f"Calling {phone_number}...",
-        "agent_id": agent_id,
-        "agent_name": agent.name
-    }
+    try:
+        data = await request.json()
+        phone_number = data.get("phone_number")
+        agent_id = data.get("agent_id")
+        session_id = data.get("session_id")
+        context = data.get("context", {})
+        
+        if not phone_number or not agent_id:
+            raise HTTPException(status_code=400, detail="Missing phone_number or agent_id")
+            
+        # Check if telephony service is available
+        if not telephony_service.is_available():
+             return {"success": False, "error": "Telephony service not configured"}
 
+        # Prepare context for the call
+        call_context = {
+            "session_id": session_id,
+            "original_context": context
+        }
+
+        # Initiate outbound call
+        # The webhook_url defaults to /api/ivr/call-handler in make_call, which is what we want
+        result = await telephony_service.make_call(
+            to_number=phone_number,
+            agent_id=agent_id,
+            context=call_context
+        )
+        
+        if result.get("success"):
+            logger.info(f"Initiated call to {phone_number} for agent {agent_id} session {session_id}. Call SID: {result.get('call_sid')}")
+        else:
+            logger.error(f"Failed to initiate call: {result.get('error')}")
+            
+        return result
+        
+    except HTTPException as he:
+        raise he
+    except Exception as e:
+        logger.error(f"Error redirecting to call: {str(e)}")
+        return {"success": False, "error": str(e)}
+
+@router.post("/status-callback")
+async def handle_status_callback(
+    request: Request,
+    CallSid: str = Form(None),
+    CallStatus: str = Form(None),
+    db: Session = Depends(get_db)
+):
+    """Handle Twilio call status updates"""
+    try:
+        form_data = await request.form()
+        call_sid = form_data.get("CallSid") or CallSid
+        call_status = form_data.get("CallStatus") or CallStatus
+        
+        logger.info(f"Call Status Update: CallSid={call_sid}, Status={call_status}")
+        
+        return Response(status_code=200)
+    except Exception as e:
+        logger.error(f"Error handling status callback: {str(e)}")
+        return Response(status_code=500)
+
+@router.get("/call-status/{call_sid}")
+async def get_call_status(call_sid: str, db: Session = Depends(get_db)):
+    """Get the status of a specific call"""
+    # Check if telephony service is available
+    if not telephony_service.is_available():
+         return {"success": False, "error": "Telephony service not configured"}
+            
+    return telephony_service.get_call_status(call_sid)

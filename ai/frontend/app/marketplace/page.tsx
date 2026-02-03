@@ -2,253 +2,261 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { Search, Filter, Download, Box, LayoutTemplate, ArrowRight, Star } from "lucide-react";
+
+const templates = [
+  {
+    id: "hr-onboarding",
+    name: "HR Onboarding Assistant",
+    description: "Complete flow for new employee onboarding, including document collection, IT provisioning requests, and policy FAQs.",
+    category: "HR",
+    complexity: "Medium",
+    nodes: 15,
+    stars: 124,
+  },
+  {
+    id: "it-helpdesk",
+    name: "IT Helpdesk L1 Support",
+    description: "Automated troubleshooting for common IT issues (password reset, wifi, software install) with ServiceNow integration.",
+    category: "IT",
+    complexity: "High",
+    nodes: 28,
+    stars: 89,
+  },
+  {
+    id: "sales-qualifier",
+    name: "B2B Sales Lead Qualifier",
+    description: "Engage website visitors, qualify leads based on budget/timeline, and sync high-intent leads to Salesforce.",
+    category: "Sales",
+    complexity: "Low",
+    nodes: 8,
+    stars: 210,
+  },
+  {
+    id: "customer-support",
+    name: "E-commerce Support Bot",
+    description: "Handle order status inquiries, returns processing, and product recommendations using Shopify data.",
+    category: "Support",
+    complexity: "Medium",
+    nodes: 12,
+    stars: 156,
+  },
+  {
+    id: "appointment-booking",
+    name: "Medical Appointment Booking",
+    description: "HIPAA-compliant flow for scheduling patient appointments, sending reminders, and handling rescheduling.",
+    category: "Healthcare",
+    complexity: "High",
+    nodes: 22,
+    stars: 75,
+  },
+];
 
 const integrations = [
   {
-    id: "shopify-order",
-    name: "Order Status Using Shopify",
-    description: "Connect your Shopify account and enable the bot to check order status for customers...",
-    logo: "🟢",
-    category: "E-commerce",
-    function: "Customer Support",
-    useCase: "E-Commerce",
-  },
-  {
-    id: "salesforce-lead",
-    name: "Lead Capture Using Salesforc...",
-    description: "Integrate your Salesforce instance with our customer experience platform and allow AI-powered lead...",
-    logo: "☁️",
+    id: "salesforce",
+    name: "Salesforce CRM",
+    description: "Native integration for Lead, Contact, and Case management.",
     category: "CRM",
-    function: "Sales",
-    useCase: "CRM",
+    verified: true,
   },
   {
-    id: "freshsales-lead",
-    name: "Lead Capture Using Freshsales",
-    description: "Train your AI chatbot to greet customers on your website, ask tailored questions they should...",
-    logo: "🟠",
+    id: "servicenow",
+    name: "ServiceNow ITSM",
+    description: "Create and update Incidents, Requests, and Change Orders.",
+    category: "ITSM",
+    verified: true,
+  },
+  {
+    id: "hubspot",
+    name: "HubSpot",
+    description: "Marketing and Sales automation integration.",
     category: "CRM",
-    function: "Sales",
-    useCase: "CRM",
+    verified: true,
   },
   {
-    id: "zendesk-tickets",
-    name: "View Tickets Using Zendesk",
-    description: "Train your AI chatbot to check ticket status in Zendesk for customers over chat...",
-    logo: "🎫",
-    category: "Ticket Management",
-    function: "Customer Support",
-    useCase: "Ticket Management",
+    id: "sap",
+    name: "SAP ERP",
+    description: "Enterprise resource planning connection for orders and inventory.",
+    category: "ERP",
+    verified: true,
   },
   {
-    id: "calendly-schedule",
-    name: "Schedule An Appointment Usi...",
-    description: "Connect your company's Calendly account, and allow the bot to share a Calendly URL when customers want...",
-    logo: "📅",
-    category: "Scheduling",
-    function: "Sales",
-    useCase: "Scheduling",
+    id: "slack",
+    name: "Slack",
+    description: "Send notifications and interactive messages to channels.",
+    category: "Communication",
+    verified: true,
   },
   {
-    id: "jotform-survey",
-    name: "User Survey Using Jotform",
-    description: "Train your AI chatbot to ask questions of an existing Jotform survey, and automatically store responses into...",
-    logo: "📋",
-    category: "User Survey",
-    function: "Marketing",
-    useCase: "User Survey",
-  },
-  {
-    id: "hubspot-lead",
-    name: "Lead Capture Using Hubspot -...",
-    description: "Integrate your Hubspot instance with our customer experience platform and allow AI-powered lead capture...",
-    logo: "🟠",
-    category: "CRM",
-    function: "Sales",
-    useCase: "CRM",
-  },
-  {
-    id: "shopify-order-2",
-    name: "Order Status Using Shopify A...",
-    description: "Allow your customers to effortlessly track orders with our customer experience platform's Gen AI-...",
-    logo: "🟢",
-    category: "E-commerce",
-    function: "Customer Support",
-    useCase: "E-Commerce",
+    id: "zendesk",
+    name: "Zendesk",
+    description: "Customer support ticket management and knowledge base.",
+    category: "Support",
+    verified: true,
   },
 ];
 
 export default function MarketplacePage() {
-  const [selectedFunction, setSelectedFunction] = useState<string[]>([]);
-  const [selectedUseCase, setSelectedUseCase] = useState<string[]>([]);
-  const [selectedIntegration, setSelectedIntegration] = useState<string[]>([]);
-  const [sortBy, setSortBy] = useState("Recommended");
+  const [activeTab, setActiveTab] = useState<"templates" | "integrations">("templates");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [selectedCategory, setSelectedCategory] = useState<string>("All");
 
-  const functions = ["Customer Support", "Sales", "Marketing", "IT"];
-  const useCases = ["CRM", "Ticket Management", "E-Commerce", "Scheduling", "User Survey"];
-  const integrationTypes = ["Bigcommerce", "Calendly"];
+  const categories = ["All", "HR", "IT", "Sales", "Support", "Healthcare", "CRM", "ITSM", "ERP"];
 
-  const filteredIntegrations = integrations.filter((int) => {
-    const matchesFunction = selectedFunction.length === 0 || selectedFunction.includes(int.function);
-    const matchesUseCase = selectedUseCase.length === 0 || selectedUseCase.includes(int.useCase);
-    const matchesIntegration = selectedIntegration.length === 0 || selectedIntegration.includes(int.category);
-    return matchesFunction && matchesUseCase && matchesIntegration;
-  });
+  const filteredTemplates = templates.filter(t => 
+    (selectedCategory === "All" || t.category === selectedCategory) &&
+    (t.name.toLowerCase().includes(searchQuery.toLowerCase()) || t.description.toLowerCase().includes(searchQuery.toLowerCase()))
+  );
+
+  const filteredIntegrations = integrations.filter(i => 
+    (selectedCategory === "All" || i.category === selectedCategory) &&
+    (i.name.toLowerCase().includes(searchQuery.toLowerCase()) || i.description.toLowerCase().includes(searchQuery.toLowerCase()))
+  );
 
   return (
-    <div className="min-h-screen bg-white">
+    <div className="min-h-screen bg-black text-white">
       {/* Header */}
-      <header className="bg-gray-50 border-b border-gray-200 px-6 py-4">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <Link href="/" className="text-xl font-bold">
-              Automation AI
-            </Link>
+      <header className="border-b border-gray-800 bg-gray-900/50 backdrop-blur sticky top-0 z-20">
+        <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <LayoutTemplate className="w-6 h-6 text-blue-500" />
+            <span className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-purple-500">
+              Enterprise Marketplace
+            </span>
           </div>
-          <div className="flex items-center gap-3">
-            <button className="px-4 py-2 text-gray-600 hover:text-gray-900">En</button>
-            <button className="px-4 py-2 text-gray-600 hover:text-gray-900">🔍</button>
-            <button className="px-4 py-2 text-gray-600 hover:text-gray-900">?</button>
-            <div className="flex gap-2">
-              <div className="w-8 h-8 rounded-full bg-green-100 flex items-center justify-center text-xs">KO</div>
-              <div className="w-8 h-8 rounded-full bg-orange-100 flex items-center justify-center text-xs">SD</div>
-            </div>
-            <button className="px-4 py-2 bg-blue-600 text-white rounded-lg">▶ Test</button>
+          <div className="flex items-center gap-4">
+             <Link href="/agents/new" className="text-sm text-gray-400 hover:text-white transition-colors">
+                Create Custom Agent
+             </Link>
+             <Link href="/agents" className="px-4 py-2 bg-white text-black text-sm font-bold rounded-lg hover:bg-gray-200 transition-colors">
+                My Agents
+             </Link>
           </div>
         </div>
       </header>
 
-      <div className="flex">
-        {/* Sidebar */}
-        <aside className="w-64 bg-gray-50 border-r border-gray-200 p-4">
-          <h2 className="font-semibold mb-4">Flows & Channels</h2>
-          
-          <div className="space-y-4">
-            <div>
-              <h3 className="text-sm font-medium text-gray-700 mb-2">Function</h3>
-              <div className="space-y-1">
-                {functions.map((func) => (
-                  <label key={func} className="flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      checked={selectedFunction.includes(func)}
-                      onChange={(e) => {
-                        if (e.target.checked) {
-                          setSelectedFunction([...selectedFunction, func]);
-                        } else {
-                          setSelectedFunction(selectedFunction.filter((f) => f !== func));
-                        }
-                      }}
-                      className="w-4 h-4"
-                    />
-                    <span className="text-sm">{func}</span>
-                  </label>
-                ))}
-              </div>
-            </div>
-
-            <div>
-              <h3 className="text-sm font-medium text-gray-700 mb-2">Use Case</h3>
-              <input
-                type="text"
-                placeholder="Search Use Cases..."
-                className="w-full px-2 py-1 text-sm border border-gray-300 rounded mb-2"
-              />
-              <div className="space-y-1">
-                {useCases.map((useCase) => (
-                  <label key={useCase} className="flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      checked={selectedUseCase.includes(useCase)}
-                      onChange={(e) => {
-                        if (e.target.checked) {
-                          setSelectedUseCase([...selectedUseCase, useCase]);
-                        } else {
-                          setSelectedUseCase(selectedUseCase.filter((u) => u !== useCase));
-                        }
-                      }}
-                      className="w-4 h-4"
-                    />
-                    <span className="text-sm">{useCase}</span>
-                  </label>
-                ))}
-              </div>
-            </div>
-
-            <div>
-              <h3 className="text-sm font-medium text-gray-700 mb-2">Integration</h3>
-              <input
-                type="text"
-                placeholder="Search Integrations"
-                className="w-full px-2 py-1 text-sm border border-gray-300 rounded mb-2"
-              />
-              <div className="space-y-1">
-                {integrationTypes.map((integration) => (
-                  <label key={integration} className="flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      checked={selectedIntegration.includes(integration)}
-                      onChange={(e) => {
-                        if (e.target.checked) {
-                          setSelectedIntegration([...selectedIntegration, integration]);
-                        } else {
-                          setSelectedIntegration(selectedIntegration.filter((i) => i !== integration));
-                        }
-                      }}
-                      className="w-4 h-4"
-                    />
-                    <span className="text-sm">{integration}</span>
-                  </label>
-                ))}
-              </div>
-            </div>
-          </div>
-        </aside>
-
-        {/* Main Content */}
-        <main className="flex-1 p-8">
-          <div className="flex items-center justify-between mb-6">
-            <div>
-              <h1 className="text-3xl font-bold mb-2">Marketplace</h1>
-              <div className="flex items-center gap-2">
-                <span className="text-blue-600">🔵</span>
-                <span className="font-medium">Customer Experience (AI for Service)</span>
-                <span className="px-2 py-1 bg-blue-100 text-blue-800 rounded-full text-xs">24</span>
-              </div>
-            </div>
-            <select
-              value={sortBy}
-              onChange={(e) => setSortBy(e.target.value)}
-              className="px-4 py-2 border border-gray-300 rounded-lg"
-            >
-              <option>Recommended</option>
-              <option>Most Popular</option>
-              <option>Recently Added</option>
-            </select>
+      <main className="max-w-7xl mx-auto px-6 py-8">
+        {/* Search & Filter */}
+        <div className="flex flex-col md:flex-row gap-6 mb-10 items-center justify-between">
+          <div className="flex bg-gray-900 p-1 rounded-lg border border-gray-800">
+             <button 
+               onClick={() => setActiveTab("templates")}
+               className={`px-6 py-2 rounded-md text-sm font-medium transition-all ${activeTab === "templates" ? "bg-blue-600 text-white shadow-lg" : "text-gray-400 hover:text-white"}`}
+             >
+               Templates
+             </button>
+             <button 
+               onClick={() => setActiveTab("integrations")}
+               className={`px-6 py-2 rounded-md text-sm font-medium transition-all ${activeTab === "integrations" ? "bg-blue-600 text-white shadow-lg" : "text-gray-400 hover:text-white"}`}
+             >
+               Nodes & Integrations
+             </button>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-            {filteredIntegrations.map((integration) => (
-              <div
-                key={integration.id}
-                className="bg-white border border-gray-200 rounded-lg overflow-hidden hover:shadow-lg transition-shadow"
-              >
-                <div className="bg-blue-50 p-4 flex items-center justify-center h-24">
-                  <span className="text-4xl">{integration.logo}</span>
-                </div>
-                <div className="p-4">
-                  <h3 className="font-semibold mb-2">{integration.name}</h3>
-                  <p className="text-sm text-gray-600 mb-3">{integration.description}</p>
-                  <span className="inline-block px-2 py-1 bg-gray-100 text-gray-700 rounded text-xs">
-                    {integration.category}
-                  </span>
-                </div>
-              </div>
-            ))}
+          <div className="relative w-full md:w-96">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
+            <input 
+              type="text" 
+              placeholder={`Search ${activeTab}...`}
+              className="w-full bg-gray-900 border border-gray-800 rounded-lg pl-10 pr-4 py-2 text-sm text-white focus:outline-none focus:border-blue-500 transition-colors"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+            />
           </div>
-        </main>
-      </div>
+        </div>
+
+        {/* Categories */}
+        <div className="flex gap-2 mb-8 overflow-x-auto pb-2 custom-scrollbar">
+           {categories.map(cat => (
+             <button
+               key={cat}
+               onClick={() => setSelectedCategory(cat)}
+               className={`px-4 py-1.5 rounded-full text-xs font-medium border transition-colors whitespace-nowrap
+                 ${selectedCategory === cat 
+                    ? "bg-white text-black border-white" 
+                    : "bg-black text-gray-400 border-gray-800 hover:border-gray-600 hover:text-white"
+                 }
+               `}
+             >
+               {cat}
+             </button>
+           ))}
+        </div>
+
+        {/* Content Grid */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+           {activeTab === "templates" ? (
+             filteredTemplates.map(template => (
+               <div key={template.id} className="group bg-gray-900 border border-gray-800 rounded-xl p-6 hover:border-blue-500/50 transition-all hover:shadow-lg hover:shadow-blue-500/10 flex flex-col h-full">
+                  <div className="flex justify-between items-start mb-4">
+                     <div className="p-3 bg-blue-500/10 rounded-lg">
+                        <LayoutTemplate className="w-6 h-6 text-blue-500" />
+                     </div>
+                     <div className="flex items-center gap-1 text-xs font-medium text-yellow-500 bg-yellow-500/10 px-2 py-1 rounded">
+                        <Star className="w-3 h-3 fill-current" />
+                        {template.stars}
+                     </div>
+                  </div>
+                  
+                  <h3 className="text-lg font-bold mb-2 group-hover:text-blue-400 transition-colors">{template.name}</h3>
+                  <p className="text-sm text-gray-400 mb-6 flex-1">{template.description}</p>
+                  
+                  <div className="flex items-center gap-4 text-xs text-gray-500 mb-6 font-mono">
+                     <span className="flex items-center gap-1">
+                        <Box className="w-3 h-3" /> {template.nodes} Nodes
+                     </span>
+                     <span className={`px-2 py-0.5 rounded border ${
+                        template.complexity === "High" ? "border-red-900 text-red-400" :
+                        template.complexity === "Medium" ? "border-yellow-900 text-yellow-400" :
+                        "border-green-900 text-green-400"
+                     }`}>
+                        {template.complexity}
+                     </span>
+                  </div>
+
+                  <button 
+                    onClick={() => handleUseTemplate(template)}
+                    disabled={creatingTemplateId !== null}
+                    className={`w-full py-2 bg-white text-black rounded-lg font-bold text-sm hover:bg-blue-50 transition-colors flex items-center justify-center gap-2 ${creatingTemplateId !== null ? "opacity-50 cursor-not-allowed" : ""}`}
+                  >
+                     {creatingTemplateId === template.id ? (
+                        <>
+                          <Loader2 className="w-4 h-4 animate-spin" /> Creating...
+                        </>
+                     ) : (
+                        <>
+                          Use Template <ArrowRight className="w-4 h-4" />
+                        </>
+                     )}
+                  </button>
+               </div>
+             ))
+           ) : (
+             filteredIntegrations.map(integration => (
+               <div key={integration.id} className="group bg-gray-900 border border-gray-800 rounded-xl p-6 hover:border-purple-500/50 transition-all hover:shadow-lg hover:shadow-purple-500/10">
+                  <div className="flex justify-between items-start mb-4">
+                     <div className="p-3 bg-purple-500/10 rounded-lg">
+                        <Box className="w-6 h-6 text-purple-500" />
+                     </div>
+                     {integration.verified && (
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-blue-400 bg-blue-400/10 px-2 py-1 rounded border border-blue-400/20">
+                           Verified
+                        </span>
+                     )}
+                  </div>
+                  
+                  <h3 className="text-lg font-bold mb-2 group-hover:text-purple-400 transition-colors">{integration.name}</h3>
+                  <p className="text-sm text-gray-400 mb-6">{integration.description}</p>
+                  
+                  <button className="w-full py-2 border border-gray-700 text-white rounded-lg font-bold text-sm hover:bg-gray-800 transition-colors">
+                     Install
+                  </button>
+               </div>
+             ))
+           )}
+        </div>
+      </main>
     </div>
   );
 }
-

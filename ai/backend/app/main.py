@@ -1,16 +1,18 @@
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
+# from prometheus_fastapi_instrumentator import Instrumentator
 from app.api import chat, actions, feedback
 from app.api.status import router as status_router
 from app.api.products import router as products_router
 from app.api.tickets import router as tickets_router
 from app.db.init_db import init_db
 from app.api.ws_status import router as ws_router
+from app.api.voice_ws import router as voice_ws_router
 from app.api import knowledge, hr, auth, subscription, demo_request, analytics, widget, ticket_assigner
 from app.api import webhooks, config as config_api, tools as tools_api, ticket_solver, knowledge_sources
 from app.api import agents, agent_templates
-from app.api import enterprise, ivr, conversations
+from app.api import enterprise, ivr, conversations, voice
 from app.core.lifecycle import register_lifecycle
 from app.services.status_service import start_status_watcher
 from app.services.knowledge_crawler_scheduler import start_knowledge_crawler_scheduler
@@ -38,7 +40,11 @@ start_status_watcher()
 # Start knowledge crawler scheduler
 start_knowledge_crawler_scheduler()
 
+# Initialize Prometheus Metrics
+# # Instrumentator().instrument(app).expose(app, include_in_schema=False)
+
 app.include_router(ws_router)
+app.include_router(voice_ws_router)
 
 
 app.add_middleware(
@@ -81,6 +87,7 @@ app.include_router(agent_templates.router, prefix="/api/agent-templates")
 app.include_router(ivr.router, prefix="/api/ivr")
 app.include_router(enterprise.router, prefix="/api")
 app.include_router(conversations.router, prefix="/api/conversations")
+app.include_router(voice.router, prefix="/api/voice")
 
 # Audit logs
 from app.api import audit
@@ -93,6 +100,14 @@ app.include_router(trace.router, prefix="/api/trace")
 # Evaluation router
 from app.api.endpoints import evaluation
 app.include_router(evaluation.router, prefix="/api/evaluation")
+
+# Voice router
+from app.api import voice
+app.include_router(voice.router, prefix="/api/voice")
+
+# Voice WebSocket router
+from app.api import voice_ws
+app.include_router(voice_ws.router, prefix="/api/voice-ws")
 
 # Admin router (protected by ADMIN_API_KEY if set)
 from app.api import admin as admin_router

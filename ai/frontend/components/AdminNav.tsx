@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Shield, FileText } from "lucide-react";
+import { Shield, FileText, Users } from "lucide-react";
 
 export default function AdminNav() {
   const pathname = usePathname();

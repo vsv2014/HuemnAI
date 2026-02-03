@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import ToolSwitcher from "@/components/ToolSwitcher";
 import { useAuthStore } from "@/store/authStore";
 import {

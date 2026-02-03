@@ -137,6 +137,7 @@ const NODE_TYPES = [
   { type: "calendar", label: "Calendar AI", icon: "📅", color: "#3b82f6", category: "communication", description: "Manages calendar events, schedules meetings, and handles time-based operations. Integrates with calendar services." },
   { type: "streaming", label: "Streaming", icon: "📡", color: "#06b6d4", category: "communication", description: "Streams data in real-time. Provides continuous output for live updates, progress tracking, and real-time communication." },
   { type: "ivr_call", label: "IVR Call", icon: "📞", color: "#10b981", category: "communication", description: "Initiates a phone call to redirect the conversation from chat to voice. Connects users to IVR agents for phone-based interactions." },
+  { type: "premium_voice_tts", label: "Premium Voice TTS", icon: "🗣️", color: "#ec4899", category: "communication", description: "Generates ultra-realistic voice using HuemnVoice. Supports streaming, emotion, and voice cloning." },
   
   // Automation Nodes
   { type: "workflow_automation", label: "Workflow AI", icon: "🤖", color: "#6366f1", category: "automation", description: "Orchestrates complex workflows with AI-driven decision making. Automates multi-step processes and business logic." },
@@ -2535,6 +2536,126 @@ function FlowCanvas({
                 </div>
               )}
 
+
+              {/* Premium Voice TTS Node Configuration */}
+              {selectedNode.data.nodeType === "premium_voice_tts" && (
+                <div className="space-y-4">
+                  <div className="p-3 bg-pink-500/10 border border-pink-500/20 rounded-lg">
+                    <p className="text-xs text-pink-300">
+                      💡 <strong>HuemnVoice:</strong> Generates ultra-realistic speech. Supports variables in text.
+                    </p>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs text-white/70 mb-1">Text to Speak</label>
+                    <textarea
+                      value={selectedNode.data.config?.text || ""}
+                      onChange={(e) => {
+                        updateNodeConfiguration(selectedNode.id, {
+                          config: { ...selectedNode.data.config, text: e.target.value }
+                        });
+                      }}
+                      className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm"
+                      rows={4}
+                      placeholder="Hello {{user.name}}, how can I help you today?"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs text-white/70 mb-1">Voice ID</label>
+                    <input
+                      value={selectedNode.data.config?.voice_id || "21m00Tcm4TlvDq8ikWAM"}
+                      onChange={(e) => {
+                        updateNodeConfiguration(selectedNode.id, {
+                          config: { ...selectedNode.data.config, voice_id: e.target.value }
+                        });
+                      }}
+                      className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm"
+                      placeholder="e.g. 21m00Tcm4TlvDq8ikWAM"
+                    />
+                    <p className="text-[10px] text-white/40 mt-1">Rachel: 21m00Tcm4TlvDq8ikWAM | Drew: 29vD33N1CtxCmqQRPOHJ</p>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                        <label className="block text-xs text-white/70 mb-1">Model ID</label>
+                        <select
+                          value={selectedNode.data.config?.model_id || "huemn_turbo_v2"}
+                          onChange={(e) => {
+                            updateNodeConfiguration(selectedNode.id, {
+                              config: { ...selectedNode.data.config, model_id: e.target.value }
+                            });
+                          }}
+                          className="w-full px-2 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-xs"
+                        >
+                          <option value="huemn_turbo_v2">Turbo v2 (Fastest)</option>
+                          <option value="huemn_multilingual_v2">Multilingual v2</option>
+                          <option value="huemn_monolingual_v1">Monolingual v1</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label className="block text-xs text-white/70 mb-1">Latency Opt.</label>
+                        <select
+                          value={selectedNode.data.config?.optimize_streaming_latency || 0}
+                          onChange={(e) => {
+                            updateNodeConfiguration(selectedNode.id, {
+                              config: { ...selectedNode.data.config, optimize_streaming_latency: parseInt(e.target.value) }
+                            });
+                          }}
+                          className="w-full px-2 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-xs"
+                        >
+                          <option value={0}>0 - Default</option>
+                          <option value={1}>1 - Normal</option>
+                          <option value={2}>2 - High</option>
+                          <option value={3}>3 - Max</option>
+                          <option value={4}>4 - Max (Aggressive)</option>
+                        </select>
+                    </div>
+                  </div>
+
+                  <div className="space-y-3 pt-2 border-t border-white/10">
+                     <div>
+                        <div className="flex justify-between text-xs text-white/70 mb-1">
+                            <span>Stability</span>
+                            <span>{selectedNode.data.config?.stability ?? 0.5}</span>
+                        </div>
+                        <input
+                          type="range"
+                          min="0"
+                          max="1"
+                          step="0.05"
+                          value={selectedNode.data.config?.stability ?? 0.5}
+                          onChange={(e) => {
+                             updateNodeConfiguration(selectedNode.id, {
+                               config: { ...selectedNode.data.config, stability: parseFloat(e.target.value) }
+                             });
+                          }}
+                          className="w-full"
+                        />
+                     </div>
+                     <div>
+                        <div className="flex justify-between text-xs text-white/70 mb-1">
+                            <span>Similarity</span>
+                            <span>{selectedNode.data.config?.similarity_boost ?? 0.75}</span>
+                        </div>
+                        <input
+                          type="range"
+                          min="0"
+                          max="1"
+                          step="0.05"
+                          value={selectedNode.data.config?.similarity_boost ?? 0.75}
+                          onChange={(e) => {
+                             updateNodeConfiguration(selectedNode.id, {
+                               config: { ...selectedNode.data.config, similarity_boost: parseFloat(e.target.value) }
+                             });
+                          }}
+                          className="w-full"
+                        />
+                     </div>
+                  </div>
+                </div>
+              )}
+
             {/* Condition Node Configuration */}
             {selectedNode.data.nodeType === "condition" && (
               <div className="p-3 bg-yellow-500/10 rounded-lg border border-yellow-500/20">
@@ -3221,7 +3342,7 @@ function FlowCanvas({
                         >
                           <option value="tts-1">OpenAI TTS-1</option>
                           <option value="tts-1-hd">OpenAI TTS-1 HD</option>
-                          <option value="elevenlabs">ElevenLabs</option>
+                          <option value="huemn">HuemnVoice</option>
                           <option value="azure">Azure TTS</option>
                         </select>
                       </div>

@@ -183,24 +183,7 @@ class ChangeLog(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
 
-class AgentVersion(Base):
-    """Version history for agents"""
-    __tablename__ = "agent_versions"
-    
-    id = Column(Integer, primary_key=True, index=True)
-    agent_id = Column(Integer, ForeignKey("agents.id"), nullable=False, index=True)
-    version_number = Column(String(50), nullable=False)  # 1.0.0, 1.1.0, etc.
-    
-    # Version data
-    snapshot = Column(JSON, nullable=True)  # Full agent snapshot
-    notes = Column(Text, nullable=True)
-    
-    # Publishing
-    is_published = Column(Boolean, default=False)
-    published_at = Column(DateTime(timezone=True), nullable=True)
-    
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-    created_by = Column(Integer, nullable=True)
+
 
 
 class Role(Base):

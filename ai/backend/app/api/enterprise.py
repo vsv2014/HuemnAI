@@ -9,9 +9,9 @@ from app.db.session import get_db
 from app.db.models.enterprise import (
     Language, AgentVariable, VariableType, AIModel, ModelProvider,
     Prompt, GenAIFeature, Guardrail, Integration, ChangeLog,
-    AgentVersion, Role, UserRole
+    Role, UserRole
 )
-from app.db.models.agent import Agent
+from app.db.models.agent import Agent, AgentVersion
 
 router = APIRouter(prefix="/agents/{agent_id}", tags=["enterprise"])
 
@@ -519,7 +519,7 @@ async def create_version(
     version = AgentVersion(
         agent_id=agent_id,
         version_number=version_number,
-        snapshot=snapshot,
+        configuration=snapshot,
         notes=notes,
     )
     db.add(version)

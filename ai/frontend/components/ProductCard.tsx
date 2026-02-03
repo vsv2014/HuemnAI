@@ -93,6 +93,10 @@ export default function ProductCard({
     }
     // Handle settings route
     if (isSettings || slug === "settings") {
+      if (slug === "voice") {
+        router.push("/voice");
+        return;
+      }
       router.push("/settings");
       return;
     }

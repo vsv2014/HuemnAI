@@ -79,6 +79,7 @@ export default function AppSidebar({ agentId }: { agentId: number }) {
       items: [
         { id: "models", label: "Models Library", icon: "🤖", path: `/agents/${agentId}/genai/models` },
         { id: "prompts", label: "Prompts Library", icon: "📝", path: `/agents/${agentId}/genai/prompts` },
+        { id: "voice-studio", label: "Voice Studio", icon: "🎙️", path: `/voice` },
         { id: "features", label: "GenAI Features", icon: "⭐", path: `/agents/${agentId}/genai/features` },
         { id: "safeguards", label: "Safeguards", icon: "🛡️", path: `/agents/${agentId}/genai/safeguards` },
       ],

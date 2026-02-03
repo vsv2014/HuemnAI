@@ -126,14 +126,14 @@ class OpenAILLM(BaseLLM):
                     yield token + " "
                     await asyncio.sleep(0.05)
         else:
-            # No API key configured - return configuration message
+            # Fallback for when OPENAI_AVAILABLE is False but api_key was somehow present
+            # Or if code falls through to here
             import logging
             logger = logging.getLogger(__name__)
-            logger.warning("OpenAI API key not configured. User should configure via Settings page.")
+            logger.warning("OpenAI library not installed or other error.")
             
-            response = "⚠️ OpenAI API key not configured. Please go to Settings and add your LLM provider configuration to use this feature. Without an API key, I cannot generate AI responses."
+            response = "⚠️ OpenAI library not available. Please install 'openai' package."
             
-            # Stream the response token by token
             for token in response.split():
                 yield token + " "
                 await asyncio.sleep(0.05)

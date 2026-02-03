@@ -146,6 +146,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
   const shouldHideHeader = pathname?.startsWith('/agents') || 
                            pathname?.includes('knowledge-ai') || 
                            pathname?.startsWith('/chat/') || 
+                           pathname?.startsWith('/voice') ||
                            pathname?.startsWith('/settings') || 
                            pathname?.startsWith('/auth/');
   

@@ -1,5 +1,6 @@
-# app/api/chat.py
-from fastapi import APIRouter, HTTPException
+from app.api.auth import get_current_user
+from app.db.models.subscription import UserAccount
+from fastapi import APIRouter, HTTPException, Depends
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from typing import Optional, List, Dict
@@ -67,6 +68,28 @@ async def chat_stream(message: str):
     return StreamingResponse(generator(), media_type="text/event-stream")
 
 
+@router.post("/issue")
+async def handle_issue_endpoint(payload: Dict[str, str], user: UserAccount = Depends(get_current_user)):
+    """
+    Adapter endpoint for /api/chat/issue calls from frontend.
+    Redirects to handle_chat logic.
+    """
+    message = payload.get("issue", "")
+    if not message:
+         raise HTTPException(status_code=400, detail="Issue message is required")
+         
+    # Call handle_chat with constructed payload
+    chat_payload = ChatPayload(
+        user_id=str(user.id),
+        message=message,
+        connector_type=None, # Default or integrated
+        conversation_history=[],
+        attachments=None
+    )
+    
+    return await handle_chat(chat_payload)
+
+
 @router.post("/handle")
 async def handle_chat(payload: ChatPayload):
     """
@@ -89,6 +112,100 @@ async def handle_chat(payload: ChatPayload):
     # In independent mode, don't use external connectors
     if operation_mode == "independent":
         connector_type = None
+        
+    # ENTERPRISE FEATURE: Agent Routing
+    # Check if we should route to an Agent instead of hardcoded logic
+    agent_id = tool_entry.metadata.get("agent_id") if tool_entry else None
+    
+    # Fallback: Check if we have a "Voice Agent" for testing purposes if not explicitly configured
+    if not agent_id and operation_mode == "integrated":
+        try:
+            from app.db.models.agent import Agent
+            db_temp = SessionLocal()
+            try:
+                # Look for an agent with "voice" in the name or description
+                voice_agent = db_temp.query(Agent).filter(
+                    (Agent.name.ilike("%voice%")) | (Agent.description.ilike("%voice%"))
+                ).first()
+                if voice_agent and voice_agent.is_active:
+                    agent_id = voice_agent.id
+            finally:
+                db_temp.close()
+        except Exception:
+            pass
+
+    if agent_id:
+        try:
+            from app.services.agent_executor import AgentExecutor
+            from app.db.models.agent import Agent, AgentConversation
+            import uuid
+            
+            db = SessionLocal()
+            try:
+                agent = db.query(Agent).filter(Agent.id == agent_id).first()
+                
+                if agent and agent.is_active:
+                    # Create/Get conversation
+                    # Use a stable session ID for the user to maintain context
+                    session_id = f"chat_{user_id}"
+                    
+                    conversation = db.query(AgentConversation).filter(
+                        AgentConversation.agent_id == agent.id,
+                        AgentConversation.session_id == session_id,
+                        AgentConversation.is_active == True
+                    ).first()
+                    
+                    if not conversation:
+                        conversation = AgentConversation(
+                            agent_id=agent.id,
+                            session_id=session_id,
+                            channel="chat",
+                            context={"user_id": user_id, "source": "customer_service_chat"}
+                        )
+                        db.add(conversation)
+                        db.commit()
+                        db.refresh(conversation)
+                    
+                    # Execute Agent
+                    executor = AgentExecutor(agent.id, db)
+                    
+                    # Pass context variables
+                    context = {
+                        "user_id": user_id, 
+                        "channel": "chat",
+                        "message": message,
+                        "conversation_history": conversation_history
+                    }
+                    
+                    result = await executor.execute(
+                        message, 
+                        conversation.id,
+                        context=context
+                    )
+                    
+                    # Format response to match expected Chat structure
+                    response_text = result.get("response", "")
+                    metadata = result.get("metadata", {})
+                    
+                    # Construct response
+                    chat_response = {
+                        "type": "AGENT_RESPONSE",
+                        "message": response_text,
+                        "metadata": metadata, # Pass metadata for voice/streaming
+                        "ticket_created": False,
+                        # Map some metadata to root fields if needed
+                        "tone": metadata.get("tone", "neutral"),
+                        "steps": metadata.get("steps", [])
+                    }
+                    
+                    return chat_response
+            finally:
+                db.close()
+                
+        except Exception as e:
+            logger.error(f"Error executing agent {agent_id}: {e}", exc_info=True)
+            # Fallback to standard logic if agent execution fails
+
     
     if not user_id or not message:
         return {

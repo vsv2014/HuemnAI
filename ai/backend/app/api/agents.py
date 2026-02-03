@@ -18,6 +18,7 @@ from app.db.models.agent import (
 from app.services.flow_generator import FlowGenerator
 from app.services.audit_service import log_audit_event
 from app.db.models.subscription import UserAccount
+from app.api.auth import get_current_user
 
 router = APIRouter()
 
@@ -114,6 +115,145 @@ class ConversationResponse(BaseModel):
 class GenerateFlowRequest(BaseModel):
     agent_id: int
     prompt: str
+
+
+class TemplateRequest(BaseModel):
+    template_id: str
+    name: Optional[str] = None
+    description: Optional[str] = None
+
+
+@router.post("/template", response_model=Dict[str, Any])
+async def create_agent_from_template(
+    data: TemplateRequest,
+    request: Request,
+    current_user: UserAccount = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Create a new agent from a template"""
+    template_id = data.template_id
+    
+    # Define Templates (In a real app, fetch from DB or Registry)
+    if template_id == "hr-onboarding":
+        name = data.name or "HR Onboarding Assistant"
+        description = data.description or "Automated onboarding flow for new hires"
+        agent_type = AgentType.CHATBOT
+        nodes_config = [
+            {"type": NodeType.START, "name": "Start", "label": "Start", "x": 100, "y": 100, "config": {}},
+            {"type": NodeType.MESSAGE, "name": "Welcome", "label": "Welcome Message", "x": 300, "y": 100, "config": {"template": "Welcome to the company! I'm here to guide you through onboarding."}},
+            {"type": NodeType.CONDITION, "name": "Check Dept", "label": "Check Department", "x": 500, "y": 100, "config": {}},
+            {"type": NodeType.MESSAGE, "name": "Engineering Path", "label": "Eng Instructions", "x": 700, "y": 0, "config": {"template": "Here are the engineering setup docs..."}},
+            {"type": NodeType.MESSAGE, "name": "Sales Path", "label": "Sales Instructions", "x": 700, "y": 200, "config": {"template": "Here are the sales playbooks..."}},
+            {"type": NodeType.END, "name": "End", "label": "End Flow", "x": 900, "y": 100, "config": {}}
+        ]
+        connections_config = [
+            {"source": 0, "target": 1}, # Start -> Welcome
+            {"source": 1, "target": 2}, # Welcome -> Check Dept
+            {"source": 2, "target": 3, "label": "Engineering"}, # Check -> Eng
+            {"source": 2, "target": 4, "label": "Sales"}, # Check -> Sales
+            {"source": 3, "target": 5}, # Eng -> End
+            {"source": 4, "target": 5}, # Sales -> End
+        ]
+    elif template_id == "it-helpdesk":
+        name = data.name or "IT Helpdesk L1"
+        description = data.description or "L1 Support Automation"
+        agent_type = AgentType.CHATBOT
+        nodes_config = [
+            {"type": NodeType.START, "name": "Start", "label": "Start", "x": 100, "y": 100, "config": {}},
+            {"type": NodeType.INTENT, "name": "Intent", "label": "Classify Issue", "x": 300, "y": 100, "config": {"intents": ["password_reset", "software_install", "wifi_issue"]}},
+            {"type": NodeType.MESSAGE, "name": "Password Reset", "label": "Reset Flow", "x": 500, "y": 0, "config": {"template": "Let's reset your password..."}},
+            {"type": NodeType.MESSAGE, "name": "Software", "label": "Install Flow", "x": 500, "y": 200, "config": {"template": "Which software do you need?"}},
+            {"type": NodeType.END, "name": "End", "label": "End", "x": 800, "y": 100, "config": {}}
+        ]
+        connections_config = [
+            {"source": 0, "target": 1},
+            {"source": 1, "target": 2, "label": "password_reset"},
+            {"source": 1, "target": 3, "label": "software_install"},
+            {"source": 2, "target": 4},
+            {"source": 3, "target": 4},
+        ]
+    else:
+        # Generic Fallback Template
+        name = data.name or "New Agent"
+        description = data.description or "Created from template"
+        agent_type = AgentType.CHATBOT
+        nodes_config = [
+            {"type": NodeType.START, "name": "Start", "label": "Start", "x": 100, "y": 100, "config": {}},
+            {"type": NodeType.LLM, "name": "LLM", "label": "AI Response", "x": 300, "y": 100, "config": {"model": "gpt-4"}},
+            {"type": NodeType.END, "name": "End", "label": "End", "x": 500, "y": 100, "config": {}}
+        ]
+        connections_config = [
+            {"source": 0, "target": 1},
+            {"source": 1, "target": 2}
+        ]
+
+    # 1. Create Agent
+    agent = Agent(
+        name=name,
+        description=description,
+        agent_type=agent_type,
+        user_id=current_user.id, # Assign owner
+        is_active=True
+    )
+    db.add(agent)
+    db.commit()
+    db.refresh(agent)
+
+    # 2. Create Nodes
+    created_nodes = []
+    # Map index to DB ID
+    node_map = {} 
+
+    for idx, n_conf in enumerate(nodes_config):
+        node = AgentNode(
+            agent_id=agent.id,
+            node_type=n_conf["type"],
+            name=n_conf["name"],
+            label=n_conf["label"],
+            config=n_conf["config"],
+            position_x=n_conf["x"],
+            position_y=n_conf["y"]
+        )
+        db.add(node)
+        db.flush() # Get ID
+        node_map[idx] = node.id
+        created_nodes.append(node)
+        
+        # Set entry node if start
+        if n_conf["type"] == NodeType.START:
+            agent.entry_node_id = node.id
+
+    # 3. Create Connections
+    for c_conf in connections_config:
+        conn = AgentConnection(
+            agent_id=agent.id,
+            source_node_id=node_map[c_conf["source"]],
+            target_node_id=node_map[c_conf["target"]],
+            label=c_conf.get("label"),
+            condition=c_conf.get("condition")
+        )
+        db.add(conn)
+
+    db.commit()
+    
+    # Audit Log
+    log_audit_event(
+        db=db,
+        action="create_agent_template",
+        resource_type="agent",
+        resource_id=str(agent.id),
+        details={"template_id": template_id, "name": agent.name},
+        request=request,
+        user_id=current_user.id
+    )
+
+    return {
+        "id": agent.id,
+        "name": agent.name,
+        "description": agent.description,
+        "nodes_created": len(created_nodes),
+        "status": "success"
+    }
 
 
 # Helper function to get user ID (placeholder - integrate with your auth system)

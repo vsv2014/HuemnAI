@@ -6,6 +6,7 @@ import {
   hrService,
   updateAgentStatus,
   recordActivity,
+  getConversation,
 } from "@/services/api";
 import { TOOLS } from "@/config/tools";
 
@@ -76,8 +77,12 @@ interface ChatState {
   messages: Message[];
   loading: boolean;
   conversationHistory: Array<{ role: string; text: string }>;
+  sessionId?: string;
+  agentId?: number;
 
   setTool: (tool: string) => void;
+  setSessionInfo: (sessionId: string, agentId?: number) => void;
+  fetchHistory: (sessionId: string) => Promise<void>;
   sendMessage: (text: string) => Promise<void>;
   reset: () => void;
 }
@@ -111,11 +116,43 @@ export const useChatStore = create<ChatState>((set, get) => ({
   messages: [],
   loading: false,
   conversationHistory: [],
+  sessionId: undefined,
+  agentId: undefined,
 
   setTool: (tool) => set({ tool, messages: [], conversationHistory: [] }),
+  
+  setSessionInfo: (sessionId, agentId) => set({ sessionId, agentId }),
+
+  fetchHistory: async (sessionId) => {
+    const token = useAuthStore.getState().token || "";
+    if (!sessionId || !token) return;
+
+    try {
+      set({ loading: true });
+      const result = await getAgentConversation(sessionId, token);
+      
+      if (result && result.messages) {
+        const history = result.messages.map((msg: any) => ({
+          role: msg.role,
+          text: msg.content
+        }));
+        
+        set({
+          messages: history,
+          conversationHistory: history,
+          loading: false
+        });
+      } else {
+        set({ loading: false });
+      }
+    } catch (error) {
+      console.error("Failed to fetch conversation history:", error);
+      set({ loading: false });
+    }
+  },
 
   sendMessage: async (text) => {
-    const { tool, conversationHistory } = get();
+    const { tool, conversationHistory, sessionId, agentId } = get();
     
     // Add user message
     set((s) => ({

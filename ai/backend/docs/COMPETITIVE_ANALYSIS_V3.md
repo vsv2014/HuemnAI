@@ -53,7 +53,7 @@ This document outlines the strategic roadmap to bring HUMANE.OS to feature parit
 
 | Node Name | Competitor Features (Twilio, Dialogflow CX) | Required Parity Features (HUMANE.OS) | Implementation Notes | Priority |
 |-----------|---------------------------------------------|--------------------------------------|----------------------|----------|
-| **ivr_call** | **Barge-in** (Interruption), **Voice Biometrics**, **DTMF** | `barge_in_enabled`, `voice_id` (ElevenLabs), `recording_enabled` | Integration with `Twilio` / `Vapi.ai`. Webhook for stream handling. | High |
+| **ivr_call** | **Barge-in** (Interruption), **Voice Biometrics**, **DTMF** | `barge_in_enabled`, `voice_id` (HuemnVoice), `recording_enabled` | Integration with `Twilio` / `Vapi.ai`. Webhook for stream handling. | High |
 | **streaming** | **Token Streaming**, **Latency Optimization** | `chunk_size`, `stream_format` (SSE/WebSocket) | Use `FastAPI` StreamingResponse. | Medium |
 
 ---

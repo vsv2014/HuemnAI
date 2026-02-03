@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { useRouter, useParams } from "next/navigation";
 import { useAuthStore } from "@/store/authStore";
-import { getAgent, updateAgent, createNode, updateNode, deleteNode, createConnection, deleteConnection } from "@/services/api";
+import { getAgent, updateAgent, createNode, updateNode, deleteNode, createConnection, deleteConnection, getVoiceProfiles } from "@/services/api";
 import ReactFlow, {
   Node,
   Edge,
@@ -56,6 +56,38 @@ const nodeTypeColors: Record<string, string> = {
   delay: "#64748b",
   branch: "#f59e0b",
   merge: "#06b6d4",
+  // Flow Control Extensions
+  event_trigger: "#f59e0b",
+  session_state: "#64748b",
+  // Identity & System Integration
+  auth_provider: "#6366f1",
+  queue_publisher: "#8b5cf6",
+  queue_listener: "#8b5cf6",
+  // Advanced AI Intelligence
+  dialog_policy: "#ec4899",
+  intent_flow: "#ec4899",
+  persona_control: "#8b5cf6",
+  kb_sync: "#3b82f6",
+  // Communication Enhancements
+  rich_message: "#14b8a6",
+  voice_translation: "#10b981",
+  handoff_intelligence: "#ef4444",
+  // Data & Analytics Extensions
+  data_transformer: "#06b6d4",
+  db_transaction: "#f97316",
+  ai_insight: "#3b82f6",
+  // Automation & Orchestration
+  orchestrator: "#a855f7",
+  scheduler_cluster: "#64748b",
+  adaptive_learner: "#10b981",
+  // Voice System
+  premium_voice_tts: "#ec4899",
+  // Native CRM/ERP
+  salesforce: "#00a1e0",
+  servicenow: "#81b5a1",
+  sap: "#008fd3",
+  hubspot: "#ff7a59",
+  zoho: "#e32630",
 };
 
 export default function EnhancedAgentBuilder() {
@@ -68,6 +100,29 @@ export default function EnhancedAgentBuilder() {
   const [nodes, setNodes] = useNodesState([]);
   const [edges, setEdges] = useEdgesState([]);
   const [selectedNode, setSelectedNode] = useState<Node | null>(null);
+  const [connectorMetadata, setConnectorMetadata] = useState<any[]>([]);
+  const [voiceProfiles, setVoiceProfiles] = useState<any[]>([]);
+
+  useEffect(() => {
+    // Fetch connector metadata
+    fetch('/api/connectors/metadata')
+      .then(res => res.json())
+      .then(data => {
+        if (data.success) {
+          setConnectorMetadata(data.connectors);
+        }
+      })
+      .catch(err => console.error("Failed to fetch connector metadata", err));
+
+    // Fetch voice profiles
+    if (token) {
+      getVoiceProfiles(token).then(data => {
+        if (Array.isArray(data)) {
+          setVoiceProfiles(data);
+        }
+      }).catch(err => console.error("Failed to fetch voice profiles", err));
+    }
+  }, [token]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -255,14 +310,23 @@ export default function EnhancedAgentBuilder() {
   const handleAddNode = async (nodeType: string) => {
     if (!token) return;
     
+    let backendNodeType = nodeType;
+    let initialConfig = {};
+
+    // Map virtual CRM/ERP types to connector node
+    if (["salesforce", "servicenow", "sap", "hubspot", "zoho"].includes(nodeType)) {
+        backendNodeType = "connector";
+        initialConfig = { connector_type: nodeType };
+    }
+
     const newNode = {
       agent_id: agentId,
-      node_type: nodeType,
+      node_type: backendNodeType,
       name: `${nodeType}_${Date.now()}`,
       label: nodeType.charAt(0).toUpperCase() + nodeType.slice(1).replace(/_/g, " "),
       position_x: Math.round(Math.random() * 400 + 100),
       position_y: Math.round(Math.random() * 300 + 100),
-      config: {},
+      config: initialConfig,
     };
 
     try {
@@ -380,6 +444,46 @@ export default function EnhancedAgentBuilder() {
     { type: "branch", label: "Branch", color: nodeTypeColors.branch },
     { type: "merge", label: "Merge", color: nodeTypeColors.merge },
     { type: "end", label: "End", color: nodeTypeColors.end },
+    
+    // Flow Control
+    { type: "event_trigger", label: "Event Trigger", color: nodeTypeColors.event_trigger },
+    { type: "session_state", label: "Session State", color: nodeTypeColors.session_state },
+    
+    // Identity
+    { type: "auth_provider", label: "Auth Provider", color: nodeTypeColors.auth_provider },
+    { type: "queue_publisher", label: "Queue Pub", color: nodeTypeColors.queue_publisher },
+    { type: "queue_listener", label: "Queue Sub", color: nodeTypeColors.queue_listener },
+    
+    // AI Intelligence
+    { type: "dialog_policy", label: "Dialog Policy", color: nodeTypeColors.dialog_policy },
+    { type: "intent_flow", label: "Intent Flow", color: nodeTypeColors.intent_flow },
+    { type: "persona_control", label: "Persona", color: nodeTypeColors.persona_control },
+    { type: "kb_sync", label: "KB Sync", color: nodeTypeColors.kb_sync },
+    
+    // Communication
+    { type: "rich_message", label: "Rich Msg", color: nodeTypeColors.rich_message },
+    { type: "voice_translation", label: "Voice Trans", color: nodeTypeColors.voice_translation },
+    { type: "handoff_intelligence", label: "Smart Handoff", color: nodeTypeColors.handoff_intelligence },
+    
+    // Data
+    { type: "data_transformer", label: "Data Trans", color: nodeTypeColors.data_transformer },
+    { type: "db_transaction", label: "DB Trans", color: nodeTypeColors.db_transaction },
+    { type: "ai_insight", label: "AI Insight", color: nodeTypeColors.ai_insight },
+    
+    // Automation
+    { type: "orchestrator", label: "Orchestrator", color: nodeTypeColors.orchestrator },
+    { type: "scheduler_cluster", label: "Scheduler", color: nodeTypeColors.scheduler_cluster },
+    { type: "adaptive_learner", label: "Adapt Learn", color: nodeTypeColors.adaptive_learner },
+    
+    // Voice System
+    { type: "premium_voice_tts", label: "Premium Voice", color: nodeTypeColors.premium_voice_tts },
+
+    // Native CRM/ERP
+    { type: "salesforce", label: "Salesforce", color: nodeTypeColors.salesforce },
+    { type: "servicenow", label: "ServiceNow", color: nodeTypeColors.servicenow },
+    { type: "sap", label: "SAP", color: nodeTypeColors.sap },
+    { type: "hubspot", label: "HubSpot", color: nodeTypeColors.hubspot },
+    { type: "zoho", label: "Zoho", color: nodeTypeColors.zoho },
   ];
 
   return (
@@ -544,6 +648,137 @@ export default function EnhancedAgentBuilder() {
 }`
                       }
                     />
+                  </div>
+                </div>
+              )}
+
+              {selectedNode.data.nodeType === "premium_voice_tts" && (
+                <div className="space-y-4">
+                  <div className="p-3 bg-pink-500/10 border border-pink-500/20 rounded-lg">
+                    <p className="text-xs text-pink-300">
+                      💡 <strong>HuemnVoice TTS:</strong> Generate ultra-realistic speech. Supports variables in text and voice ID.
+                    </p>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm text-white/70 mb-1">Text to Speak</label>
+                    <textarea
+                      value={selectedNode.data.config?.text || ""}
+                      onChange={(e) => updateNodeConfiguration(selectedNode.id, { text: e.target.value })}
+                      className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-xs h-24"
+                      placeholder="Hello {{user.name}}, how can I help you today?"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm text-white/70 mb-1">Voice ID</label>
+                    <input
+                      type="text"
+                      value={selectedNode.data.config?.voice_id || ""}
+                      onChange={(e) => updateNodeConfiguration(selectedNode.id, { voice_id: e.target.value })}
+                      className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-xs"
+                      placeholder="e.g. 21m00Tcm4TlvDq8ikWAM or {{voice_id}}"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm text-white/70 mb-1">Model ID</label>
+                    <select
+                      value={selectedNode.data.config?.model_id || "huemn_turbo_v2"}
+                      onChange={(e) => updateNodeConfiguration(selectedNode.id, { model_id: e.target.value })}
+                      className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-xs"
+                    >
+                      <option value="huemn_turbo_v2">Turbo v2 (Fastest, Low Latency)</option>
+                      <option value="huemn_multilingual_v2">Multilingual v2</option>
+                      <option value="huemn_monolingual_v1">Monolingual v1</option>
+                    </select>
+                  </div>
+
+                  <div className="space-y-3 pt-2 border-t border-white/10">
+                    <h4 className="text-xs font-semibold text-white/90">Voice Settings</h4>
+                    
+                    <div>
+                      <div className="flex justify-between text-xs mb-1">
+                        <span className="text-white/70">Stability</span>
+                        <span className="text-white/50">{selectedNode.data.config?.stability ?? 0.5}</span>
+                      </div>
+                      <input
+                        type="range"
+                        min="0"
+                        max="1"
+                        step="0.05"
+                        value={selectedNode.data.config?.stability ?? 0.5}
+                        onChange={(e) => updateNodeConfiguration(selectedNode.id, { stability: parseFloat(e.target.value) })}
+                        className="w-full h-1 bg-white/10 rounded-lg appearance-none cursor-pointer"
+                      />
+                    </div>
+
+                    <div>
+                      <div className="flex justify-between text-xs mb-1">
+                        <span className="text-white/70">Similarity Boost</span>
+                        <span className="text-white/50">{selectedNode.data.config?.similarity_boost ?? 0.75}</span>
+                      </div>
+                      <input
+                        type="range"
+                        min="0"
+                        max="1"
+                        step="0.05"
+                        value={selectedNode.data.config?.similarity_boost ?? 0.75}
+                        onChange={(e) => updateNodeConfiguration(selectedNode.id, { similarity_boost: parseFloat(e.target.value) })}
+                        className="w-full h-1 bg-white/10 rounded-lg appearance-none cursor-pointer"
+                      />
+                    </div>
+
+                    <div>
+                      <div className="flex justify-between text-xs mb-1">
+                        <span className="text-white/70">Style Exaggeration</span>
+                        <span className="text-white/50">{selectedNode.data.config?.style ?? 0.0}</span>
+                      </div>
+                      <input
+                        type="range"
+                        min="0"
+                        max="1"
+                        step="0.05"
+                        value={selectedNode.data.config?.style ?? 0.0}
+                        onChange={(e) => updateNodeConfiguration(selectedNode.id, { style: parseFloat(e.target.value) })}
+                        className="w-full h-1 bg-white/10 rounded-lg appearance-none cursor-pointer"
+                      />
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={selectedNode.data.config?.use_speaker_boost ?? true}
+                        onChange={(e) => updateNodeConfiguration(selectedNode.id, { use_speaker_boost: e.target.checked })}
+                        className="rounded border-white/10 bg-white/5"
+                      />
+                      <span className="text-xs text-white/70">Speaker Boost</span>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={selectedNode.data.config?.stream ?? false}
+                        onChange={(e) => updateNodeConfiguration(selectedNode.id, { stream: e.target.checked })}
+                        className="rounded border-white/10 bg-white/5"
+                      />
+                      <span className="text-xs text-white/70">Real-time Streaming</span>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs text-white/70 mb-1">Latency Optimization (0-4)</label>
+                      <select
+                        value={selectedNode.data.config?.optimize_streaming_latency ?? 0}
+                        onChange={(e) => updateNodeConfiguration(selectedNode.id, { optimize_streaming_latency: parseInt(e.target.value) })}
+                        className="w-full px-2 py-1 bg-white/5 border border-white/10 rounded text-white text-xs"
+                      >
+                        <option value="0">0 - Default</option>
+                        <option value="1">1 - Normal</option>
+                        <option value="2">2 - Strong</option>
+                        <option value="3">3 - Aggressive</option>
+                        <option value="4">4 - Max (Text Normalization disabled)</option>
+                      </select>
+                    </div>
                   </div>
                 </div>
               )}
@@ -1007,6 +1242,43 @@ export default function EnhancedAgentBuilder() {
                   <div className="pt-4 border-t border-white/10 space-y-4">
                     <h4 className="font-semibold text-sm text-white/90">IVR Settings</h4>
                     
+                    {/* Voice Selection */}
+                    <div>
+                      <label className="block text-sm text-white/70 mb-1">Voice Profile</label>
+                      <select
+                        value={selectedNode.data.config?.ivr_properties?.voice_id || ""}
+                        onChange={(e) => {
+                          const voiceId = e.target.value;
+                          const selectedVoice = voiceProfiles.find(v => v.voice_id === voiceId);
+                          const voiceSettings = selectedVoice ? {
+                             stability: selectedVoice.settings?.stability,
+                             similarity_boost: selectedVoice.settings?.similarity_boost,
+                             style: selectedVoice.settings?.style,
+                             use_speaker_boost: selectedVoice.settings?.use_speaker_boost
+                          } : null;
+
+                          updateNodeConfiguration(selectedNode.id, { 
+                            ivr_properties: { 
+                               ...(selectedNode.data.config?.ivr_properties || {}), 
+                               voice_id: voiceId,
+                               voice_settings: voiceSettings
+                            } 
+                          });
+                        }}
+                        className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white"
+                      >
+                        <option value="">Default System Voice</option>
+                        {voiceProfiles.map(voice => (
+                          <option key={voice.id} value={voice.voice_id}>
+                            {voice.name} ({voice.provider || 'ElevenLabs'})
+                          </option>
+                        ))}
+                      </select>
+                      <p className="text-[10px] text-white/40 mt-1">
+                        Select a voice from Voice Studio to use for IVR prompts.
+                      </p>
+                    </div>
+
                     {/* Prompts Section */}
                     <div className="space-y-3">
                         <label className="block text-xs text-white/50 uppercase tracking-wider">Prompts</label>
@@ -1355,36 +1627,7 @@ export default function EnhancedAgentBuilder() {
                 </div>
               )}
 
-              {selectedNode.data.nodeType === "connector" && (
-                <div>
-                  <label className="block text-sm text-white/70 mb-1">Connector Type</label>
-                  <select
-                    value={selectedNode.data.config?.connector_type || ""}
-                    onChange={(e) => updateNodeConfiguration(selectedNode.id, { connector_type: e.target.value })}
-                    className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white"
-                  >
-                    <option value="">Select...</option>
-                    <option value="jira">Jira</option>
-                    <option value="zendesk">Zendesk</option>
-                    <option value="salesforce">Salesforce</option>
-                    <option value="greenhouse">Greenhouse</option>
-                    <option value="linkedin">LinkedIn</option>
-                  </select>
-                  
-                  <label className="block text-sm text-white/70 mb-1 mt-4">Action</label>
-                  <select
-                    value={selectedNode.data.config?.action || ""}
-                    onChange={(e) => updateNodeConfiguration(selectedNode.id, { action: e.target.value })}
-                    className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white"
-                  >
-                    <option value="">Select...</option>
-                    <option value="create_ticket">Create Ticket</option>
-                    <option value="fetch_tickets">Fetch Tickets</option>
-                    <option value="get_ticket">Get Ticket</option>
-                    <option value="update_ticket">Update Ticket</option>
-                  </select>
-                </div>
-              )}
+
 
               {selectedNode.data.nodeType === "api" && (
                 <div className="space-y-4">
@@ -1564,6 +1807,535 @@ export default function EnhancedAgentBuilder() {
                       placeholder='{"query": "..."}'
                     />
                   </div>
+                </div>
+              )}
+
+              {/* --- Flow Control Extensions --- */}
+              {selectedNode.data.nodeType === "event_trigger" && (
+                <div className="space-y-4">
+                   <div className="p-3 bg-amber-500/10 border border-amber-500/20 rounded-lg">
+                      <p className="text-xs text-amber-300">💡 <strong>Event Trigger:</strong> Subscribes to internal or external events.</p>
+                   </div>
+                   <div>
+                      <label className="block text-sm text-white/70 mb-1">Event Source</label>
+                      <select value={selectedNode.data.config?.event_source || "webhook"} onChange={(e) => updateNodeConfiguration(selectedNode.id, { event_source: e.target.value })} className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white">
+                        <option value="webhook">Webhook</option>
+                        <option value="queue">Queue</option>
+                        <option value="db_change">DB Change</option>
+                        <option value="timer">Timer</option>
+                      </select>
+                   </div>
+                   <div>
+                      <label className="block text-sm text-white/70 mb-1">Event Pattern (Regex/Filter)</label>
+                      <input value={selectedNode.data.config?.event_pattern || ""} onChange={(e) => updateNodeConfiguration(selectedNode.id, { event_pattern: e.target.value })} className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white" placeholder="e.g. order_.*" />
+                   </div>
+                   {selectedNode.data.config?.event_source === "queue" && (
+                       <div>
+                          <label className="block text-sm text-white/70 mb-1">Queue Name</label>
+                          <input value={selectedNode.data.config?.queue_name || ""} onChange={(e) => updateNodeConfiguration(selectedNode.id, { queue_name: e.target.value })} className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white" />
+                       </div>
+                   )}
+                </div>
+              )}
+
+              {selectedNode.data.nodeType === "session_state" && (
+                <div className="space-y-4">
+                   <div className="p-3 bg-slate-500/10 border border-slate-500/20 rounded-lg">
+                      <p className="text-xs text-slate-300">💡 <strong>Session State:</strong> Manage conversation checkpoints and state.</p>
+                   </div>
+                   <div>
+                      <label className="block text-sm text-white/70 mb-1">Action</label>
+                      <select value={selectedNode.data.config?.action || "checkpoint"} onChange={(e) => updateNodeConfiguration(selectedNode.id, { action: e.target.value })} className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white">
+                         <option value="checkpoint">Create Checkpoint</option>
+                         <option value="rollback">Rollback</option>
+                         <option value="clear">Clear State</option>
+                      </select>
+                   </div>
+                   {selectedNode.data.config?.action === "checkpoint" && (
+                       <div>
+                          <label className="block text-sm text-white/70 mb-1">Checkpoint ID</label>
+                          <input value={selectedNode.data.config?.checkpoint_id || ""} onChange={(e) => updateNodeConfiguration(selectedNode.id, { checkpoint_id: e.target.value })} className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white" />
+                       </div>
+                   )}
+                   <div>
+                      <label className="block text-sm text-white/70 mb-1">Scope</label>
+                      <select value={selectedNode.data.config?.scope || "session"} onChange={(e) => updateNodeConfiguration(selectedNode.id, { scope: e.target.value })} className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white">
+                         <option value="session">Session</option>
+                         <option value="user">User</option>
+                         <option value="global">Global</option>
+                      </select>
+                   </div>
+                </div>
+              )}
+
+              {/* --- Identity & System Integration --- */}
+              {selectedNode.data.nodeType === "auth_provider" && (
+                <div className="space-y-4">
+                   <div className="p-3 bg-indigo-500/10 border border-indigo-500/20 rounded-lg">
+                      <p className="text-xs text-indigo-300">💡 <strong>Auth Provider:</strong> Handle OAuth2/SSO authentication flows.</p>
+                   </div>
+                   <div>
+                      <label className="block text-sm text-white/70 mb-1">Provider Type</label>
+                      <select value={selectedNode.data.config?.provider_type || "oauth2"} onChange={(e) => updateNodeConfiguration(selectedNode.id, { provider_type: e.target.value })} className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white">
+                         <option value="oauth2">OAuth2</option>
+                         <option value="api_key">API Key</option>
+                         <option value="basic">Basic Auth</option>
+                         <option value="google">Google</option>
+                         <option value="microsoft">Microsoft</option>
+                      </select>
+                   </div>
+                   <div>
+                      <label className="block text-sm text-white/70 mb-1">Client ID</label>
+                      <input value={selectedNode.data.config?.client_id || ""} onChange={(e) => updateNodeConfiguration(selectedNode.id, { client_id: e.target.value })} className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white" />
+                   </div>
+                   <div>
+                      <label className="block text-sm text-white/70 mb-1">Scopes (comma separated)</label>
+                      <input value={selectedNode.data.config?.scopes || ""} onChange={(e) => updateNodeConfiguration(selectedNode.id, { scopes: e.target.value })} className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white" />
+                   </div>
+                   <div>
+                      <label className="block text-sm text-white/70 mb-1">Output Variable</label>
+                      <input value={selectedNode.data.config?.output_variable || "auth_token"} onChange={(e) => updateNodeConfiguration(selectedNode.id, { output_variable: e.target.value })} className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white" />
+                   </div>
+                </div>
+              )}
+
+              {selectedNode.data.nodeType === "queue_publisher" && (
+                <div className="space-y-4">
+                   <div className="p-3 bg-violet-500/10 border border-violet-500/20 rounded-lg">
+                      <p className="text-xs text-violet-300">💡 <strong>Queue Publisher:</strong> Publish messages to Kafka/RabbitMQ/SQS.</p>
+                   </div>
+                   <div>
+                      <label className="block text-sm text-white/70 mb-1">Provider</label>
+                      <select value={selectedNode.data.config?.provider || "kafka"} onChange={(e) => updateNodeConfiguration(selectedNode.id, { provider: e.target.value })} className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white">
+                         <option value="kafka">Kafka</option>
+                         <option value="rabbitmq">RabbitMQ</option>
+                         <option value="sqs">AWS SQS</option>
+                         <option value="redis">Redis</option>
+                      </select>
+                   </div>
+                   <div>
+                      <label className="block text-sm text-white/70 mb-1">Queue/Topic Name</label>
+                      <input value={selectedNode.data.config?.queue_name || ""} onChange={(e) => updateNodeConfiguration(selectedNode.id, { queue_name: e.target.value })} className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white" />
+                   </div>
+                   <div>
+                      <label className="block text-sm text-white/70 mb-1">Message Body (JSON/Text)</label>
+                      <textarea value={selectedNode.data.config?.message_body || ""} onChange={(e) => updateNodeConfiguration(selectedNode.id, { message_body: e.target.value })} className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white font-mono text-xs" rows={3} />
+                   </div>
+                </div>
+              )}
+
+              {/* --- Advanced AI Intelligence --- */}
+              {selectedNode.data.nodeType === "dialog_policy" && (
+                <div className="space-y-4">
+                   <div className="p-3 bg-pink-500/10 border border-pink-500/20 rounded-lg">
+                      <p className="text-xs text-pink-300">💡 <strong>Dialog Policy:</strong> Controls conversation flow logic and fallback.</p>
+                   </div>
+                   <div>
+                      <label className="block text-sm text-white/70 mb-1">Strategy</label>
+                      <select value={selectedNode.data.config?.strategy || "rule_based"} onChange={(e) => updateNodeConfiguration(selectedNode.id, { strategy: e.target.value })} className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white">
+                         <option value="rule_based">Rule Based</option>
+                         <option value="ml_driven">ML Driven (RL)</option>
+                         <option value="hybrid">Hybrid</option>
+                      </select>
+                   </div>
+                   <div>
+                      <label className="block text-sm text-white/70 mb-1">Confidence Threshold (0.0 - 1.0)</label>
+                      <input type="number" step="0.1" min="0" max="1" value={selectedNode.data.config?.confidence_threshold || 0.7} onChange={(e) => updateNodeConfiguration(selectedNode.id, { confidence_threshold: parseFloat(e.target.value) })} className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white" />
+                   </div>
+                   <div>
+                      <label className="block text-sm text-white/70 mb-1">Fallback Action</label>
+                      <input value={selectedNode.data.config?.fallback_action || "ask_clarification"} onChange={(e) => updateNodeConfiguration(selectedNode.id, { fallback_action: e.target.value })} className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white" />
+                   </div>
+                </div>
+              )}
+
+              {selectedNode.data.nodeType === "intent_flow" && (
+                <div className="space-y-4">
+                   <div className="p-3 bg-pink-500/10 border border-pink-500/20 rounded-lg">
+                      <p className="text-xs text-pink-300">💡 <strong>Intent Flow:</strong> Scopes intent detection to specific contexts.</p>
+                   </div>
+                   <div>
+                      <label className="block text-sm text-white/70 mb-1">Allowed Intents (comma separated)</label>
+                      <input value={selectedNode.data.config?.allowed_intents ? selectedNode.data.config.allowed_intents.join(",") : ""} onChange={(e) => updateNodeConfiguration(selectedNode.id, { allowed_intents: e.target.value.split(",").map((s: string) => s.trim()) })} className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white" placeholder="e.g. banking_transactions, balance_check" />
+                   </div>
+                   <div>
+                      <label className="block text-sm text-white/70 mb-1">Max Turns</label>
+                      <input type="number" value={selectedNode.data.config?.max_turns || 5} onChange={(e) => updateNodeConfiguration(selectedNode.id, { max_turns: parseInt(e.target.value) })} className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white" />
+                   </div>
+                </div>
+              )}
+
+              {selectedNode.data.nodeType === "persona_control" && (
+                <div className="space-y-4">
+                   <div className="p-3 bg-purple-500/10 border border-purple-500/20 rounded-lg">
+                      <p className="text-xs text-purple-300">💡 <strong>Persona Control:</strong> Adjusts agent tone and personality dynamically.</p>
+                   </div>
+                   <div>
+                      <label className="block text-sm text-white/70 mb-1">Persona Name</label>
+                      <input value={selectedNode.data.config?.persona_name || ""} onChange={(e) => updateNodeConfiguration(selectedNode.id, { persona_name: e.target.value })} className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white" />
+                   </div>
+                   <div>
+                      <label className="block text-sm text-white/70 mb-1">Tone</label>
+                      <select value={selectedNode.data.config?.tone || "professional"} onChange={(e) => updateNodeConfiguration(selectedNode.id, { tone: e.target.value })} className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white">
+                         <option value="professional">Professional</option>
+                         <option value="friendly">Friendly</option>
+                         <option value="empathetic">Empathetic</option>
+                         <option value="strict">Strict</option>
+                      </select>
+                   </div>
+                   <div>
+                      <label className="block text-sm text-white/70 mb-1">Response Style</label>
+                      <select value={selectedNode.data.config?.response_style || "concise"} onChange={(e) => updateNodeConfiguration(selectedNode.id, { response_style: e.target.value })} className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white">
+                         <option value="concise">Concise</option>
+                         <option value="detailed">Detailed</option>
+                         <option value="step-by-step">Step-by-Step</option>
+                      </select>
+                   </div>
+                </div>
+              )}
+
+              {/* --- Communication Enhancements --- */}
+              {selectedNode.data.nodeType === "rich_message" && (
+                <div className="space-y-4">
+                   <div className="p-3 bg-teal-500/10 border border-teal-500/20 rounded-lg">
+                      <p className="text-xs text-teal-300">💡 <strong>Rich Message:</strong> Sends cards, carousels, or lists.</p>
+                   </div>
+                   <div>
+                      <label className="block text-sm text-white/70 mb-1">Template Type</label>
+                      <select value={selectedNode.data.config?.template_type || "card"} onChange={(e) => updateNodeConfiguration(selectedNode.id, { template_type: e.target.value })} className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white">
+                         <option value="card">Card</option>
+                         <option value="carousel">Carousel</option>
+                         <option value="list">List</option>
+                         <option value="buttons">Button Group</option>
+                         <option value="form">Form</option>
+                      </select>
+                   </div>
+                   <div>
+                      <label className="block text-sm text-white/70 mb-1">Items JSON</label>
+                      <textarea value={JSON.stringify(selectedNode.data.config?.items || [], null, 2)} onChange={(e) => { try { updateNodeConfiguration(selectedNode.id, { items: JSON.parse(e.target.value) }) } catch {} }} className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white font-mono text-xs" rows={4} placeholder='[{"title": "Item 1", "subtitle": "..."}]' />
+                   </div>
+                   <div>
+                      <label className="block text-sm text-white/70 mb-1">Actions JSON</label>
+                      <textarea value={JSON.stringify(selectedNode.data.config?.actions || [], null, 2)} onChange={(e) => { try { updateNodeConfiguration(selectedNode.id, { actions: JSON.parse(e.target.value) }) } catch {} }} className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white font-mono text-xs" rows={3} placeholder='[{"type": "postback", "title": "Buy", "payload": "BUY"}]' />
+                   </div>
+                   <div>
+                      <label className="block text-sm text-white/70 mb-1">Fallback Text</label>
+                      <input value={selectedNode.data.config?.fallback_text || ""} onChange={(e) => updateNodeConfiguration(selectedNode.id, { fallback_text: e.target.value })} className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white" />
+                   </div>
+                </div>
+              )}
+
+              {selectedNode.data.nodeType === "voice_translation" && (
+                <div className="space-y-4">
+                   <div className="p-3 bg-emerald-500/10 border border-emerald-500/20 rounded-lg">
+                      <p className="text-xs text-emerald-300">💡 <strong>Voice Translation:</strong> Real-time Speech-to-Speech translation.</p>
+                   </div>
+                   <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="block text-sm text-white/70 mb-1">Source Lang</label>
+                        <input value={selectedNode.data.config?.source_lang || "en"} onChange={(e) => updateNodeConfiguration(selectedNode.id, { source_lang: e.target.value })} className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white" />
+                      </div>
+                      <div>
+                        <label className="block text-sm text-white/70 mb-1">Target Lang</label>
+                        <input value={selectedNode.data.config?.target_lang || "es"} onChange={(e) => updateNodeConfiguration(selectedNode.id, { target_lang: e.target.value })} className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white" />
+                      </div>
+                   </div>
+                </div>
+              )}
+
+              {/* --- Data & Analytics Extensions --- */}
+              {selectedNode.data.nodeType === "data_transformer" && (
+                <div className="space-y-4">
+                   <div className="p-3 bg-cyan-500/10 border border-cyan-500/20 rounded-lg">
+                      <p className="text-xs text-cyan-300">💡 <strong>Data Transformer:</strong> ETL and Schema Mapping.</p>
+                   </div>
+                   <div>
+                      <label className="block text-sm text-white/70 mb-1">Transformation Type</label>
+                      <select value={selectedNode.data.config?.transformation_type || "map"} onChange={(e) => updateNodeConfiguration(selectedNode.id, { transformation_type: e.target.value })} className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white">
+                         <option value="map">Map</option>
+                         <option value="filter">Filter</option>
+                         <option value="aggregate">Aggregate</option>
+                      </select>
+                   </div>
+                   <div>
+                      <label className="block text-sm text-white/70 mb-1">Mapping Rules (Target=Source)</label>
+                      <textarea value={JSON.stringify(selectedNode.data.config?.mapping_rules || {}, null, 2)} onChange={(e) => { try { updateNodeConfiguration(selectedNode.id, { mapping_rules: JSON.parse(e.target.value) }) } catch {} }} className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white font-mono text-xs" rows={5} placeholder='{"fullName": "user.name"}' />
+                   </div>
+                </div>
+              )}
+
+              {selectedNode.data.nodeType === "db_transaction" && (
+                <div className="space-y-4">
+                   <div className="p-3 bg-orange-500/10 border border-orange-500/20 rounded-lg">
+                      <p className="text-xs text-orange-300">💡 <strong>DB Transaction:</strong> Atomic database operations.</p>
+                   </div>
+                   <div>
+                      <label className="block text-sm text-white/70 mb-1">Operation</label>
+                      <select value={selectedNode.data.config?.operation || "commit"} onChange={(e) => updateNodeConfiguration(selectedNode.id, { operation: e.target.value })} className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white">
+                         <option value="begin">Begin Transaction</option>
+                         <option value="commit">Commit</option>
+                         <option value="rollback">Rollback</option>
+                      </select>
+                   </div>
+                   <div>
+                      <label className="block text-sm text-white/70 mb-1">Connection ID</label>
+                      <input value={selectedNode.data.config?.connection_id || ""} onChange={(e) => updateNodeConfiguration(selectedNode.id, { connection_id: e.target.value })} className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white" />
+                   </div>
+                   <div>
+                      <label className="block text-sm text-white/70 mb-1">Isolation Level</label>
+                      <select value={selectedNode.data.config?.isolation_level || "read_committed"} onChange={(e) => updateNodeConfiguration(selectedNode.id, { isolation_level: e.target.value })} className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white">
+                         <option value="read_committed">Read Committed</option>
+                         <option value="serializable">Serializable</option>
+                      </select>
+                   </div>
+                </div>
+              )}
+
+              {/* --- Automation & Orchestration --- */}
+              {selectedNode.data.nodeType === "orchestrator" && (
+                <div className="space-y-4">
+                   <div className="p-3 bg-purple-500/10 border border-purple-500/20 rounded-lg">
+                      <p className="text-xs text-purple-300">💡 <strong>Orchestrator:</strong> Manage long-running sub-workflows.</p>
+                   </div>
+                   <div>
+                      <label className="block text-sm text-white/70 mb-1">Workflow ID</label>
+                      <input value={selectedNode.data.config?.workflow_id || ""} onChange={(e) => updateNodeConfiguration(selectedNode.id, { workflow_id: e.target.value })} className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white" />
+                   </div>
+                   <div>
+                      <label className="block text-sm text-white/70 mb-1">Sync Mode</label>
+                      <select value={selectedNode.data.config?.sync_mode || "async"} onChange={(e) => updateNodeConfiguration(selectedNode.id, { sync_mode: e.target.value })} className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white">
+                         <option value="async">Async (Fire-and-Forget)</option>
+                         <option value="sync">Sync (Wait for Completion)</option>
+                      </select>
+                   </div>
+                   <div>
+                      <label className="block text-sm text-white/70 mb-1">Callback URL</label>
+                      <input value={selectedNode.data.config?.callback_url || ""} onChange={(e) => updateNodeConfiguration(selectedNode.id, { callback_url: e.target.value })} className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white" />
+                   </div>
+                </div>
+              )}
+
+              {selectedNode.data.nodeType === "scheduler_cluster" && (
+                <div className="space-y-4">
+                   <div className="p-3 bg-slate-500/10 border border-slate-500/20 rounded-lg">
+                      <p className="text-xs text-slate-300">💡 <strong>Scheduler:</strong> Distributed job scheduling.</p>
+                   </div>
+                   <div>
+                      <label className="block text-sm text-white/70 mb-1">Job Type</label>
+                      <input value={selectedNode.data.config?.job_type || ""} onChange={(e) => updateNodeConfiguration(selectedNode.id, { job_type: e.target.value })} className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white" />
+                   </div>
+                   <div>
+                      <label className="block text-sm text-white/70 mb-1">Cron Expression</label>
+                      <input value={selectedNode.data.config?.cron_expression || "* * * * *"} onChange={(e) => updateNodeConfiguration(selectedNode.id, { cron_expression: e.target.value })} className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white font-mono" />
+                   </div>
+                   <div>
+                      <label className="block text-sm text-white/70 mb-1">Cluster Group</label>
+                      <input value={selectedNode.data.config?.cluster_group || "default"} onChange={(e) => updateNodeConfiguration(selectedNode.id, { cluster_group: e.target.value })} className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white" />
+                   </div>
+                </div>
+              )}
+
+              {selectedNode.data.nodeType === "queue_listener" && (
+                <div className="space-y-4">
+                   <div className="p-3 bg-violet-500/10 border border-violet-500/20 rounded-lg">
+                      <p className="text-xs text-violet-300">💡 <strong>Queue Listener:</strong> Subscribe to message queues.</p>
+                   </div>
+                   <div>
+                      <label className="block text-sm text-white/70 mb-1">Provider</label>
+                      <select value={selectedNode.data.config?.provider || "kafka"} onChange={(e) => updateNodeConfiguration(selectedNode.id, { provider: e.target.value })} className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white">
+                         <option value="kafka">Kafka</option>
+                         <option value="rabbitmq">RabbitMQ</option>
+                         <option value="sqs">AWS SQS</option>
+                         <option value="redis">Redis</option>
+                      </select>
+                   </div>
+                   <div>
+                      <label className="block text-sm text-white/70 mb-1">Queue/Topic Name</label>
+                      <input value={selectedNode.data.config?.queue_name || ""} onChange={(e) => updateNodeConfiguration(selectedNode.id, { queue_name: e.target.value })} className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white" />
+                   </div>
+                   <div>
+                      <label className="block text-sm text-white/70 mb-1">Timeout (Seconds)</label>
+                      <input type="number" value={selectedNode.data.config?.timeout_seconds || 30} onChange={(e) => updateNodeConfiguration(selectedNode.id, { timeout_seconds: parseInt(e.target.value) })} className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white" />
+                   </div>
+                </div>
+              )}
+
+              {selectedNode.data.nodeType === "kb_sync" && (
+                <div className="space-y-4">
+                   <div className="p-3 bg-blue-500/10 border border-blue-500/20 rounded-lg">
+                      <p className="text-xs text-blue-300">💡 <strong>KB Sync:</strong> Synchronize Knowledge Base.</p>
+                   </div>
+                   <div>
+                      <label className="block text-sm text-white/70 mb-1">Source Type</label>
+                      <select value={selectedNode.data.config?.source_type || "web"} onChange={(e) => updateNodeConfiguration(selectedNode.id, { source_type: e.target.value })} className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white">
+                         <option value="web">Web</option>
+                         <option value="sharepoint">SharePoint</option>
+                         <option value="s3">S3</option>
+                      </select>
+                   </div>
+                   <div>
+                      <label className="block text-sm text-white/70 mb-1">Source Path (URL/Bucket)</label>
+                      <input value={selectedNode.data.config?.source_path || ""} onChange={(e) => updateNodeConfiguration(selectedNode.id, { source_path: e.target.value })} className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white" />
+                   </div>
+                   <div>
+                      <label className="block text-sm text-white/70 mb-1">Schedule (Cron)</label>
+                      <input value={selectedNode.data.config?.schedule || ""} onChange={(e) => updateNodeConfiguration(selectedNode.id, { schedule: e.target.value })} className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white" />
+                   </div>
+                </div>
+              )}
+
+              {selectedNode.data.nodeType === "handoff_intelligence" && (
+                <div className="space-y-4">
+                   <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-lg">
+                      <p className="text-xs text-red-300">💡 <strong>Handoff Intelligence:</strong> Smart escalation logic.</p>
+                   </div>
+                   <div>
+                      <label className="block text-sm text-white/70 mb-1">Strategy</label>
+                      <select value={selectedNode.data.config?.strategy || "sentiment"} onChange={(e) => updateNodeConfiguration(selectedNode.id, { strategy: e.target.value })} className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white">
+                         <option value="sentiment">Sentiment Score</option>
+                         <option value="intent">Intent Detection</option>
+                         <option value="keyword">Keyword Match</option>
+                      </select>
+                   </div>
+                   <div>
+                      <label className="block text-sm text-white/70 mb-1">Threshold</label>
+                      <input type="number" step="0.1" value={selectedNode.data.config?.threshold || 0.5} onChange={(e) => updateNodeConfiguration(selectedNode.id, { threshold: parseFloat(e.target.value) })} className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white" />
+                   </div>
+                </div>
+              )}
+
+              {selectedNode.data.nodeType === "ai_insight" && (
+                <div className="space-y-4">
+                   <div className="p-3 bg-cyan-500/10 border border-cyan-500/20 rounded-lg">
+                      <p className="text-xs text-cyan-300">💡 <strong>AI Insight:</strong> Generate insights from data.</p>
+                   </div>
+                   <div>
+                      <label className="block text-sm text-white/70 mb-1">Analysis Type</label>
+                      <select value={selectedNode.data.config?.analysis_type || "summary"} onChange={(e) => updateNodeConfiguration(selectedNode.id, { analysis_type: e.target.value })} className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white">
+                         <option value="summary">Summarization</option>
+                         <option value="sentiment">Sentiment Analysis</option>
+                         <option value="topics">Topic Extraction</option>
+                         <option value="pii">PII Detection</option>
+                      </select>
+                   </div>
+                   <div>
+                      <label className="block text-sm text-white/70 mb-1">Target Field (Input)</label>
+                      <input value={selectedNode.data.config?.target_field || ""} onChange={(e) => updateNodeConfiguration(selectedNode.id, { target_field: e.target.value })} className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white" />
+                   </div>
+                </div>
+              )}
+
+              {selectedNode.data.nodeType === "adaptive_learner" && (
+                <div className="space-y-4">
+                   <div className="p-3 bg-green-500/10 border border-green-500/20 rounded-lg">
+                      <p className="text-xs text-green-300">💡 <strong>Adaptive Learner:</strong> Self-improving agent logic.</p>
+                   </div>
+                   <div>
+                      <label className="block text-sm text-white/70 mb-1">Learning Mode</label>
+                      <select value={selectedNode.data.config?.learning_mode || "online"} onChange={(e) => updateNodeConfiguration(selectedNode.id, { learning_mode: e.target.value })} className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white">
+                         <option value="online">Online (Real-time)</option>
+                         <option value="offline">Offline (Batch)</option>
+                      </select>
+                   </div>
+                   <div>
+                      <label className="block text-sm text-white/70 mb-1">Feedback Source</label>
+                      <input value={selectedNode.data.config?.feedback_source || "user_rating"} onChange={(e) => updateNodeConfiguration(selectedNode.id, { feedback_source: e.target.value })} className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white" />
+                   </div>
+                </div>
+              )}
+
+              {selectedNode.data.nodeType === "connector" && (
+                <div className="space-y-4">
+                   <div className="p-3 bg-indigo-500/10 border border-indigo-500/20 rounded-lg">
+                      <p className="text-xs text-indigo-300">💡 <strong>Connector:</strong> Integration with external systems.</p>
+                   </div>
+                   
+                   <div>
+                      <label className="block text-sm text-white/70 mb-1">System</label>
+                      <select 
+                        value={selectedNode.data.config?.connector_type || "salesforce"} 
+                        onChange={(e) => updateNodeConfiguration(selectedNode.id, { connector_type: e.target.value, action: "" })} 
+                        className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white"
+                      >
+                         {connectorMetadata.length > 0 ? (
+                             connectorMetadata.map((c) => (
+                                 <option key={c.type} value={c.type}>{c.name}</option>
+                             ))
+                         ) : (
+                             <>
+                                 <option value="salesforce">Salesforce</option>
+                                 <option value="servicenow">ServiceNow</option>
+                                 <option value="sap">SAP</option>
+                                 <option value="hubspot">HubSpot</option>
+                                 <option value="zoho">Zoho</option>
+                                 <option value="jira">Jira</option>
+                                 <option value="zendesk">Zendesk</option>
+                             </>
+                         )}
+                      </select>
+                   </div>
+
+                   {/* Dynamic Action Fields based on Connector Type */}
+                   <div>
+                      <label className="block text-sm text-white/70 mb-1">Action</label>
+                      <select 
+                        value={selectedNode.data.config?.action || ""} 
+                        onChange={(e) => updateNodeConfiguration(selectedNode.id, { action: e.target.value })} 
+                        className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white"
+                      >
+                         <option value="">Select Action...</option>
+                         {(() => {
+                            const currentConnector = connectorMetadata.find(c => c.type === (selectedNode.data.config?.connector_type || "salesforce"));
+                            if (currentConnector && currentConnector.actions) {
+                                return currentConnector.actions.map((a: any) => (
+                                    <option key={a.name} value={a.name}>{a.label}</option>
+                                ));
+                            }
+                            // Fallback for hardcoded options if metadata not loaded or using fallback list
+                            if (connectorMetadata.length === 0) {
+                                const type = selectedNode.data.config?.connector_type || "salesforce";
+                                if (type === "salesforce") return (
+                                    <>
+                                        <option value="create_case">Create Case</option>
+                                        <option value="update_case">Update Case</option>
+                                        <option value="search_cases">Search Cases</option>
+                                    </>
+                                );
+                                if (type === "servicenow") return (
+                                    <>
+                                        <option value="create_incident">Create Incident</option>
+                                        <option value="update_incident">Update Incident</option>
+                                        <option value="get_incident">Get Incident</option>
+                                    </>
+                                );
+                                // ... add other fallbacks if really needed, but API should work
+                            }
+                            return <option value="custom">Custom Action</option>;
+                         })()}
+                      </select>
+                   </div>
+
+                   {/* Common Params Input (JSON) */}
+                   <div>
+                      <label className="block text-sm text-white/70 mb-1">Parameters (JSON)</label>
+                      <p className="text-xs text-white/50 mb-1">
+                          {(() => {
+                             const currentConnector = connectorMetadata.find(c => c.type === (selectedNode.data.config?.connector_type || "salesforce"));
+                             const currentAction = currentConnector?.actions?.find((a: any) => a.name === selectedNode.data.config?.action);
+                             if (currentAction && currentAction.params) {
+                                 return `Required: ${Object.keys(currentAction.params).join(", ")}`;
+                             }
+                             return "";
+                          })()}
+                      </p>
+                      <textarea 
+                        value={JSON.stringify(selectedNode.data.config?.params || {}, null, 2)} 
+                        onChange={(e) => { try { updateNodeConfiguration(selectedNode.id, { params: JSON.parse(e.target.value) }) } catch {} }} 
+                        className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white font-mono text-xs" 
+                        rows={5} 
+                        placeholder='{"subject": "...", "description": "..."}'
+                      />
+                   </div>
                 </div>
               )}
 

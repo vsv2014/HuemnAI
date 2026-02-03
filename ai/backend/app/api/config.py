@@ -207,8 +207,8 @@ PROVIDER_DEFINITIONS = {
                 "api_key": {"type": "password", "required": True, "label": "API Key"}
             }
         },
-        "elevenlabs": {
-            "name": "ElevenLabs",
+        "huemn": {
+            "name": "HuemnVoice",
             "fields": {
                 "api_key": {"type": "password", "required": True, "label": "API Key"},
                 "voice_id": {"type": "text", "required": False, "label": "Default Voice ID"}

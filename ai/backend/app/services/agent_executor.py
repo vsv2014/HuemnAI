@@ -596,6 +596,8 @@ class AgentExecutor:
                 result = await self._execute_message_node(node, context)
             elif node.node_type == NodeType.VARIABLE:
                 result = await self._execute_variable_node(node, context)
+            elif node.node_type == NodeType.PREMIUM_VOICE_TTS:
+                result = await self._execute_premium_voice_tts_node(node, context)
             elif node.node_type == NodeType.END:
                 result = await self._execute_end_node(node, context)
             elif node.node_type == NodeType.LOOP:
@@ -656,6 +658,49 @@ class AgentExecutor:
                 result = await self._execute_task_scheduler_node(node, context)
             elif node.node_type == NodeType.HANDOFF:
                 result = await self._execute_handoff_node(node, context)
+            elif node.node_type == NodeType.EVENT_TRIGGER:
+                result = await self._execute_event_trigger_node(node, context)
+            elif node.node_type == NodeType.SESSION_STATE:
+                result = await self._execute_session_state_node(node, context)
+            elif node.node_type == NodeType.AUTH_PROVIDER:
+                result = await self._execute_auth_provider_node(node, context)
+            elif node.node_type == NodeType.QUEUE_PUBLISHER:
+                result = await self._execute_queue_publisher_node(node, context)
+            elif node.node_type == NodeType.QUEUE_LISTENER:
+                result = await self._execute_queue_listener_node(node, context)
+            elif node.node_type == NodeType.DIALOG_POLICY:
+                result = await self._execute_dialog_policy_node(node, context)
+            elif node.node_type == NodeType.INTENT_FLOW:
+                result = await self._execute_intent_flow_node(node, context)
+            elif node.node_type == NodeType.PERSONA_CONTROL:
+                result = await self._execute_persona_control_node(node, context)
+            elif node.node_type == NodeType.KB_SYNC:
+                result = await self._execute_kb_sync_node(node, context)
+            elif node.node_type == NodeType.PREMIUM_VOICE_TTS:
+                result = await self._execute_premium_voice_tts_node(node, context)
+            elif node.node_type == NodeType.RICH_MESSAGE:
+                result = await self._execute_rich_message_node(node, context)
+            elif node.node_type == NodeType.VOICE_TRANSLATION:
+                result = await self._execute_voice_translation_node(node, context)
+            elif node.node_type == NodeType.HANDOFF_INTELLIGENCE:
+                result = await self._execute_handoff_intelligence_node(node, context)
+            
+            # Data & Analytics Extensions
+            elif node.node_type == NodeType.DATA_TRANSFORMER:
+                result = await self._execute_data_transformer_node(node, context)
+            elif node.node_type == NodeType.DB_TRANSACTION:
+                result = await self._execute_db_transaction_node(node, context)
+            elif node.node_type == NodeType.AI_INSIGHT:
+                result = await self._execute_ai_insight_node(node, context)
+
+            # Automation & Orchestration
+            elif node.node_type == NodeType.ORCHESTRATOR:
+                result = await self._execute_orchestrator_node(node, context)
+            elif node.node_type == NodeType.SCHEDULER_CLUSTER:
+                result = await self._execute_scheduler_cluster_node(node, context)
+            elif node.node_type == NodeType.ADAPTIVE_LEARNER:
+                result = await self._execute_adaptive_learner_node(node, context)
+                
             else:
                 result = {
                     "response": "",
@@ -842,8 +887,12 @@ class AgentExecutor:
             next_response = next_result.get("response", "")
             
             if current_response and next_response:
-                # Add a newline separator if merging two text responses
-                next_result["response"] = f"{current_response}\n\n{next_result['response']}"
+                # Check for duplicates to avoid repeating the same message
+                if current_response.strip() == next_response.strip():
+                    next_result["response"] = current_response
+                else:
+                    # Add a newline separator if merging two text responses
+                    next_result["response"] = f"{current_response}\n\n{next_result['response']}"
             elif current_response:
                 # If next node didn't produce response (e.g. logic node), keep current response
                 next_result["response"] = current_response
@@ -1117,7 +1166,14 @@ class AgentExecutor:
                     "next_node_id": node.id,
                     "prevent_default_connection": True,
                     "context": context,
-                    "metadata": {"ivr": {"barge_in": True}, "intent_detection": "ask_user"}
+                    "metadata": {
+                        "ivr": {
+                            "barge_in": True,
+                            "voice_id": ivr_props.get("voice_id"),
+                            "voice_settings": ivr_props.get("voice_settings")
+                        }, 
+                        "intent_detection": "ask_user"
+                    }
                 }
 
         # 2. Extraction Logic
@@ -1255,7 +1311,14 @@ Do not include any markdown formatting, just the raw JSON."""
                 "next_node_id": None, 
                 "prevent_default_connection": prevent_default,
                 "context": context,
-                "metadata": {"error": "max_retries_exceeded", "custom_tags": custom_tags}
+                "metadata": {
+                    "error": "max_retries_exceeded", 
+                    "custom_tags": custom_tags,
+                    "ivr": {
+                        "voice_id": ivr_props.get("voice_id"),
+                        "voice_settings": ivr_props.get("voice_settings")
+                    }
+                }
             }
             
         # Increment Retry
@@ -1298,7 +1361,9 @@ Do not include any markdown formatting, just the raw JSON."""
                 "ivr": {
                     "timeout": ivr_props.get("timeout", 10),
                     "barge_in": ivr_props.get("barge_in", True),
-                    "grammar": ivr_props.get("grammar")
+                    "grammar": ivr_props.get("grammar"),
+                    "voice_id": ivr_props.get("voice_id"),
+                    "voice_settings": ivr_props.get("voice_settings")
                 },
                 "custom_tags": custom_tags
             }
@@ -1826,7 +1891,87 @@ Return only the intent name that best matches."""
                 if ticket_id:
                     result = connector.update_ticket(ticket_id, update_data)
                     context["ticket_updated"] = True
-                    
+            
+            # Salesforce Actions
+            elif action == "create_case" and hasattr(connector, "create_case"):
+                subject = params.get("subject", "")
+                description = params.get("description", "")
+                priority = params.get("priority", "Medium")
+                result = connector.create_case(subject, description, priority)
+                context["case_id"] = result.get("id")
+                context["case_number"] = result.get("case_number")
+                
+            elif action == "update_case" and hasattr(connector, "update_case"):
+                case_id = params.get("case_id")
+                data = params.get("data", {})
+                if case_id:
+                    result = connector.update_case(case_id, data)
+                    context["case_updated"] = True
+
+            elif action == "search_cases" and hasattr(connector, "search_cases"):
+                query = params.get("query", "")
+                result = connector.search_cases(query)
+                context["cases"] = result
+
+            # ServiceNow Actions
+            elif action == "create_incident" and hasattr(connector, "create_incident"):
+                short_description = params.get("short_description", "")
+                description = params.get("description", "")
+                urgency = params.get("urgency", 3)
+                result = connector.create_incident(short_description, description, urgency)
+                context["incident_id"] = result.get("sys_id")
+                context["incident_number"] = result.get("number")
+
+            elif action == "update_incident" and hasattr(connector, "update_incident"):
+                sys_id = params.get("sys_id")
+                data = params.get("data", {})
+                if sys_id:
+                    result = connector.update_incident(sys_id, data)
+                    context["incident_updated"] = True
+            
+            elif action == "get_incident" and hasattr(connector, "get_incident"):
+                sys_id = params.get("sys_id")
+                if sys_id:
+                    result = connector.get_incident(sys_id)
+                    context["incident"] = result
+
+            # SAP Actions
+            elif action == "create_sales_order" and hasattr(connector, "create_sales_order"):
+                order_data = params.get("order_data", {})
+                result = connector.create_sales_order(order_data)
+                context["sales_order_id"] = result.get("order_id")
+
+            elif action == "get_sales_order" and hasattr(connector, "get_sales_order"):
+                order_id = params.get("order_id")
+                if order_id:
+                    result = connector.get_sales_order(order_id)
+                    context["sales_order"] = result
+
+            # HubSpot Actions
+            elif action == "create_contact" and hasattr(connector, "create_contact"):
+                properties = params.get("properties", {})
+                result = connector.create_contact(properties)
+                context["contact_id"] = result.get("id")
+
+            elif action == "get_contact" and hasattr(connector, "get_contact"):
+                contact_id = params.get("contact_id")
+                if contact_id:
+                    result = connector.get_contact(contact_id)
+                    context["contact"] = result
+
+            # Zoho Actions
+            elif action == "create_lead" and hasattr(connector, "create_lead"):
+                data = params.get("data", {})
+                result = connector.create_lead(data)
+                context["lead_id"] = result.get("id")
+            
+            elif action == "get_lead" and hasattr(connector, "get_lead"):
+                lead_id = params.get("lead_id")
+                if lead_id:
+                    result = connector.get_lead(lead_id)
+                    context["lead"] = result
+
+            # Recruitment Actions
             elif action == "post_job" and hasattr(connector, "post_job"):
                 job_data = params.get("job_data", {})
                 result = connector.post_job(job_data)
@@ -1840,6 +1985,102 @@ Return only the intent name that best matches."""
                 query = params.get("query", "")
                 result = connector.search_profiles(query)
                 context["profiles"] = result
+
+            # Salesforce Actions
+            elif action == "create_case" and hasattr(connector, "create_case"):
+                subject = params.get("subject", "")
+                description = params.get("description", "")
+                result = connector.create_case(subject, description)
+                context["case_id"] = result.get("id")
+                
+            elif action == "update_case" and hasattr(connector, "update_case"):
+                case_id = params.get("case_id")
+                updates = params.get("updates", {})
+                result = connector.update_case(case_id, updates)
+                context["case_updated"] = True
+                
+            elif action == "search_cases" and hasattr(connector, "search_cases"):
+                query = params.get("query", "")
+                result = connector.search_cases(query)
+                context["cases"] = result
+
+            # ServiceNow Actions
+            elif action == "create_incident" and hasattr(connector, "create_incident"):
+                short_description = params.get("short_description", "")
+                description = params.get("description", "")
+                priority = params.get("priority", "3 - Moderate")
+                result = connector.create_incident(short_description, description, priority)
+                context["incident_id"] = result.get("id")
+                
+            elif action == "update_incident" and hasattr(connector, "update_incident"):
+                incident_id = params.get("incident_id")
+                updates = params.get("updates", {})
+                result = connector.update_incident(incident_id, updates)
+                context["incident_updated"] = True
+                
+            elif action == "get_incident" and hasattr(connector, "get_incident"):
+                incident_id = params.get("incident_id")
+                result = connector.get_incident(incident_id)
+                context["incident"] = result
+
+            # SAP Actions
+            elif action == "create_sales_order" and hasattr(connector, "create_sales_order"):
+                customer_id = params.get("customer_id")
+                items = params.get("items", [])
+                result = connector.create_sales_order(customer_id, items)
+                context["order_id"] = result.get("id")
+                
+            elif action == "get_inventory" and hasattr(connector, "get_inventory"):
+                material_id = params.get("material_id")
+                plant = params.get("plant")
+                result = connector.get_inventory(material_id, plant)
+                context["inventory"] = result
+                
+            elif action == "update_delivery" and hasattr(connector, "update_delivery"):
+                delivery_id = params.get("delivery_id")
+                status = params.get("status")
+                result = connector.update_delivery(delivery_id, status)
+                context["delivery_updated"] = True
+
+            # HubSpot Actions
+            elif action == "create_contact" and hasattr(connector, "create_contact"):
+                email = params.get("email")
+                firstname = params.get("firstname")
+                lastname = params.get("lastname")
+                result = connector.create_contact(email, firstname, lastname)
+                context["contact_id"] = result.get("id")
+                
+            elif action == "update_deal" and hasattr(connector, "update_deal"):
+                deal_id = params.get("deal_id")
+                properties = params.get("properties", {})
+                result = connector.update_deal(deal_id, properties)
+                context["deal_updated"] = True
+                
+            elif action == "search_companies" and hasattr(connector, "search_companies"):
+                domain = params.get("domain")
+                result = connector.search_companies(domain)
+                context["companies"] = result
+
+            # Zoho Actions
+            elif action == "create_lead" and hasattr(connector, "create_lead"):
+                last_name = params.get("last_name")
+                company = params.get("company")
+                email = params.get("email")
+                result = connector.create_lead(last_name, company, email)
+                context["lead_id"] = result.get("id")
+                
+            elif action == "update_potential" and hasattr(connector, "update_potential"):
+                potential_id = params.get("potential_id")
+                stage = params.get("stage")
+                amount = params.get("amount")
+                result = connector.update_potential(potential_id, stage, amount)
+                context["potential_updated"] = True
+                
+            elif action == "get_account" and hasattr(connector, "get_account"):
+                account_id = params.get("account_id")
+                result = connector.get_account(account_id)
+                context["account"] = result
+
             
             return {
                 "response": "",
@@ -2491,6 +2732,141 @@ Return only the intent name that best matches."""
             "context": context,
             "metadata": {"voice_result": result_data}
         }
+
+    async def _execute_premium_voice_tts_node(self, node: AgentNode, context: Dict[str, Any]) -> Dict[str, Any]:
+        """Execute Premium Voice TTS node (HuemnVoice)"""
+        config = node.config or {}
+        
+        # Initialize service
+        from app.services.huemn_voice_service import HuemnVoiceService
+        service = HuemnVoiceService()
+        
+        if not service.is_available():
+            return {
+                "response": "Voice service not configured. Please check HuemnVoice API key.",
+                "next_node_id": None,
+                "context": context,
+                "metadata": {"error": "HuemnVoice API key missing"}
+            }
+            
+        # Resolve variables
+        text = self._replace_variables(config.get("text", ""), context)
+        voice_id = self._replace_variables(config.get("voice_id", ""), context)
+        
+        if not text:
+             return {
+                "response": "",
+                "next_node_id": None,
+                "context": context,
+                "metadata": {"error": "No text provided for TTS"}
+            }
+
+        # Check for streaming mode
+        use_streaming = bool(config.get("stream", False))
+        
+        # Voice Settings
+        voice_settings = {
+            "stability": float(config.get("stability", 0.5)),
+            "similarity_boost": float(config.get("similarity_boost", 0.75)),
+            "style": float(config.get("style", 0.0)),
+            "use_speaker_boost": bool(config.get("use_speaker_boost", True))
+        }
+        model_id = config.get("model_id", "huemn_turbo_v2")
+
+        if use_streaming:
+            # In streaming mode, return config for frontend to connect to WS
+            from app.core.config import settings
+            # Construct WS URL
+            api_base = settings.API_BASE_URL or "http://localhost:8000"
+            ws_base = api_base.replace("http://", "ws://").replace("https://", "wss://").rstrip("/")
+            ws_url = f"{ws_base}/ws/voice/stream"
+            
+            metadata = {
+                "voice_enabled": True,
+                "is_voice": True,
+                "mode": "stream",
+                "provider": "huemn",
+                "ws_url": ws_url,
+                "voice_id": voice_id,
+                "model_id": model_id,
+                "voice_settings": voice_settings,
+                "optimize_streaming_latency": int(config.get("optimize_streaming_latency", 0)),
+                "payload": {
+                    "text": text,
+                    "voice_id": voice_id,
+                    "model_id": model_id,
+                    "settings": voice_settings,
+                    "optimize_streaming_latency": int(config.get("optimize_streaming_latency", 0))
+                }
+            }
+            
+            return {
+                "response": f"[Voice Stream] {text[:50]}...",
+                "next_node_id": None,
+                "context": context,
+                "metadata": metadata
+            }
+        
+        # Non-streaming execution
+        # Unique filename
+        import uuid
+        import os
+        filename = f"tts_{uuid.uuid4()}.mp3"
+        # Ensure uploads directory exists
+        os.makedirs("uploads", exist_ok=True)
+        filepath = os.path.join("uploads", filename)
+        
+        try:
+            audio_data = await service.text_to_speech(
+                text=text,
+                voice_id=voice_id,
+                model_id=model_id,
+                voice_settings=voice_settings,
+                output_format=config.get("output_format", "mp3_44100_128")
+            )
+            
+            if not audio_data:
+                 return {
+                    "response": "Failed to generate voice",
+                    "next_node_id": None,
+                    "context": context,
+                    "metadata": {"error": "TTS generation failed"}
+                }
+                
+            # Save to file
+            with open(filepath, "wb") as f:
+                f.write(audio_data)
+                
+            # Public URL
+            from app.core.config import settings
+            # Construct absolute URL if API_BASE_URL is set, otherwise relative
+            base_url = (settings.API_BASE_URL or "").rstrip("/")
+            audio_url = f"{base_url}/uploads/{filename}"
+            
+            # Update context with result
+            context["voice_tts_last_url"] = audio_url
+            context["voice_tts_last_text"] = text
+            
+            return {
+                "response": f"[Voice Message] {text}",
+                "next_node_id": None,
+                "context": context,
+                "metadata": {
+                    "audio_url": audio_url,
+                    "text": text,
+                    "voice_id": voice_id,
+                    "is_voice": True,
+                    "provider": "huemn"
+                }
+            }
+        except Exception as e:
+            logger.error(f"Premium Voice TTS error: {str(e)}")
+            return {
+                "response": f"Error generating voice: {str(e)}",
+                "next_node_id": None,
+                "context": context,
+                "metadata": {"error": str(e)}
+            }
     
     async def _execute_ai_code_node(self, node: AgentNode, context: Dict[str, Any]) -> Dict[str, Any]:
         """Execute AI Code Generation node"""
@@ -3401,7 +3777,7 @@ Return only the intent name that best matches."""
             "context": context,
             "metadata": {"stream_type": stream_type, "streaming_enabled": True}
         }
-    
+
     async def _execute_ivr_call_node(self, node: AgentNode, context: Dict[str, Any]) -> Dict[str, Any]:
         """Execute IVR Call node - initiates a phone call to redirect chat to voice"""
         config = node.config or {}
@@ -3839,5 +4215,544 @@ Return only the intent name that best matches."""
                 "priority": priority,
                 "reason": "handoff_node_execution"
             }
+        }
+
+    async def _execute_event_trigger_node(self, node: AgentNode, context: Dict[str, Any]) -> Dict[str, Any]:
+        """Execute event trigger node - registers or waits for system events"""
+        config = node.config or {}
+        event_source = config.get("event_source", "webhook")
+        event_pattern = config.get("event_pattern", "")
+        timeout = config.get("timeout_seconds", 3600)
+        
+        # In a real event-driven system, this would:
+        # 1. Register a subscription to an event bus (Kafka/RabbitMQ)
+        # 2. Suspend execution (return status=SUSPENDED)
+        # 3. Resume when event arrives
+        
+        # For now, we'll simulate registration and return a status
+        
+        context["_event_subscription"] = {
+            "source": event_source,
+            "pattern": event_pattern,
+            "timeout": timeout,
+            "node_id": node.id,
+            "timestamp": datetime.utcnow().isoformat()
+        }
+        
+        return {
+            "response": f"Waiting for event: {event_source}",
+            "next_node_id": None,
+            "context": context,
+            "metadata": {
+                "event_wait": True, 
+                "source": event_source,
+                "pattern": event_pattern
+            }
+        }
+
+    async def _execute_session_state_node(self, node: AgentNode, context: Dict[str, Any]) -> Dict[str, Any]:
+        """Execute session state node - manages checkpoints and rollback"""
+        config = node.config or {}
+        action = config.get("action", "checkpoint") # checkpoint, rollback, clear
+        checkpoint_id = config.get("checkpoint_id", "default")
+        
+        import copy
+        
+        if action == "checkpoint":
+            # Save current context state to a special "checkpoints" variable
+            if "_checkpoints" not in context:
+                context["_checkpoints"] = {}
+            
+            # Deep copy to ensure we capture current state
+            try:
+                # Filter out circular refs or large objects if needed
+                context_snapshot = copy.deepcopy({k: v for k, v in context.items() if k != "_checkpoints"})
+                context["_checkpoints"][checkpoint_id] = context_snapshot
+                
+                msg = f"Checkpoint '{checkpoint_id}' saved."
+            except Exception as e:
+                msg = f"Failed to save checkpoint: {str(e)}"
+                logger.error(msg)
+                
+        elif action == "rollback":
+            # Restore context from checkpoint
+            checkpoints = context.get("_checkpoints", {})
+            if checkpoint_id in checkpoints:
+                saved_context = checkpoints[checkpoint_id]
+                # Update current context with saved values
+                # We keep the checkpoints variable itself
+                current_checkpoints = context.get("_checkpoints")
+                context.update(saved_context)
+                context["_checkpoints"] = current_checkpoints
+                msg = f"Rolled back to checkpoint '{checkpoint_id}'."
+            else:
+                msg = f"Checkpoint '{checkpoint_id}' not found."
+                
+        elif action == "clear":
+            # Clear all custom variables, keep system ones
+            system_keys = ["session_id", "agent_id", "user_id", "message_history", "_checkpoints"]
+            keys_to_remove = [k for k in context.keys() if k not in system_keys]
+            for k in keys_to_remove:
+                context.pop(k, None)
+            msg = "Session variables cleared."
+            
+        return {
+            "response": "",
+            "next_node_id": None,
+            "context": context,
+            "metadata": {"action": action, "status": "success", "message": msg}
+        }
+
+    async def _execute_auth_provider_node(self, node: AgentNode, context: Dict[str, Any]) -> Dict[str, Any]:
+        """Execute Auth Provider node - Handles OAuth2/SSO authentication flow"""
+        config = node.config or {}
+        provider = config.get("provider_type", "custom")
+        output_var = config.get("output_variable", "auth_token")
+        scopes = config.get("scopes", [])
+        
+        # Check if we already have a valid token
+        existing_token = context.get(output_var)
+        if existing_token and not config.get("force_refresh"):
+            return {
+                "response": "",
+                "next_node_id": None,
+                "context": context,
+                "metadata": {"status": "already_authenticated", "provider": provider}
+            }
+            
+        # In a real scenario, this would generate an OAuth URL or exchange credentials
+        # For agent automation, we typically use Client Credentials flow or stored refresh tokens
+        
+        # Simulation:
+        if config.get("client_id") and config.get("client_secret"):
+            # Simulate Service Account / Client Credentials Flow
+            fake_token = f"simulated_token_{provider}_{datetime.utcnow().timestamp()}"
+            context[output_var] = fake_token
+            return {
+                "response": "",
+                "next_node_id": None,
+                "context": context,
+                "metadata": {"status": "authenticated", "flow": "client_credentials"}
+            }
+        else:
+            # If user interaction is needed (Authorization Code Flow)
+            # We would return a special "Require User Action" response
+            auth_url = config.get("auth_url", f"https://{provider}.com/oauth/authorize")
+            response_msg = f"Please authenticate with {provider} to proceed: {auth_url}"
+            
+            return {
+                "response": response_msg,
+                "next_node_id": None, # Stop flow here? Or handled by frontend?
+                "context": context,
+                "metadata": {
+                    "status": "auth_required", 
+                    "auth_url": auth_url,
+                    "action_required": "authenticate"
+                }
+            }
+
+    async def _execute_queue_publisher_node(self, node: AgentNode, context: Dict[str, Any]) -> Dict[str, Any]:
+        """Execute Queue Publisher node - Sends message to message queue"""
+        config = node.config or {}
+        provider = config.get("provider", "kafka")
+        queue_name = config.get("queue_name", "default")
+        message_body = config.get("message_body")
+        
+        # Resolve variables in message body if it's a string
+        if isinstance(message_body, str):
+            message_body = self._replace_variables(message_body, context)
+        elif message_body is None:
+            # Use last response or specific variable if body not provided
+            message_body = context.get("last_user_message") or {}
+            
+        # Simulate publishing
+        logger.info(f"Publishing to {provider}/{queue_name}: {str(message_body)[:50]}...")
+        
+        return {
+            "response": "",
+            "next_node_id": None,
+            "context": context,
+            "metadata": {
+                "published": True, 
+                "provider": provider, 
+                "queue": queue_name,
+                "message_id": f"msg_{datetime.utcnow().timestamp()}"
+            }
+        }
+
+    async def _execute_queue_listener_node(self, node: AgentNode, context: Dict[str, Any]) -> Dict[str, Any]:
+        """Execute Queue Listener node - Waits for or retrieves message from queue"""
+        config = node.config or {}
+        provider = config.get("provider", "kafka")
+        queue_name = config.get("queue_name", "default")
+        timeout = config.get("timeout_seconds", 30)
+        
+        # In a real system, this would block/poll or register a callback
+        # For request/response flow, we might poll for a short duration
+        
+        # Simulation: Check if there's a "mock" message in context (for testing)
+        # or simulate a timeout/empty queue for now
+        
+        mock_messages = context.get("_mock_queue", {}).get(queue_name, [])
+        
+        if mock_messages:
+            msg = mock_messages.pop(0)
+            context["queue_message"] = msg
+            return {
+                "response": "",
+                "next_node_id": None,
+                "context": context,
+                "metadata": {"received": True, "provider": provider, "queue": queue_name}
+            }
+        else:
+            # If no message, we might either block (asyncio.sleep) or return empty
+            # For this MVP, we'll return "no message" status
+            return {
+                "response": "",
+                "next_node_id": None,
+                "context": context,
+                "metadata": {"received": False, "reason": "timeout", "provider": provider}
+            }
+
+    async def _execute_dialog_policy_node(self, node: AgentNode, context: Dict[str, Any]) -> Dict[str, Any]:
+        """Execute Dialog Policy node - Controls confidence and fallback logic"""
+        config = node.config or {}
+        confidence_threshold = config.get("confidence_threshold", 0.7)
+        fallback_action = config.get("fallback_action", "ask_clarification")
+        
+        # Analyze current intent confidence
+        intent_data = context.get("intent", {})
+        current_confidence = intent_data.get("confidence", 1.0)
+        
+        status = "confident"
+        action = "proceed"
+        
+        if current_confidence < confidence_threshold:
+            status = "low_confidence"
+            action = fallback_action
+            # Trigger fallback behavior by setting special context flags
+            context["_fallback_triggered"] = True
+            context["_fallback_reason"] = "low_confidence"
+            
+            if fallback_action == "ask_clarification":
+                 return {
+                    "response": "I'm not sure I understood. Could you rephrase that?",
+                    "next_node_id": None, # Stop here to get user input
+                    "context": context,
+                    "metadata": {"status": status, "confidence": current_confidence}
+                }
+        
+        return {
+            "response": "",
+            "next_node_id": None,
+            "context": context,
+            "metadata": {"status": status, "confidence": current_confidence, "policy_action": action}
+        }
+
+    async def _execute_intent_flow_node(self, node: AgentNode, context: Dict[str, Any]) -> Dict[str, Any]:
+        """Execute Intent Flow Manager - Orchestrates multi-turn intent scopes"""
+        config = node.config or {}
+        allowed_intents = config.get("allowed_intents", [])
+        scope_name = f"flow_{node.id}"
+        
+        # Set active intent scope in context
+        # This tells the Intent Classifier to prioritize these intents
+        context["_active_intent_scope"] = {
+            "name": scope_name,
+            "allowed_intents": allowed_intents,
+            "max_turns": config.get("max_turns", 5),
+            "current_turn": 0
+        }
+        
+        return {
+            "response": "",
+            "next_node_id": None,
+            "context": context,
+            "metadata": {"scope_set": scope_name, "allowed_intents": allowed_intents}
+        }
+
+    async def _execute_persona_control_node(self, node: AgentNode, context: Dict[str, Any]) -> Dict[str, Any]:
+        """Execute Persona Control node - Modifies system prompt/tone"""
+        config = node.config or {}
+        persona_name = config.get("persona_name", "default")
+        tone = config.get("tone", "professional")
+        
+        # Construct system instruction
+        system_instruction = f"Adopt the persona '{persona_name}'. Tone: {tone}."
+        if config.get("constraints"):
+            system_instruction += " Constraints: " + "; ".join(config.get("constraints"))
+            
+        # Store in context for LLM node to pick up
+        context["_system_instruction_override"] = system_instruction
+        context["_persona_tone"] = tone
+        
+        return {
+            "response": "",
+            "next_node_id": None,
+            "context": context,
+            "metadata": {"persona_active": persona_name, "tone": tone}
+        }
+
+    async def _execute_kb_sync_node(self, node: AgentNode, context: Dict[str, Any]) -> Dict[str, Any]:
+        """Execute KB Sync node - Triggers knowledge base indexing"""
+        config = node.config or {}
+        source_type = config.get("source_type")
+        source_path = config.get("source_path")
+        
+        # In a real system, this calls the Ingestion Service
+        # Simulation:
+        job_id = f"sync_{datetime.utcnow().timestamp()}"
+        
+        logger.info(f"Starting KB Sync from {source_type} at {source_path}")
+        
+        return {
+            "response": f"Knowledge base synchronization started (Job: {job_id})",
+            "next_node_id": None,
+            "context": context,
+            "metadata": {"job_id": job_id, "status": "started", "source": source_type}
+        }
+
+    async def _execute_rich_message_node(self, node: AgentNode, context: Dict[str, Any]) -> Dict[str, Any]:
+        """Execute Rich Message node - Renders structured UI elements"""
+        config = node.config or {}
+        template_type = config.get("template_type", "text")
+        items = config.get("items", [])
+        actions = config.get("actions", [])
+        fallback_text = config.get("fallback_text", "Rich content not supported.")
+        
+        # Replace variables in items and actions
+        # Deep replacement logic would be ideal here, but for MVP we'll just return the structure
+        # The frontend is responsible for rendering this structure
+        
+        message_payload = {
+            "type": template_type,
+            "content": items,
+            "actions": actions,
+            "fallback": fallback_text
+        }
+        
+        return {
+            "response": fallback_text, # Text fallback for chat history
+            "next_node_id": None,
+            "context": context,
+            "metadata": {
+                "rich_content": True, 
+                "payload": message_payload,
+                "template": template_type
+            }
+        }
+
+    async def _execute_voice_translation_node(self, node: AgentNode, context: Dict[str, Any]) -> Dict[str, Any]:
+        """Execute Voice Translation node - Handles Speech-to-Speech translation"""
+        config = node.config or {}
+        target_lang = config.get("target_language", "en")
+        preserve_tone = config.get("preserve_tone", False)
+        
+        # In a real implementation, this would:
+        # 1. Take audio input from context (if available)
+        # 2. Transcribe (STT) if not already text
+        # 3. Translate Text
+        # 4. Synthesize (TTS) to target language
+        
+        input_text = context.get("last_user_message", "")
+        
+        # Simulated Translation
+        translated_text = f"[Translated to {target_lang}]: {input_text}"
+        
+        return {
+            "response": translated_text,
+            "next_node_id": None,
+            "context": context,
+            "metadata": {
+                "translation": True,
+                "source_text": input_text,
+                "target_lang": target_lang,
+                "audio_url": "http://mock-audio-service/speech.mp3" # Mock audio
+            }
+        }
+
+    async def _execute_handoff_intelligence_node(self, node: AgentNode, context: Dict[str, Any]) -> Dict[str, Any]:
+        """Execute Handoff Intelligence node - Detects escalation needs"""
+        config = node.config or {}
+        strategy = config.get("detection_strategy", "sentiment_intent")
+        threshold = config.get("sentiment_threshold", -0.7)
+        escalation_intents = config.get("escalation_intents", ["talk_to_human", "complaint"])
+        priority_level = config.get("priority_level", "high")
+        
+        should_escalate = False
+        reason = None
+        
+        # 1. Check Sentiment
+        current_sentiment = context.get("sentiment_score", 0.0) # Assuming sentiment analysis runs upstream
+        if "sentiment" in strategy and current_sentiment <= threshold:
+            should_escalate = True
+            reason = f"Negative sentiment ({current_sentiment})"
+            
+        # 2. Check Intent
+        current_intent = context.get("intent", {}).get("name")
+        if "intent" in strategy and current_intent in escalation_intents:
+            should_escalate = True
+            reason = f"Escalation intent detected ({current_intent})"
+            
+        result_metadata = {"check_performed": True, "escalation_required": should_escalate}
+        
+        if should_escalate:
+            context["_handoff_requested"] = True
+            context["_handoff_reason"] = reason
+            context["_handoff_priority"] = priority_level
+            result_metadata["reason"] = reason
+            
+            return {
+                "response": "I see this requires human attention. Connecting you to an agent...",
+                "next_node_id": None,
+                "context": context,
+                "metadata": result_metadata
+            }
+            
+        return {
+            "response": "", # No escalation, continue flow
+            "next_node_id": None,
+            "context": context,
+            "metadata": result_metadata
+        }
+
+    async def _execute_data_transformer_node(self, node: AgentNode, context: Dict[str, Any]) -> Dict[str, Any]:
+        """Execute Data Transformer node - ETL/Mapping"""
+        config = node.config or {}
+        transform_type = config.get("transformation_type", "map")
+        mapping_rules = config.get("mapping_rules", {})
+        
+        output_data = {}
+        
+        if transform_type == "map":
+            # Simple key mapping: output_key = context[input_key]
+            for target_key, source_key in mapping_rules.items():
+                val = self._resolve_variable(source_key, context)
+                output_data[target_key] = val
+                
+            # Update context with transformed data
+            context.update(output_data)
+            
+        return {
+            "response": f"Data transformed ({len(output_data)} fields mapped)",
+            "next_node_id": None,
+            "context": context,
+            "metadata": {"type": transform_type, "mapped_fields": list(output_data.keys())}
+        }
+
+    async def _execute_db_transaction_node(self, node: AgentNode, context: Dict[str, Any]) -> Dict[str, Any]:
+        """Execute DB Transaction node - Atomic operations"""
+        config = node.config or {}
+        operation = config.get("operation", "begin")
+        conn_id = config.get("connection_id")
+        
+        # In a real system, this would interact with a Transaction Manager service
+        # Storing transaction handle in context for subsequent nodes
+        
+        tx_id = context.get(f"_tx_{conn_id}")
+        
+        if operation == "begin":
+            tx_id = f"tx_{datetime.utcnow().timestamp()}"
+            context[f"_tx_{conn_id}"] = tx_id
+            msg = f"Transaction started: {tx_id}"
+        elif operation == "commit":
+            msg = f"Transaction committed: {tx_id}"
+            context.pop(f"_tx_{conn_id}", None)
+        elif operation == "rollback":
+            msg = f"Transaction rolled back: {tx_id}"
+            context.pop(f"_tx_{conn_id}", None)
+        else:
+            msg = "Unknown operation"
+
+        return {
+            "response": msg,
+            "next_node_id": None,
+            "context": context,
+            "metadata": {"operation": operation, "tx_id": tx_id}
+        }
+
+    async def _execute_ai_insight_node(self, node: AgentNode, context: Dict[str, Any]) -> Dict[str, Any]:
+        """Execute AI Insight node - Summarization/Analytics"""
+        config = node.config or {}
+        insight_type = config.get("insight_type", "summarize")
+        source_var = config.get("source_variable", "chat_history")
+        output_var = config.get("output_variable", "summary")
+        
+        source_data = self._resolve_variable(source_var, context)
+        result = ""
+        
+        if insight_type == "summarize":
+            # Mock summarization
+            if isinstance(source_data, list): # Chat history
+                result = f"Summary of {len(source_data)} messages."
+            else:
+                result = f"Summary of text: {str(source_data)[:50]}..."
+        elif insight_type == "keywords":
+            result = ["ai", "platform", "enterprise"] # Mock keywords
+            
+        context[output_var] = result
+        
+        return {
+            "response": "",
+            "next_node_id": None,
+            "context": context,
+            "metadata": {"insight_type": insight_type, "result_preview": str(result)[:50]}
+        }
+
+    async def _execute_orchestrator_node(self, node: AgentNode, context: Dict[str, Any]) -> Dict[str, Any]:
+        """Execute Orchestrator node - Manage long-running workflows"""
+        config = node.config or {}
+        workflow_id = config.get("workflow_id")
+        sync_mode = config.get("sync_mode", "async")
+        
+        # Simulation of triggering another workflow
+        execution_id = f"exec_{workflow_id}_{datetime.utcnow().timestamp()}"
+        
+        if sync_mode == "sync":
+            # In real system, would await result
+            status = "completed"
+            result_data = {"status": "success"}
+        else:
+            status = "running"
+            result_data = None
+            
+        return {
+            "response": f"Workflow {workflow_id} triggered ({status})",
+            "next_node_id": None,
+            "context": context,
+            "metadata": {"execution_id": execution_id, "status": status, "mode": sync_mode}
+        }
+
+    async def _execute_scheduler_cluster_node(self, node: AgentNode, context: Dict[str, Any]) -> Dict[str, Any]:
+        """Execute Scheduler Cluster node - Distributed jobs"""
+        config = node.config or {}
+        job_type = config.get("job_type")
+        cron = config.get("cron_expression")
+        
+        job_id = f"job_{job_type}_{datetime.utcnow().timestamp()}"
+        
+        return {
+            "response": f"Job {job_type} scheduled ({cron})",
+            "next_node_id": None,
+            "context": context,
+            "metadata": {"job_id": job_id, "schedule": cron}
+        }
+
+    async def _execute_adaptive_learner_node(self, node: AgentNode, context: Dict[str, Any]) -> Dict[str, Any]:
+        """Execute Adaptive Learner node - Feedback loop"""
+        config = node.config or {}
+        goal = config.get("learning_goal")
+        feedback_source = config.get("feedback_source")
+        
+        feedback_value = self._resolve_variable(feedback_source, context)
+        
+        # Log feedback for offline RL / retraining
+        logger.info(f"Adaptive Learning: Goal={goal}, Feedback={feedback_value}")
+        
+        return {
+            "response": "",
+            "next_node_id": None,
+            "context": context,
+            "metadata": {"recorded": True, "feedback_value": feedback_value}
         }
 

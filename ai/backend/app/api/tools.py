@@ -106,3 +106,16 @@ async def get_tool_config(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to get tool config: {str(e)}")
 
+
+@router.get("/connectors/metadata")
+async def get_connectors_metadata():
+    """Get metadata for all available connectors"""
+    try:
+        from app.core.connector_manager import get_connector_metadata
+        return {
+            "success": True,
+            "connectors": get_connector_metadata()
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get connector metadata: {str(e)}")
+

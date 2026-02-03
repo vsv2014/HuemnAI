@@ -52,6 +52,30 @@ class Agent(Base):
     nodes = relationship("AgentNode", back_populates="agent", cascade="all, delete-orphan", foreign_keys="AgentNode.agent_id")
     flows = relationship("AgentFlow", back_populates="agent", cascade="all, delete-orphan")
     conversations = relationship("AgentConversation", back_populates="agent", cascade="all, delete-orphan")
+    versions = relationship("AgentVersion", back_populates="agent", cascade="all, delete-orphan")
+
+
+class AgentVersion(Base):
+    """Immutable snapshot of an agent configuration"""
+    __tablename__ = "agent_versions"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    agent_id = Column(Integer, ForeignKey("agents.id"), nullable=False)
+    version_number = Column(String(50), nullable=False) # e.g., "1.0.0", "1.0.1"
+    
+    # Snapshot Data
+    configuration = Column(JSON, nullable=False) # Full JSON dump of nodes, edges, settings
+    commit_message = Column(String(255), nullable=True)
+    notes = Column(Text, nullable=True)
+    
+    # Publishing
+    is_published = Column(Boolean, default=False)
+    published_at = Column(DateTime(timezone=True), nullable=True)
+    
+    created_by = Column(Integer, nullable=True) # User ID
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    
+    agent = relationship("Agent", back_populates="versions")
 
 
 class NodeType(str, enum.Enum):
@@ -76,6 +100,15 @@ class NodeType(str, enum.Enum):
     MERGE = "merge"  # Merge multiple paths
     LOOP = "loop"  # Loop node
     DELAY = "delay"  # Wait/delay node
+    EVENT_TRIGGER = "event_trigger"  # Event trigger node
+    SESSION_STATE = "session_state"  # Session state management
+    AGENT_DELEGATE = "agent_delegate"  # Delegate to another agent
+    PREMIUM_VOICE_TTS = "premium_voice_tts"  # Premium Voice/TTS (HuemnVoice)
+
+    # Identity & System Integration
+    AUTH_PROVIDER = "auth_provider"  # OAuth/SSO Authentication
+    QUEUE_PUBLISHER = "queue_publisher"  # Publish to Message Queue
+    QUEUE_LISTENER = "queue_listener"  # Listen to Message Queue
     
     # Response Nodes
     RESPONSE = "response"  # Send response to user
@@ -94,6 +127,27 @@ class NodeType(str, enum.Enum):
     AI_DECISION = "ai_decision"  # AI Decision making
     AI_MULTI_AGENT = "ai_multi_agent"  # Multi-agent coordination
     
+    # Advanced AI Intelligence
+    DIALOG_POLICY = "dialog_policy"  # Hybrid rule + ML decision system
+    INTENT_FLOW = "intent_flow"  # Multi-turn intent orchestration
+    PERSONA_CONTROL = "persona_control"  # Persona & Tone management
+    KB_SYNC = "kb_sync"  # Knowledge Base synchronization
+
+    # Communication Enhancements
+    RICH_MESSAGE = "rich_message"    # Structured UI elements (Cards, Carousels)
+    VOICE_TRANSLATION = "voice_translation" # Real-time speech-to-speech
+    HANDOFF_INTELLIGENCE = "handoff_intelligence" # Smart escalation detection
+
+    # Data & Analytics Extensions
+    DATA_TRANSFORMER = "data_transformer" # ETL and Schema Mapping
+    DB_TRANSACTION = "db_transaction"     # Atomic DB operations
+    AI_INSIGHT = "ai_insight"             # Summarization, Trend Detection
+
+    # Automation & Orchestration
+    ORCHESTRATOR = "orchestrator"         # Long-running workflow manager
+    SCHEDULER_CLUSTER = "scheduler_cluster" # Distributed job execution
+    ADAPTIVE_LEARNER = "adaptive_learner" # Feedback loop and optimization
+
     # Data Processing Nodes
     DATA_ANALYSIS = "data_analysis"  # Data analysis and insights
     DOCUMENT_PROCESSOR = "document_processor"  # Document AI processing
@@ -112,7 +166,6 @@ class NodeType(str, enum.Enum):
     TASK_SCHEDULER = "task_scheduler"  # Task scheduling
     
     # Agent Composition
-    AGENT_DELEGATE = "agent_delegate"  # Delegate to another agent/sub-bot
 
 
 class AgentNode(Base):
