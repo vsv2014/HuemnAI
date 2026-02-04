@@ -25,4 +25,7 @@ redis
 celery[redis]
 psycopg2-binary
 prometheus-fastapi-instrumentator
+anthropic
+google-genai
+locust
 

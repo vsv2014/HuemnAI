@@ -40,6 +40,14 @@ export default function AppSidebar({ agentId }: { agentId: number }) {
       ],
     },
     {
+      id: "customer-service",
+      label: "Customer Service",
+      icon: "🎧",
+      items: [
+        { id: "agent-console", label: "Agent Console", icon: "🖥️", path: `/customer-service/agent-console` },
+      ],
+    },
+    {
       id: "knowledge-ai",
       label: "Knowledge AI",
       icon: "🧠",

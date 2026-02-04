@@ -84,6 +84,9 @@ class Settings:
     TWILIO_ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID")
     TWILIO_AUTH_TOKEN = os.getenv("TWILIO_AUTH_TOKEN")
     TWILIO_PHONE_NUMBER = os.getenv("TWILIO_PHONE_NUMBER")
+    TWILIO_API_KEY_SID = os.getenv("TWILIO_API_KEY_SID")
+    TWILIO_API_KEY_SECRET = os.getenv("TWILIO_API_KEY_SECRET")
+    TWILIO_APP_SID = os.getenv("TWILIO_APP_SID") # TwiML App SID for browser calls
     API_BASE_URL = os.getenv("API_BASE_URL", "http://localhost:8000")  # Base URL for webhooks
 
     # HuemnVoice / Voice Configuration

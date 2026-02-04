@@ -608,6 +608,8 @@ class AgentExecutor:
                 result = await self._execute_branch_node(node, context)
             elif node.node_type == NodeType.MERGE:
                 result = await self._execute_merge_node(node, context)
+            elif node.node_type == NodeType.HANDOFF:
+                result = await self._execute_handoff_node(node, context)
             elif node.node_type == NodeType.AGENT_DELEGATE:
                 result = await self._execute_agent_delegate_node(node, context, conversation_id)
             elif node.node_type == NodeType.IVR_CALL:
@@ -2291,6 +2293,65 @@ Return only the intent name that best matches."""
             "context": context,
             "metadata": {"flow_completed": True}
         }
+
+    async def _execute_handoff_node(self, node: AgentNode, context: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Execute HANDOFF node: Route session to a human agent queue.
+        """
+        from app.services.routing_service import RoutingService
+        from app.schemas.node_configs import HandoffNodeConfig
+        
+        # 1. Parse config
+        try:
+            config = HandoffNodeConfig(**(node.config or {}))
+        except Exception as e:
+            logger.error(f"Invalid config for Handoff node {node.id}: {e}")
+            return {
+                "response": "Configuration error in Handoff node.",
+                "node_id": None,
+                "context": context,
+                "metadata": {"error": str(e)}
+            }
+
+        # 2. Get session ID from context
+        session_id = context.get("session_id")
+        if not session_id:
+            logger.error("No session_id in context for Handoff")
+            # If session_id is missing (e.g. test run), generate a dummy one
+            if context.get("is_test_run"):
+                session_id = f"test-{uuid.uuid4()}"
+            else:
+                return {
+                    "response": "Error: No session ID found.",
+                    "node_id": None,
+                    "context": context,
+                    "metadata": {"error": "missing_session_id"}
+                }
+
+        # 3. Enqueue call via RoutingService
+        success = await RoutingService.enqueue_call(session_id, config, context)
+        
+        if success:
+            # 4. Return response indicating handoff
+            return {
+                "response": config.handoff_message,
+                "node_id": None, # Stop automatic flow execution
+                "context": context,
+                "metadata": {
+                    "handoff_initiated": True,
+                    "queue_name": config.queue_name,
+                    "priority": config.priority,
+                    "timeout_seconds": config.timeout_seconds,
+                    "timeout_action": config.timeout_action
+                }
+            }
+        else:
+             return {
+                "response": "Sorry, I'm unable to connect you to an agent right now.",
+                "node_id": None,
+                "context": context,
+                "metadata": {"error": "enqueue_failed"}
+            }
     
     async def _execute_loop_node(self, node: AgentNode, context: Dict[str, Any]) -> Dict[str, Any]:
         """Execute loop node - loops through items"""
@@ -2529,6 +2590,8 @@ Return only the intent name that best matches."""
                 return None
         return value
     
+    # Duplicate method removed
+
     def _replace_variables(self, text: str, context: Dict[str, Any]) -> str:
         """Replace {{variable}} placeholders in text with context values"""
         import re
@@ -4188,34 +4251,7 @@ Return only the intent name that best matches."""
             "metadata": {"task_id": task_id, "schedule": schedule_expression, "task_type": task_type}
         }
 
-    async def _execute_handoff_node(self, node: AgentNode, context: Dict[str, Any]) -> Dict[str, Any]:
-        """Execute handoff node - transfer to human agent"""
-        config = node.config or {}
-        target_department = config.get("target_department", "support")
-        priority = config.get("priority", "normal")
-        message = config.get("message", "Transferring you to a human agent...")
-        
-        # Replace variables in message
-        message = self._replace_variables(message, context)
-        
-        # In a real system, this would create a ticket or signal a live chat system
-        # For now, we set a flag in the context and return a response
-        
-        context["_handoff_requested"] = True
-        context["_handoff_department"] = target_department
-        context["_handoff_priority"] = priority
-        
-        return {
-            "response": message,
-            "next_node_id": None,
-            "context": context,
-            "metadata": {
-                "handoff": True,
-                "target_department": target_department,
-                "priority": priority,
-                "reason": "handoff_node_execution"
-            }
-        }
+    # Duplicate method removed (moved to earlier in file)
 
     async def _execute_event_trigger_node(self, node: AgentNode, context: Dict[str, Any]) -> Dict[str, Any]:
         """Execute event trigger node - registers or waits for system events"""

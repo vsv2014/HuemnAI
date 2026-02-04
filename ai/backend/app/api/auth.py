@@ -236,7 +236,12 @@ async def signup(
     )
 
 @router.post("/login", response_model=AuthResponse)
-async def login(request: LoginRequest, db: Session = Depends(get_db)):
+async def login(
+    request: LoginRequest,
+    background_tasks: BackgroundTasks,
+    http_request: Request,
+    db: Session = Depends(get_db)
+):
     """Login user"""
     user = db.query(UserAccount).filter(UserAccount.email == request.email).first()
     

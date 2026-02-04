@@ -34,7 +34,10 @@ import {
   LayoutGrid,
   Layers,
   Database,
-  Menu
+  Menu,
+  Mic,
+  Paperclip,
+  Image as ImageIcon
 } from "lucide-react";
 
 interface KnowledgeSource {
@@ -82,7 +85,7 @@ const AVAILABLE_TOOLS = [
   { id: 'analytics-dashboard', name: 'Analytics', icon: '📊', path: '/chat/analytics-dashboard' },
 ];
 
-export default function EnhancedKnowledgeAI() {
+export default function EnhancedKnowledgeAI({ embedded = false }: { embedded?: boolean }) {
   const router = useRouter();
   const pathname = usePathname();
   const { token } = useAuthStore();
@@ -123,6 +126,11 @@ export default function EnhancedKnowledgeAI() {
   const [uploadingFile, setUploadingFile] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  
+  // Chat specific file/voice state
+  const [chatFile, setChatFile] = useState<File | null>(null);
+  const [isRecording, setIsRecording] = useState(false);
+  const chatFileInputRef = useRef<HTMLInputElement>(null);
 
   // Scroll to bottom on new message
   useEffect(() => {
@@ -322,60 +330,50 @@ export default function EnhancedKnowledgeAI() {
   };
 
   return (
-    <div className="flex h-screen bg-[#0b0f19] text-white font-sans selection:bg-blue-500/30 overflow-hidden">
+    <div className={`flex ${embedded ? 'h-full w-full' : 'h-screen w-screen m-0 p-0'} bg-transparent text-white font-sans selection:bg-white/20 overflow-hidden`}>
       
       {/* Sidebar */}
-      <ChatSidebar 
-        isOpen={sidebarOpen} 
-        setIsOpen={setSidebarOpen}
-        currentConversationId={currentConversationId}
-        onSelectConversation={handleSelectConversation}
-        onNewChat={handleNewChat}
-      />
+      {!embedded && (
+        <ChatSidebar 
+            isOpen={sidebarOpen} 
+            setIsOpen={setSidebarOpen}
+            currentConversationId={currentConversationId}
+            onSelectConversation={handleSelectConversation}
+            onNewChat={handleNewChat}
+        />
+      )}
 
       {/* Main Content */}
-      <div className={`flex-1 flex flex-col h-full transition-all duration-300 ${sidebarOpen ? 'ml-64' : 'ml-0'}`}>
+      <div className={`flex-1 flex flex-col h-full transition-all duration-300 ${!embedded && sidebarOpen ? 'ml-[260px]' : 'ml-0'}`}>
         
-        {/* Navigation Header */}
-        <div className="bg-transparent border-b border-white/5 z-20">
-          <div className="max-w-7xl mx-auto px-6 h-14 flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="flex items-center gap-2 mr-2">
-                <Link 
-                  href="/" 
-                  className="p-1.5 text-white/40 hover:text-white hover:bg-white/5 rounded-lg transition-colors"
-                  title="Go to Home"
-                >
-                  <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
-                    <polyline points="9 22 9 12 15 12 15 22"/>
-                  </svg>
-                </Link>
-                <span className="text-white/10">|</span>
-                {/* Back Button */}
-                <button
-                  onClick={() => router.back()}
-                  className="p-1.5 text-white/40 hover:text-white hover:bg-white/5 rounded-lg transition-colors"
-                  title="Go Back"
-                >
-                  <ChevronLeft className="w-5 h-5" />
-                </button>
-              </div>
-
-              {!sidebarOpen && (
-                <button onClick={() => setSidebarOpen(true)} className="mr-2 text-white/60 hover:text-white">
+        {/* Navigation Header - Minimal */}
+        <div className="absolute top-0 left-0 right-0 p-4 z-20 flex justify-between items-center bg-gradient-to-b from-black/60 to-transparent pointer-events-none">
+          <div className="flex items-center gap-3 pointer-events-auto">
+            <button 
+              onClick={() => router.back()} 
+              className="text-white/60 hover:text-white p-2 rounded-lg hover:bg-white/5 transition-colors"
+              title="Go Back"
+            >
+              <ChevronLeft className="w-5 h-5" />
+            </button>
+            {!embedded && !sidebarOpen && (
+                <button onClick={() => setSidebarOpen(true)} className="text-white/60 hover:text-white p-2 rounded-lg hover:bg-white/5 transition-colors">
                   <Menu className="w-5 h-5" />
                 </button>
-              )}
-
-              {/* Tool Switcher */}
-              <ToolSwitcher variant="minimal" />
-            </div>
+            )}
             
-            <div className="flex gap-1 bg-white/5 p-0.5 rounded-lg">
+            {/* Tool Switcher Trigger (Hidden if desired, or styled minimally) */}
+            {!embedded && (
+              <div className="opacity-0 hover:opacity-100 transition-opacity">
+                   <ToolSwitcher variant="minimal" />
+              </div>
+            )}
+          </div>
+          
+          <div className="pointer-events-auto bg-black/40 backdrop-blur-md rounded-lg p-1 flex gap-1 shadow-lg border border-white/5">
               <button
                 onClick={() => setActiveTab("query")}
-                className={`px-3 py-1 text-xs font-medium rounded-md transition-all ${
+                className={`px-4 py-1.5 text-xs font-medium rounded-md transition-all ${
                   activeTab === "query"
                     ? "bg-white/10 text-white shadow-sm"
                     : "text-white/60 hover:text-white"
@@ -385,7 +383,7 @@ export default function EnhancedKnowledgeAI() {
               </button>
               <button
                 onClick={() => setActiveTab("sources")}
-                className={`px-3 py-1 text-xs font-medium rounded-md transition-all ${
+                className={`px-4 py-1.5 text-xs font-medium rounded-md transition-all ${
                   activeTab === "sources"
                     ? "bg-white/10 text-white shadow-sm"
                     : "text-white/60 hover:text-white"
@@ -393,185 +391,195 @@ export default function EnhancedKnowledgeAI() {
               >
                 Sources
               </button>
-            </div>
           </div>
         </div>
 
         {/* Content Area */}
-        <div className="flex-1 overflow-hidden relative">
+        <div className="flex-1 overflow-hidden relative pt-16">
           
           {/* QUERY TAB */}
           {activeTab === "query" && (
-            <div className="h-full flex flex-col">
+            <div className="h-full flex flex-col relative">
               
               {/* Messages Area */}
-              <div className="flex-1 overflow-y-auto custom-scrollbar p-6">
+              <div className="flex-1 overflow-y-auto custom-scrollbar p-4 md:p-0 pb-32">
                 {conversationHistory.length === 0 ? (
                    // Welcome / Empty State
-                   <div className="h-full flex flex-col justify-center items-center max-w-2xl mx-auto text-center space-y-8">
-                      <h1 className="text-4xl md:text-5xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-400 via-purple-400 to-white animate-in fade-in slide-in-from-bottom-4 duration-700">
-                        What would you like to know?
+                   <div className="h-full flex flex-col items-center justify-center max-w-2xl mx-auto text-center px-4 -mt-20">
+                      <div className="w-16 h-16 bg-white/5 backdrop-blur-xl rounded-full flex items-center justify-center mb-6 shadow-[0_0_30px_rgba(255,255,255,0.1)] ring-1 ring-white/20">
+                          <Sparkles className="w-8 h-8 text-white drop-shadow-[0_0_10px_rgba(255,255,255,0.5)]" />
+                      </div>
+                      <h1 className="text-3xl font-semibold text-white mb-8 tracking-tight drop-shadow-md">
+                        How can I help you today?
                       </h1>
-                      <p className="text-white/50 text-lg animate-in fade-in slide-in-from-bottom-5 duration-700 delay-100">
-                        Search across tickets, documents, and the web instantly.
-                      </p>
                       
-                      {/* Search Bar (Centered for empty state) */}
-                      <div className="w-full max-w-xl animate-in fade-in slide-in-from-bottom-6 duration-700 delay-200">
+                      {/* Search Bar (Centered) */}
+                      <div className="w-full max-w-xl animate-in fade-in slide-in-from-bottom-4 duration-500">
                          <form onSubmit={(e) => handleSearch(e)} className="relative group">
-                            <div className="absolute inset-0 bg-gradient-to-r from-blue-500/20 to-purple-500/20 rounded-xl blur-xl transition-opacity opacity-0 group-hover:opacity-100" />
-                            <div className="relative flex items-center bg-[#131722] border border-white/10 rounded-xl shadow-2xl overflow-hidden">
-                              <Search className="w-5 h-5 ml-4 text-white/40" />
-                              <input
+                            <div className="relative flex items-center bg-white/5 backdrop-blur-xl rounded-2xl shadow-2xl overflow-hidden transition-all border border-white/10 hover:border-white/20 focus-within:border-white/30 focus-within:ring-1 focus-within:ring-white/20">
+                               
+                               <input
                                 value={query}
                                 onChange={(e) => setQuery(e.target.value)}
-                                className="flex-1 bg-transparent border-none text-white px-4 py-4 focus:outline-none placeholder:text-white/30 text-lg"
-                                placeholder="Ask anything..."
+                                className="flex-1 bg-transparent border-none text-white pl-6 pr-2 py-4 focus:outline-none placeholder:text-zinc-500 text-base h-14"
+                                placeholder={chatFile ? `Attached: ${chatFile.name}` : "Message Knowledge AI..."}
                                 autoFocus
                               />
-                              <button 
-                                type="submit"
-                                disabled={!query.trim()}
-                                className="mr-2 p-2 rounded-lg bg-white/5 hover:bg-white/10 text-white/60 hover:text-white transition-colors disabled:opacity-30"
-                              >
-                                <ArrowRight className="w-5 h-5" />
-                              </button>
-                            </div>
+                              
+                              {/* Voice Search + Attachment Group */}
+                              <div className="flex items-center">
+                                <button 
+                                   type="button" 
+                                   onClick={() => setIsRecording(!isRecording)}
+                                   className={`px-2 transition-colors ${isRecording ? 'text-red-500 animate-pulse' : 'text-zinc-500 hover:text-white'}`} 
+                                   title="Voice Search"
+                                >
+                                  <Mic className="w-5 h-5" />
+                                </button>
+                                <input 
+                                   type="file" 
+                                   ref={chatFileInputRef} 
+                                   className="hidden" 
+                                   onChange={(e) => e.target.files?.[0] && setChatFile(e.target.files[0])}
+                                />
+                                <button 
+                                   type="button" 
+                                   onClick={() => chatFileInputRef.current?.click()}
+                                   className={`px-2 pr-4 transition-colors ${chatFile ? 'text-blue-400' : 'text-zinc-500 hover:text-white'}`}
+                                   title="Attach file"
+                                >
+                                  <Paperclip className="w-5 h-5" />
+                                </button>
+                              </div>
+ 
+                               <button 
+                                 type="submit"
+                                 disabled={!query.trim() && !chatFile}
+                                 className="mr-2 p-2 rounded-lg text-white disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                               >
+                                 <div className="bg-white text-black p-1.5 rounded-lg hover:bg-zinc-200">
+                                     <ArrowRight className="w-4 h-4" />
+                                 </div>
+                               </button>
+                             </div>
                           </form>
+                      </div>
+                      
+                      {/* Quick Suggestions */}
+                      <div className="grid grid-cols-2 gap-2 mt-8 w-full max-w-xl">
+                          {["Search for active tickets", "Summarize HR policies", "Find database credentials", "Explain the deployment process"].map((suggestion, i) => (
+                              <button 
+                                key={i}
+                                onClick={() => handleSearch(undefined, suggestion)}
+                                className="text-left p-3 rounded-xl border border-white/5 hover:bg-white/10 text-sm text-zinc-400 hover:text-white transition-colors truncate bg-white/5"
+                              >
+                                {suggestion}
+                              </button>
+                          ))}
                       </div>
                    </div>
                 ) : (
                   // Chat History
-                  <div className="max-w-4xl mx-auto space-y-8 pb-4">
+                  <div className="max-w-3xl mx-auto space-y-6 pt-4 px-4">
                     {conversationHistory.map((msg, idx) => (
-                      <div key={idx} className={`animate-in fade-in slide-in-from-bottom-2 duration-500`}>
+                      <div key={idx} className={`group flex gap-4 ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                         {msg.role === "user" ? (
-                          <div className="flex justify-end">
-                             <div className="bg-[#1e2330] text-white px-6 py-4 rounded-2xl rounded-tr-sm max-w-[80%] border border-white/5">
-                               <p className="whitespace-pre-wrap text-lg">{msg.content}</p>
-                             </div>
+                          <div className="bg-indigo-600/80 backdrop-blur-sm text-white px-5 py-3 rounded-2xl max-w-[85%] border border-white/10 shadow-lg">
+                             <p className="whitespace-pre-wrap leading-relaxed">{msg.content}</p>
                           </div>
                         ) : (
-                          <div className="space-y-6">
-                            {/* AI Answer Card */}
-                            <div className="bg-[#131722] rounded-xl border border-white/10 overflow-hidden shadow-lg relative group">
-                              <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-blue-500 via-purple-500 to-pink-500 opacity-50" />
-                              
-                              <div className="p-6">
-                                <div className="flex items-center justify-between mb-4">
-                                  <div className="flex items-center gap-2 text-blue-400">
-                                    <Sparkles className="w-5 h-5" />
-                                    <span className="font-semibold tracking-wide uppercase text-xs">AI Answer</span>
-                                  </div>
-                                  {(msg.confidence || 0) > 0 && (
-                                    <div className="flex items-center gap-1.5 px-2 py-1 rounded bg-green-500/10 border border-green-500/20">
-                                      <CheckCircle2 className="w-3 h-3 text-green-400" />
-                                      <span className="text-xs font-medium text-green-400">{((msg.confidence || 0) * 100).toFixed(0)}% Confidence</span>
-                                    </div>
-                                  )}
-                                </div>
-                                
-                                <div className="prose prose-invert prose-p:leading-relaxed prose-a:text-blue-400 max-w-none text-white/90">
+                          <div className="flex gap-4 max-w-[95%]">
+                            <div className="w-8 h-8 rounded-full bg-white/10 ring-1 ring-white/20 flex-shrink-0 flex items-center justify-center text-white mt-1">
+                                <Sparkles className="w-4 h-4" />
+                            </div>
+                            <div className="space-y-4 pt-1">
+                                <div className="prose prose-invert prose-p:leading-relaxed prose-li:text-zinc-300 max-w-none text-zinc-300">
                                   <p className="whitespace-pre-wrap">{renderSolutionWithCitations(msg.content, msg.results)}</p>
                                 </div>
-
-                                {/* Follow-up Questions */}
-                                {msg.followUps && msg.followUps.length > 0 && (
-                                  <div className="mt-6 pt-6 border-t border-white/5">
-                                    <h4 className="text-xs font-semibold text-white/40 uppercase tracking-wider mb-3 flex items-center gap-2">
-                                      <MessageSquare className="w-3 h-3" />
-                                      Related Questions
-                                    </h4>
-                                    <div className="flex flex-wrap gap-2">
-                                      {msg.followUps.map((q, i) => (
-                                        <button
-                                          key={i}
-                                          onClick={() => handleSearch(undefined, q)}
-                                          className="px-3 py-2 rounded-lg bg-white/5 hover:bg-white/10 border border-white/5 hover:border-white/20 text-sm text-white/80 hover:text-white transition-all text-left flex items-center gap-2 group/btn"
-                                        >
-                                          <span>{q}</span>
-                                          <ChevronRight className="w-3 h-3 opacity-0 group-hover/btn:opacity-100 transition-opacity" />
-                                        </button>
-                                      ))}
-                                    </div>
+                                
+                                {/* Sources Grid */}
+                                {msg.results && msg.results.length > 0 && (
+                                  <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
+                                    {msg.results.map((r, i) => (
+                                      <button 
+                                        key={i} 
+                                        id={`source-${idx}-${i}`}
+                                        className="flex-shrink-0 flex items-center gap-2 p-2 rounded-lg bg-white/5 hover:bg-white/10 transition-colors border border-white/5 max-w-[200px]"
+                                      >
+                                        <div className="p-1 bg-white/10 rounded text-zinc-300">
+                                            {getSourceIcon(r.source_type || 'document')}
+                                        </div>
+                                        <div className="text-left overflow-hidden">
+                                            <div className="text-xs font-medium text-zinc-200 truncate">{r.title || "Untitled"}</div>
+                                            <div className="text-[10px] text-zinc-500 truncate">{r.source_type}</div>
+                                        </div>
+                                      </button>
+                                    ))}
                                   </div>
                                 )}
-                              </div>
-                            </div>
-
-                            {/* Sources List for this message */}
-                            {msg.results && msg.results.length > 0 && (
-                              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                {msg.results.map((r, i) => (
-                                  <div 
-                                    key={i} 
-                                    id={`source-${idx}-${i}`}
-                                    className="p-4 rounded-xl bg-[#131722]/50 border border-white/5 hover:border-white/10 hover:bg-[#131722] transition-all group"
-                                  >
-                                    <div className="flex items-start justify-between mb-2">
-                                      <div className="flex items-center gap-2 text-blue-400 mb-1">
-                                        <div className="p-1 rounded bg-blue-500/10">
-                                          {getSourceIcon(r.source_type || 'document')}
-                                        </div>
-                                        <span className="text-xs font-medium uppercase tracking-wider text-blue-300/80">
-                                          {r.source_type || 'Source'}
-                                        </span>
-                                      </div>
+                                
+                                {/* Follow-up Questions */}
+                                {msg.followUps && msg.followUps.length > 0 && (
+                                    <div className="flex flex-wrap gap-2 pt-2">
+                                        {msg.followUps.map((q, i) => (
+                                            <button
+                                                key={i}
+                                                onClick={() => handleSearch(undefined, q)}
+                                                className="px-3 py-1.5 rounded-full border border-white/10 hover:bg-white/5 text-sm text-zinc-400 hover:text-white transition-colors"
+                                            >
+                                                {q}
+                                            </button>
+                                        ))}
                                     </div>
-                                    <h4 className="text-sm font-medium text-blue-300 group-hover:text-blue-400 transition-colors mb-1 line-clamp-1">
-                                      {r.title || "Untitled"}
-                                    </h4>
-                                    <p className="text-xs text-white/50 line-clamp-2">
-                                      {r.body}
-                                    </p>
-                                  </div>
-                                ))}
-                              </div>
-                            )}
+                                )}
+                            </div>
                           </div>
                         )}
                       </div>
                     ))}
                     
                     {loading && (
-                      <div className="space-y-6 animate-in fade-in duration-500">
-                        <div className="bg-[#131722] rounded-xl border border-white/10 p-6 space-y-4">
-                          <div className="flex items-center gap-2 text-blue-400 mb-2">
-                            <Sparkles className="w-5 h-5 animate-spin" />
-                            <span className="font-medium">Thinking...</span>
-                          </div>
-                          <div className="h-4 bg-white/5 rounded w-3/4 animate-pulse" />
-                          <div className="h-4 bg-white/5 rounded w-full animate-pulse delay-75" />
-                          <div className="h-4 bg-white/5 rounded w-5/6 animate-pulse delay-150" />
+                      <div className="flex gap-4 max-w-[95%] animate-in fade-in duration-300">
+                         <div className="w-8 h-8 rounded-full bg-white flex-shrink-0 flex items-center justify-center text-black mt-1">
+                            <Sparkles className="w-4 h-4 animate-pulse" />
+                        </div>
+                        <div className="space-y-2 pt-2">
+                            <div className="flex gap-1">
+                                <div className="w-2 h-2 bg-white/50 rounded-full animate-bounce delay-0" />
+                                <div className="w-2 h-2 bg-white/50 rounded-full animate-bounce delay-150" />
+                                <div className="w-2 h-2 bg-white/50 rounded-full animate-bounce delay-300" />
+                            </div>
                         </div>
                       </div>
                     )}
-                    <div ref={messagesEndRef} />
+                    <div ref={messagesEndRef} className="h-4" />
                   </div>
                 )}
               </div>
 
-              {/* Bottom Input Area (only when chat is active) */}
+              {/* Bottom Input Area (Fixed) */}
               {conversationHistory.length > 0 && (
-                <div className="p-4 bg-[#0b0f19]/80 backdrop-blur-md border-t border-white/5">
-                  <div className="max-w-4xl mx-auto">
+                <div className="absolute bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-[#212121] via-[#212121] to-transparent pt-10">
+                  <div className="max-w-3xl mx-auto">
                     <form onSubmit={(e) => handleSearch(e)} className="relative group">
-                      <div className="absolute inset-0 bg-gradient-to-r from-blue-500/20 to-purple-500/20 rounded-xl blur-xl transition-opacity opacity-0 group-hover:opacity-100" />
-                      <div className="relative flex items-center bg-[#131722] border border-white/10 rounded-xl shadow-2xl focus-within:border-blue-500/50 focus-within:ring-1 focus-within:ring-blue-500/50 transition-all overflow-hidden">
+                      <div className="relative flex items-center bg-white/5 backdrop-blur-md rounded-2xl shadow-lg border border-white/5 focus-within:border-white/20 transition-all overflow-hidden">
                         <input
                           value={query}
                           onChange={(e) => setQuery(e.target.value)}
-                          className="flex-1 bg-transparent border-none text-white px-4 py-4 focus:outline-none placeholder:text-white/30 text-base"
-                          placeholder="Ask follow-up question..."
+                          className="flex-1 bg-transparent border-none text-white px-4 py-3 focus:outline-none placeholder:text-white/40 text-base max-h-32"
+                          placeholder="Message Knowledge AI..."
                           autoFocus
                         />
                         <button 
                           type="submit"
                           disabled={loading || !query.trim()}
-                          className="mr-2 p-2 rounded-lg bg-white/5 hover:bg-white/10 text-white/60 hover:text-white transition-colors disabled:opacity-30"
+                          className="mr-2 p-1.5 rounded-lg bg-white text-black hover:bg-gray-200 transition-colors disabled:opacity-0 disabled:pointer-events-none"
                         >
-                          <ArrowRight className="w-5 h-5" />
+                          <ArrowRight className="w-4 h-4" />
                         </button>
+                      </div>
+                      <div className="text-center mt-2">
+                          <p className="text-[10px] text-white/30">AI can make mistakes. Consider checking important information.</p>
                       </div>
                     </form>
                   </div>
@@ -601,7 +609,7 @@ export default function EnhancedKnowledgeAI() {
                 {/* Sources Grid */}
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                   {sources.map((source) => (
-                    <div key={source.id} className="bg-[#131722] border border-white/5 rounded-xl p-5 hover:border-white/10 transition-all group">
+                    <div key={source.id} className="bg-white/5 backdrop-blur-md border border-white/5 rounded-xl p-5 hover:border-white/10 transition-all group">
                       <div className="flex justify-between items-start mb-4">
                         <div className="p-2 bg-blue-500/10 rounded-lg text-blue-400 group-hover:bg-blue-500/20 transition-colors">
                           {getSourceIcon(source.source_type)}
@@ -646,7 +654,7 @@ export default function EnhancedKnowledgeAI() {
           {/* Add Source Modal */}
           {showAddSource && (
             <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-              <div className="bg-[#131722] border border-white/10 rounded-2xl p-6 max-w-md w-full shadow-2xl animate-in fade-in zoom-in duration-300">
+              <div className="bg-black/60 backdrop-blur-xl border border-white/10 rounded-2xl p-6 max-w-md w-full shadow-2xl animate-in fade-in zoom-in duration-300">
                 <h3 className="text-xl font-bold text-white mb-6">Add Knowledge Source</h3>
                 <form onSubmit={handleAddSource} className="space-y-4">
                   <div>

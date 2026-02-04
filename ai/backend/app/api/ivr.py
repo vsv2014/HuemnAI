@@ -22,6 +22,9 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
+from app.api.transcript_ws import manager as transcript_manager
+import asyncio
+
 @router.post("/call-handler")
 async def handle_incoming_call(
     request: Request,
@@ -138,6 +141,15 @@ async def handle_incoming_call(
             user_input = digits
         elif speech_result:
             user_input = speech_result
+
+        # Broadcast user input to transcript
+        if user_input and session_id:
+             await transcript_manager.broadcast(session_id, {
+                 "role": "user",
+                 "content": user_input,
+                 "timestamp": datetime.utcnow().isoformat(),
+                 "type": "transcript"
+             })
         
         # If this is the initial call (no input yet), play welcome message
         if not user_input and call_status == "ringing":
@@ -188,18 +200,30 @@ async def handle_incoming_call(
             db.commit()
             
             # Execute Agent Logic
-            executor = AgentExecutor(agent_id, session_id, db)
-            response_text = await executor.execute(user_input)
+            executor = AgentExecutor(db=db, background_tasks=background_tasks)
+            result = await executor.execute(agent=agent, conversation=conversation, user_message=user_input)
+            
+            response_text = result.get("response", "")
+            metadata = result.get("metadata", {})
             
             # Save assistant response
             assistant_message = AgentMessage(
                 conversation_id=conversation.id,
                 role="assistant",
                 content=response_text,
-                message_metadata={"generated_by": "agent_executor"}
+                message_metadata={"generated_by": "agent_executor", "metadata": metadata}
             )
             db.add(assistant_message)
             db.commit()
+
+            # Broadcast assistant response
+            if session_id:
+                 await transcript_manager.broadcast(session_id, {
+                     "role": "assistant",
+                     "content": response_text,
+                     "timestamp": datetime.utcnow().isoformat(),
+                     "type": "transcript"
+                 })
             
             # Check for configured voice
             voice_id = None
@@ -212,13 +236,39 @@ async def handle_incoming_call(
                          voice_id = settings_dict.get("voice_id")
                      except:
                          pass
+            
+            # Check for handoff
+            if metadata.get("handoff_initiated"):
+                logger.info(f"Handoff initiated for call {call_sid}")
+                queue_name = metadata.get("queue_name", "default")
+                
+                # Basic Enqueue TwiML with Voice Support
+                say_attributes = ""
+                if voice_id:
+                     say_attributes = f' voice="{voice_id}"'
+                     
+                twiml_response = f"""<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+    <Say{say_attributes}>{response_text}</Say>
+    <Enqueue>{queue_name}</Enqueue>
+</Response>"""
+                return Response(content=twiml_response, media_type="application/xml")
+            
+            # Check for flow completion
+            if metadata.get("flow_completed"):
+                 twiml = telephony_service.generate_ivr_twiml(
+                    response_text,
+                    gather_input=False,
+                    voice_id=voice_id
+                )
+                 return Response(content=twiml, media_type="application/xml")
 
             # Generate TwiML response
             api_base = settings.API_BASE_URL
             action_url = f"{api_base}/api/ivr/call-handler?agent_id={agent_id}"
             if query_session_id:
                 action_url += f"&session_id={query_session_id}"
-
+            
             twiml = telephony_service.generate_ivr_twiml(
                 response_text,
                 gather_input=True,
@@ -316,3 +366,35 @@ async def get_call_status(call_sid: str, db: Session = Depends(get_db)):
          return {"success": False, "error": "Telephony service not configured"}
             
     return telephony_service.get_call_status(call_sid)
+
+@router.post("/calls/{call_sid}/return-to-bot")
+async def return_call_to_bot(
+    call_sid: str,
+    db: Session = Depends(get_db)
+):
+    """
+    Return an active call (currently with an agent) back to the Bot/IVR flow.
+    """
+    if not telephony_service.is_available():
+         return {"success": False, "error": "Telephony service not configured"}
+    
+    # Default URL to return to the start of the IVR flow
+    api_base = settings.API_BASE_URL
+    url = f"{api_base}/api/ivr/call-handler"
+    
+    # Try to find the agent_id associated with this call to route it correctly
+    # We look for an active conversation with this call_sid in context
+    # Note: This is a best-effort lookup. If we can't find it, we just send to the handler.
+    # Ideally, we should pass agent_id if known.
+    
+    try:
+        # Check if we can find an agent_id from the active calls list in RoutingService?
+        # Or search AgentConversation context.
+        # For now, let's just redirect. The call-handler logic tries to find the default IVR agent if no ID is passed.
+        pass
+    except Exception as e:
+        logger.warning(f"Error looking up agent for call {call_sid}: {e}")
+
+    result = telephony_service.redirect_call(call_sid, url)
+    return result
+

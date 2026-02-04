@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import Link from "next/link";
+import StatusWidget from "@/components/StatusWidget";
 
 interface AppHeaderProps {
   agentId: number;
@@ -156,6 +157,9 @@ export default function AppHeader({ agentId, agentName, environment = "In Dev" }
 
         {/* Right: Actions */}
         <div className="flex items-center gap-3">
+          {/* Status Widget */}
+          <StatusWidget />
+
           {/* Search */}
           <button
             className="p-2 rounded-lg hover:bg-white/10 transition-colors"

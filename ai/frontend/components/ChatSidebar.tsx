@@ -100,46 +100,48 @@ export default function ChatSidebar({
 
       {/* Sidebar Container */}
       <div className={`
-        fixed top-0 left-0 h-full z-50 bg-[#0b0f19] border-r border-white/5 
-        transition-all duration-300 ease-in-out flex flex-col
-        ${isOpen ? 'w-64 translate-x-0' : 'w-0 -translate-x-full md:w-0 md:translate-x-0'}
+        fixed top-0 left-0 h-full z-50 bg-[#0c0c0e] border-r border-white/5 
+        transition-all duration-300 ease-in-out flex flex-col font-sans
+        ${isOpen ? 'w-[260px] translate-x-0' : 'w-0 -translate-x-full md:w-0 md:translate-x-0'}
       `}>
         {/* Header Area */}
-        <div className="p-4 flex flex-col gap-4 min-w-[16rem]">
-          <div className="flex items-center justify-between md:hidden">
+        <div className="p-3 flex flex-col gap-2">
+          <div className="flex items-center justify-between md:hidden mb-2">
              <span className="font-bold text-white">Menu</span>
              <button onClick={() => setIsOpen(false)} className="text-white/60 hover:text-white">
                <X className="w-5 h-5" />
              </button>
           </div>
 
-          {/* New Chat Button - Minimal */}
+          {/* New Chat Button - ChatGPT Style */}
           <button
             onClick={() => {
               onNewChat();
               if (window.innerWidth < 768) setIsOpen(false);
             }}
-            className="w-full flex items-center justify-center gap-2 bg-white/5 hover:bg-white/10 text-white p-2.5 rounded-lg transition-all border border-white/5 hover:border-white/10 group"
+            className="w-full flex items-center gap-3 bg-transparent hover:bg-[#18181b] text-white p-3 rounded-lg transition-colors border border-white/10 hover:border-white/10 group text-sm"
           >
-            <Plus className="w-4 h-4 text-blue-400 group-hover:rotate-90 transition-transform" />
-            <span className="text-sm font-medium">New Chat</span>
+            <div className="p-1 bg-white text-black rounded-full">
+                <Plus className="w-3 h-3" />
+            </div>
+            <span className="font-medium">New chat</span>
           </button>
         </div>
 
         {/* Conversation List */}
-        <div className="flex-1 overflow-y-auto custom-scrollbar px-3 pb-3 space-y-4 min-w-[16rem]">
+        <div className="flex-1 overflow-y-auto custom-scrollbar px-3 pb-3 space-y-6">
           {loading && conversations.length === 0 ? (
-            <div className="text-center text-white/30 py-4 text-xs">Loading history...</div>
+            <div className="text-center text-zinc-500 py-4 text-xs">Loading history...</div>
           ) : filteredConversations.length === 0 ? (
-            <div className="text-center text-white/30 py-4 text-xs">No conversations yet</div>
+            <div className="text-center text-zinc-500 py-4 text-xs">No past searches</div>
           ) : (
             groupOrder.map(group => (
               groupedConversations[group] && (
                 <div key={group}>
-                  <div className="text-[10px] font-bold text-white/30 mb-2 px-2 uppercase tracking-wider">
+                  <div className="text-[11px] font-medium text-zinc-500 mb-2 px-3 pt-2">
                     {group}
                   </div>
-                  <div className="space-y-0.5">
+                  <div className="space-y-1">
                     {groupedConversations[group].map(conv => (
                       <div
                         key={conv.id}
@@ -148,21 +150,24 @@ export default function ChatSidebar({
                           if (window.innerWidth < 768) setIsOpen(false);
                         }}
                         className={`
-                          group flex items-center justify-between p-2 rounded-lg cursor-pointer transition-all text-sm
+                          group flex items-center justify-between p-3 rounded-lg cursor-pointer transition-colors text-sm relative overflow-hidden
                           ${currentConversationId === conv.id 
-                            ? 'bg-blue-500/10 text-blue-300 border border-blue-500/20' 
-                            : 'text-white/60 hover:bg-white/5 hover:text-white border border-transparent'}
+                            ? 'bg-[#18181b] text-white' 
+                            : 'text-zinc-400 hover:bg-[#18181b] hover:text-white'}
                         `}
                       >
-                        <span className="truncate flex-1">{conv.title || "New Chat"}</span>
-                        {currentConversationId === conv.id && (
-                          <button
-                            onClick={(e) => handleDelete(e, conv.id)}
-                            className="p-1 text-white/40 hover:text-red-400 rounded transition-colors"
-                          >
-                            <Trash2 className="w-3 h-3" />
-                          </button>
-                        )}
+                        <span className="truncate flex-1 pr-6 relative z-10">{conv.title || "New Chat"}</span>
+                        
+                        {/* Fade effect for long titles */}
+                        <div className={`absolute right-0 top-0 h-full w-12 bg-gradient-to-l from-[#0c0c0e] to-transparent pointer-events-none group-hover:from-[#18181b] ${currentConversationId === conv.id ? 'from-[#18181b]' : ''}`} />
+
+                        {/* Delete Action (visible on hover or active) */}
+                        <button
+                          onClick={(e) => handleDelete(e, conv.id)}
+                          className={`absolute right-2 z-20 p-1 text-zinc-500 hover:text-white transition-colors ${currentConversationId === conv.id ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
                       </div>
                     ))}
                   </div>
@@ -173,7 +178,7 @@ export default function ChatSidebar({
         </div>
 
         {/* User Profile / Footer */}
-        <div className="p-4 border-t border-white/5 bg-black/20 min-w-[16rem] space-y-3">
+        <div className="p-4 border-t border-white/5 bg-[#09090b] min-w-[16rem] space-y-3">
           <TrialBanner minimal />
           
           <div className="flex items-center gap-3 opacity-60 hover:opacity-100 transition-opacity">
@@ -182,7 +187,7 @@ export default function ChatSidebar({
             </div>
             <div className="flex-1 overflow-hidden">
               <div className="text-xs font-medium text-white truncate">Knowledge AI</div>
-              <div className="text-[10px] text-white/40">Pro Plan</div>
+              <div className="text-[10px] text-zinc-500">Pro Plan</div>
             </div>
           </div>
         </div>
@@ -192,7 +197,7 @@ export default function ChatSidebar({
       {!isOpen && (
         <button
           onClick={() => setIsOpen(true)}
-          className="fixed left-4 top-20 z-30 p-2 bg-[#131722] border border-white/10 rounded-lg text-white/60 hover:text-white transition-colors shadow-lg md:block hidden"
+          className="fixed left-4 top-20 z-30 p-2 bg-[#0c0c0e] border border-white/10 rounded-lg text-white/60 hover:text-white transition-colors shadow-lg md:block hidden"
         >
           <ChevronRight className="w-5 h-5" />
         </button>

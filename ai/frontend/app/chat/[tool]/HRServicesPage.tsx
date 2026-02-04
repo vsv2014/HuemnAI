@@ -6,7 +6,7 @@ import Link from "next/link";
 import { useAuthStore } from "@/store/authStore";
 import { getJobs, logSearch, getLiveSearches, postJob, applyForJob, getEmails, postEmail } from "@/services/hrApi";
 import ToolSwitcher from "@/components/ToolSwitcher";
-import { X, Upload, CheckCircle, Search, Briefcase, MapPin, Clock, Mail, Plus } from "lucide-react";
+import { X, Upload, CheckCircle, Search, Briefcase, MapPin, Clock, Mail, Plus, Star, ArrowRight } from "lucide-react";
 
 interface HRServicesPageProps {
   toolName: string;
@@ -180,28 +180,34 @@ export default function HRServicesPage({ toolName, toolId }: HRServicesPageProps
           {mode === "candidate" ? (
             <div className="space-y-8 animate-in fade-in duration-500">
               {/* Candidate Hero */}
-              <div className="text-center space-y-4 py-10">
-                <h2 className="text-4xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-cyan-300">
-                  Find Your Dream Job
-                </h2>
-                <p className="text-white/60 max-w-xl mx-auto">
-                  Our AI-powered platform matches your skills with top opportunities. 
-                  Recruiters are notified instantly when you search.
-                </p>
-                
-                <form onSubmit={handleSearch} className="max-w-2xl mx-auto relative">
-                  <input
-                    type="text"
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    placeholder="Search for roles (e.g., 'Senior React Developer')..."
-                    className="w-full bg-white/5 border border-white/10 rounded-xl px-6 py-4 pl-12 text-lg focus:outline-none focus:border-blue-500/50 focus:ring-1 focus:ring-blue-500/50 transition-all shadow-xl"
-                  />
-                  <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-white/40" size={20} />
-                  <button type="submit" className="absolute right-2 top-2 bottom-2 bg-blue-600 hover:bg-blue-500 text-white px-6 rounded-lg font-medium transition-colors">
-                    Search
-                  </button>
-                </form>
+              <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-blue-900/20 via-purple-900/20 to-transparent border border-white/10 p-12 text-center">
+                <div className="absolute inset-0 bg-[url('/grid-pattern.svg')] opacity-10"></div>
+                <div className="relative z-10 space-y-6">
+                    <h2 className="text-5xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-400 via-purple-400 to-cyan-300">
+                    Find Your Dream Job
+                    </h2>
+                    <p className="text-white/60 text-lg max-w-2xl mx-auto leading-relaxed">
+                    Our AI-powered platform matches your skills with top opportunities in real-time. 
+                    <br/>Recruiters are notified instantly when you search.
+                    </p>
+                    
+                    <form onSubmit={handleSearch} className="max-w-2xl mx-auto relative group">
+                    <div className="absolute -inset-1 bg-gradient-to-r from-blue-600 to-purple-600 rounded-xl opacity-25 group-hover:opacity-50 blur transition duration-200"></div>
+                    <div className="relative flex items-center bg-[#0f1117] rounded-xl overflow-hidden border border-white/10 shadow-2xl">
+                        <Search className="ml-4 text-white/40" size={24} />
+                        <input
+                            type="text"
+                            value={searchQuery}
+                            onChange={(e) => setSearchQuery(e.target.value)}
+                            placeholder="Search for roles (e.g., 'Senior React Developer')..."
+                            className="w-full bg-transparent border-none px-4 py-4 text-lg text-white placeholder-white/30 focus:outline-none focus:ring-0"
+                        />
+                        <button type="submit" className="m-2 bg-blue-600 hover:bg-blue-500 text-white px-8 py-2.5 rounded-lg font-medium transition-all hover:shadow-lg hover:shadow-blue-500/25">
+                            Search
+                        </button>
+                    </div>
+                    </form>
+                </div>
               </div>
 
               {/* Main Content Grid */}
@@ -219,21 +225,26 @@ export default function HRServicesPage({ toolName, toolId }: HRServicesPageProps
                             <div 
                                 key={job.id} 
                                 onClick={() => setSelectedJob(job)}
-                                className="group bg-white/5 border border-white/10 rounded-xl p-6 hover:bg-white/10 transition-all hover:scale-[1.02] cursor-pointer relative overflow-hidden"
+                                className="group bg-white/5 backdrop-blur-sm border border-white/10 rounded-xl p-6 hover:bg-white/10 hover:border-blue-500/30 transition-all hover:shadow-2xl hover:shadow-blue-900/10 cursor-pointer relative overflow-hidden flex flex-col h-full"
                             >
-                              <div className="absolute top-0 right-0 p-4 opacity-0 group-hover:opacity-100 transition-opacity">
-                                <span className="bg-blue-500/20 text-blue-300 text-xs px-2 py-1 rounded-full">AI Match</span>
+                              <div className="absolute top-0 right-0 p-4 opacity-0 group-hover:opacity-100 transition-opacity z-10">
+                                <span className="bg-blue-500 text-white text-xs px-3 py-1 rounded-full shadow-lg font-medium flex items-center gap-1">
+                                  <Star size={10} fill="currentColor" /> AI Match
+                                </span>
                               </div>
-                              <h3 className="text-xl font-semibold mb-2">{job.title}</h3>
-                              <div className="flex gap-2 text-sm text-white/50 mb-4">
-                                <span className="flex items-center gap-1"><Briefcase size={12}/> {job.department}</span>
-                                <span>•</span>
-                                <span className="flex items-center gap-1"><MapPin size={12}/> {job.location}</span>
+                              <div className="mb-4">
+                                <h3 className="text-xl font-bold text-white group-hover:text-blue-300 transition-colors mb-2 line-clamp-1">{job.title}</h3>
+                                <div className="flex flex-wrap gap-2 text-xs text-white/50">
+                                  <span className="flex items-center gap-1 bg-white/5 px-2 py-1 rounded"><Briefcase size={12}/> {job.department}</span>
+                                  <span className="flex items-center gap-1 bg-white/5 px-2 py-1 rounded"><MapPin size={12}/> {job.location}</span>
+                                </div>
                               </div>
-                              <p className="text-white/70 text-sm line-clamp-3 mb-4">{job.description}</p>
-                              <div className="flex items-center justify-between mt-auto">
-                                <span className="text-xs text-white/40 flex items-center gap-1"><Clock size={12}/> Posted {new Date(job.posted_at).toLocaleDateString()}</span>
-                                <span className="text-blue-400 text-sm font-medium group-hover:underline">View Details →</span>
+                              <p className="text-white/70 text-sm line-clamp-3 mb-6 flex-1 leading-relaxed">{job.description}</p>
+                              <div className="flex items-center justify-between pt-4 border-t border-white/5 mt-auto">
+                                <span className="text-xs text-white/40 flex items-center gap-1"><Clock size={12}/> {new Date(job.posted_at).toLocaleDateString()}</span>
+                                <span className="text-blue-400 text-sm font-medium group-hover:translate-x-1 transition-transform inline-flex items-center gap-1">
+                                  Apply Now <ArrowRight size={14} />
+                                </span>
                               </div>
                             </div>
                           ))
@@ -247,33 +258,66 @@ export default function HRServicesPage({ toolName, toolId }: HRServicesPageProps
 
                 {/* Sidebar: Announcements & Contacts */}
                 <div className="space-y-6">
-                    <div className="bg-white/5 border border-white/10 rounded-xl p-6 sticky top-6">
-                        <h3 className="font-semibold mb-4 flex items-center gap-2">
-                            <Mail size={16} className="text-blue-400"/> 
-                            HR Announcements
-                        </h3>
-                        <div className="space-y-4 max-h-[600px] overflow-y-auto scrollbar-thin scrollbar-thumb-white/10 pr-2">
+                    <div className="bg-[#1a1d24]/80 backdrop-blur-md border border-white/10 rounded-2xl p-6 sticky top-6 shadow-xl">
+                        <div className="flex items-center justify-between mb-6">
+                            <h3 className="font-bold text-lg flex items-center gap-2">
+                                <div className="p-1.5 bg-blue-500/20 rounded-lg">
+                                    <Mail size={18} className="text-blue-400"/>
+                                </div>
+                                HR Updates
+                            </h3>
+                            <span className="text-[10px] font-medium bg-white/5 text-white/40 px-2 py-1 rounded-full border border-white/5">
+                                {emails.length} New
+                            </span>
+                        </div>
+                        
+                        <div className="space-y-3 max-h-[600px] overflow-y-auto scrollbar-thin scrollbar-thumb-white/10 pr-1 -mr-2">
                             {emails.map(email => (
-                                <div key={email.id} className="bg-black/20 rounded-lg p-4 border border-white/5 hover:border-white/10 transition-colors">
-                                    <div className="flex justify-between items-start mb-2">
-                                        <h4 className="font-medium text-sm text-blue-200">{email.title}</h4>
-                                        <span className={`text-[10px] px-1.5 py-0.5 rounded ${
-                                            email.type === 'urgent' ? 'bg-red-500/20 text-red-300' : 
-                                            email.type === 'activity' ? 'bg-green-500/20 text-green-300' : 'bg-blue-500/20 text-blue-300'
-                                        }`}>{new Date(email.created_at).toLocaleDateString()}</span>
-                                    </div>
-                                    <p className="text-xs text-white/70 mb-3">{email.content}</p>
-                                    {email.email_address && (
-                                        <a href={`mailto:${email.email_address}`} className="flex items-center gap-2 text-xs text-blue-400 hover:text-blue-300 bg-blue-500/10 px-3 py-2 rounded transition-colors w-fit">
-                                            <Mail size={12} />
-                                            {email.email_address}
-                                        </a>
+                                <div 
+                                    key={email.id} 
+                                    className={`relative group bg-black/40 rounded-xl p-4 border transition-all hover:translate-x-1 ${
+                                        email.type === 'urgent' 
+                                            ? 'border-red-500/30 hover:border-red-500/50 hover:bg-red-900/10' 
+                                            : email.type === 'activity'
+                                                ? 'border-green-500/20 hover:border-green-500/40 hover:bg-green-900/10'
+                                                : 'border-white/5 hover:border-blue-500/30 hover:bg-blue-900/10'
+                                    }`}
+                                >
+                                    {email.type === 'urgent' && (
+                                        <div className="absolute -top-2 -right-2 bg-red-500 text-white text-[10px] px-2 py-0.5 rounded-full shadow-lg font-bold uppercase tracking-wider animate-pulse">
+                                            Urgent
+                                        </div>
                                     )}
+                                    
+                                    <div className="flex justify-between items-start mb-2 gap-3">
+                                        <h4 className={`font-semibold text-sm leading-tight ${
+                                            email.type === 'urgent' ? 'text-red-200' : 'text-blue-100'
+                                        }`}>{email.title}</h4>
+                                    </div>
+                                    
+                                    <p className="text-xs text-white/60 mb-3 leading-relaxed border-l-2 border-white/10 pl-3 py-1">
+                                        {email.content}
+                                    </p>
+                                    
+                                    <div className="flex items-center justify-between pt-2 border-t border-white/5">
+                                        <span className="text-[10px] text-white/30 font-medium">
+                                            {new Date(email.created_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+                                        </span>
+                                        {email.email_address && (
+                                            <a href={`mailto:${email.email_address}`} className="flex items-center gap-1.5 text-[10px] text-blue-400 hover:text-blue-300 font-medium transition-colors">
+                                                Contact HR <ArrowRight size={10} />
+                                            </a>
+                                        )}
+                                    </div>
                                 </div>
                             ))}
                             {emails.length === 0 && (
-                                <div className="text-center text-white/30 text-sm py-8">
-                                    No active announcements.
+                                <div className="flex flex-col items-center justify-center py-12 text-center border-2 border-dashed border-white/5 rounded-xl bg-white/5">
+                                    <div className="w-10 h-10 rounded-full bg-white/5 flex items-center justify-center mb-3 text-white/20">
+                                        <Mail size={20} />
+                                    </div>
+                                    <p className="text-white/40 text-sm font-medium">No active announcements</p>
+                                    <p className="text-white/20 text-xs mt-1">Check back later for updates</p>
                                 </div>
                             )}
                         </div>
@@ -405,75 +449,118 @@ export default function HRServicesPage({ toolName, toolId }: HRServicesPageProps
                     )}
 
                     {/* Important Emails & Announcements */}
-                    <div className="bg-white/5 border border-white/10 rounded-xl p-6 min-h-[300px]">
-                         <div className="flex items-center justify-between mb-4">
-                             <h3 className="font-semibold flex items-center gap-2">
-                                 <Mail size={16} className="text-blue-400"/>
+                    <div className="bg-[#1a1d24]/80 backdrop-blur-md border border-white/10 rounded-2xl p-6 shadow-xl min-h-[400px]">
+                         <div className="flex items-center justify-between mb-6">
+                             <h3 className="font-bold text-lg flex items-center gap-2">
+                                 <div className="p-1.5 bg-blue-500/20 rounded-lg">
+                                     <Mail size={18} className="text-blue-400"/>
+                                 </div>
                                  Team Announcements
                              </h3>
-                             <button onClick={() => setShowPostEmail(!showPostEmail)} className="bg-white/10 hover:bg-white/20 p-1.5 rounded-md transition-colors">
-                                 {showPostEmail ? <X size={14}/> : <Plus size={14}/>}
+                             <button 
+                                 onClick={() => setShowPostEmail(!showPostEmail)} 
+                                 className={`p-2 rounded-lg transition-all ${showPostEmail ? 'bg-red-500/20 text-red-400 hover:bg-red-500/30' : 'bg-blue-600 text-white hover:bg-blue-500 hover:shadow-lg shadow-blue-500/20'}`}
+                                 title={showPostEmail ? "Cancel" : "Post Announcement"}
+                             >
+                                 {showPostEmail ? <X size={16}/> : <Plus size={16}/>}
                              </button>
                          </div>
 
                          {showPostEmail ? (
-                             <form onSubmit={handlePostEmail} className="space-y-3 animate-in fade-in slide-in-from-top-2">
+                             <form onSubmit={handlePostEmail} className="space-y-4 animate-in fade-in slide-in-from-top-4 bg-white/5 p-4 rounded-xl border border-white/10">
+                                 <h4 className="text-sm font-semibold text-white/80 mb-2">Compose Announcement</h4>
                                  <input 
                                      placeholder="Title / Subject" 
-                                     className="w-full bg-black/20 border border-white/10 rounded px-3 py-2 text-sm text-white"
+                                     className="w-full bg-black/40 border border-white/10 rounded-lg px-4 py-3 text-sm text-white focus:ring-2 focus:ring-blue-500/50 focus:border-transparent outline-none transition-all"
                                      value={newEmail.title}
                                      onChange={e => setNewEmail({...newEmail, title: e.target.value})}
                                      required
                                  />
-                                 <input 
-                                     placeholder="Email Address (Optional)" 
-                                     className="w-full bg-black/20 border border-white/10 rounded px-3 py-2 text-sm text-white"
-                                     value={newEmail.email_address}
-                                     onChange={e => setNewEmail({...newEmail, email_address: e.target.value})}
-                                 />
+                                 <div className="grid grid-cols-2 gap-3">
+                                     <input 
+                                         placeholder="Email (Optional)" 
+                                         className="w-full bg-black/40 border border-white/10 rounded-lg px-4 py-3 text-sm text-white focus:ring-2 focus:ring-blue-500/50 focus:border-transparent outline-none transition-all"
+                                         value={newEmail.email_address}
+                                         onChange={e => setNewEmail({...newEmail, email_address: e.target.value})}
+                                     />
+                                     <select 
+                                        className="w-full bg-black/40 border border-white/10 rounded-lg px-4 py-3 text-sm text-white/80 focus:ring-2 focus:ring-blue-500/50 focus:border-transparent outline-none transition-all appearance-none cursor-pointer"
+                                        value={newEmail.type}
+                                        onChange={e => setNewEmail({...newEmail, type: e.target.value})}
+                                     >
+                                         <option value="activity">Company Activity</option>
+                                         <option value="announcement">General Announcement</option>
+                                         <option value="urgent">Urgent</option>
+                                     </select>
+                                 </div>
                                  <textarea 
                                      placeholder="Content / Description" 
-                                     className="w-full bg-black/20 border border-white/10 rounded px-3 py-2 text-sm min-h-[80px] text-white"
+                                     className="w-full bg-black/40 border border-white/10 rounded-lg px-4 py-3 text-sm min-h-[100px] text-white focus:ring-2 focus:ring-blue-500/50 focus:border-transparent outline-none transition-all resize-none"
                                      value={newEmail.content}
                                      onChange={e => setNewEmail({...newEmail, content: e.target.value})}
                                      required
                                  />
-                                 <select 
-                                    className="w-full bg-black/20 border border-white/10 rounded px-3 py-2 text-sm text-white/80"
-                                    value={newEmail.type}
-                                    onChange={e => setNewEmail({...newEmail, type: e.target.value})}
-                                 >
-                                     <option value="activity">Company Activity</option>
-                                     <option value="announcement">General Announcement</option>
-                                     <option value="urgent">Urgent</option>
-                                 </select>
-                                 <button type="submit" className="w-full bg-blue-600 hover:bg-blue-500 py-2 rounded text-sm font-medium">Post</button>
+                                 <div className="flex gap-3 pt-2">
+                                     <button 
+                                         type="button" 
+                                         onClick={() => setShowPostEmail(false)}
+                                         className="flex-1 bg-white/5 hover:bg-white/10 py-2.5 rounded-lg text-sm font-medium transition-colors"
+                                     >
+                                         Cancel
+                                     </button>
+                                     <button 
+                                         type="submit" 
+                                         className="flex-1 bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 py-2.5 rounded-lg text-sm font-medium shadow-lg shadow-blue-500/25 transition-all"
+                                     >
+                                         Publish Post
+                                     </button>
+                                 </div>
                              </form>
                          ) : (
-                             <div className="space-y-3 overflow-y-auto max-h-[400px] pr-2 scrollbar-thin scrollbar-thumb-white/10">
+                             <div className="space-y-3 overflow-y-auto max-h-[500px] pr-1 -mr-2 scrollbar-thin scrollbar-thumb-white/10">
                                  {emails.length > 0 ? emails.map(email => (
-                                     <div key={email.id} className="bg-black/20 rounded-lg p-3 border border-white/5 hover:border-white/10 transition-colors">
-                                         <div className="flex justify-between items-start mb-1">
-                                             <h4 className="font-medium text-sm text-white/90">{email.title}</h4>
-                                             <span className={`text-[10px] px-1.5 py-0.5 rounded ${
-                                                 email.type === 'urgent' ? 'bg-red-500/20 text-red-300' : 
-                                                 email.type === 'activity' ? 'bg-green-500/20 text-green-300' : 'bg-blue-500/20 text-blue-300'
+                                     <div 
+                                         key={email.id} 
+                                         className={`relative group bg-black/40 rounded-xl p-4 border transition-all hover:translate-x-1 ${
+                                             email.type === 'urgent' 
+                                                 ? 'border-red-500/30 hover:border-red-500/50 hover:bg-red-900/10' 
+                                                 : email.type === 'activity'
+                                                     ? 'border-green-500/20 hover:border-green-500/40 hover:bg-green-900/10'
+                                                     : 'border-white/5 hover:border-blue-500/30 hover:bg-blue-900/10'
+                                         }`}
+                                     >
+                                         <div className="flex justify-between items-start mb-2 gap-3">
+                                             <h4 className="font-semibold text-sm text-white/90">{email.title}</h4>
+                                             <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium uppercase tracking-wide ${
+                                                 email.type === 'urgent' ? 'bg-red-500/20 text-red-300 border border-red-500/20' : 
+                                                 email.type === 'activity' ? 'bg-green-500/20 text-green-300 border border-green-500/20' : 'bg-blue-500/20 text-blue-300 border border-blue-500/20'
                                              }`}>{email.type}</span>
                                          </div>
-                                         <p className="text-xs text-white/60 mb-2 line-clamp-3">{email.content}</p>
-                                         {email.email_address && (
-                                             <div className="flex items-center gap-1.5 text-xs text-blue-300 bg-blue-500/10 px-2 py-1 rounded w-fit">
-                                                 <Mail size={10} />
-                                                 {email.email_address}
+                                         <p className="text-xs text-white/60 mb-3 leading-relaxed">{email.content}</p>
+                                         <div className="flex items-center justify-between pt-2 border-t border-white/5">
+                                             {email.email_address ? (
+                                                 <div className="flex items-center gap-1.5 text-[10px] text-blue-300 bg-blue-500/10 px-2 py-1 rounded">
+                                                     <Mail size={10} />
+                                                     {email.email_address}
+                                                 </div>
+                                             ) : <div/>}
+                                             <div className="text-[10px] text-white/30 font-medium">
+                                                 {new Date(email.created_at).toLocaleDateString()}
                                              </div>
-                                         )}
-                                         <div className="text-[10px] text-white/20 mt-2 text-right">
-                                             {new Date(email.created_at).toLocaleDateString()}
                                          </div>
                                      </div>
                                  )) : (
-                                     <div className="text-center py-8 text-white/30 text-xs">
-                                         No announcements yet.
+                                     <div className="flex flex-col items-center justify-center py-12 text-center border-2 border-dashed border-white/5 rounded-xl bg-white/5">
+                                         <div className="w-12 h-12 rounded-full bg-white/5 flex items-center justify-center mb-3 text-white/20">
+                                             <Mail size={24} />
+                                         </div>
+                                         <p className="text-white/40 text-sm font-medium">No announcements yet</p>
+                                         <button 
+                                             onClick={() => setShowPostEmail(true)}
+                                             className="mt-3 text-xs text-blue-400 hover:text-blue-300 hover:underline"
+                                         >
+                                             Create your first announcement
+                                         </button>
                                      </div>
                                  )}
                              </div>

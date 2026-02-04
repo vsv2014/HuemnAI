@@ -18,6 +18,7 @@ import { useAuthStore } from "@/store/authStore";
 import { startToolSession, consumeToken } from "@/services/api";
 import EnhancedKnowledgeAI from "@/components/EnhancedKnowledgeAI";
 import ToolSwitcher from "@/components/ToolSwitcher";
+import AgentConsolePage from "@/app/customer-service/agent-console/page";
 
 // Map URL slugs to tool IDs
 const TOOL_SLUG_MAP: Record<string, string> = {
@@ -231,48 +232,13 @@ export default function ToolPage() {
     // Agent/Admin Mode: Show Ticket Inbox (Agent Console)
     if (isAgentMode) {
       return (
-        <div className="relative">
-          <div className="absolute top-4 right-4 z-50 flex gap-2">
-             <div className="bg-black/50 backdrop-blur-md rounded-lg p-1 border border-white/10 flex text-xs">
-                <button 
-                  onClick={() => setDebugMode('customer')}
-                  className={`px-3 py-1.5 rounded-md transition-colors ${debugMode === 'customer' ? 'bg-blue-600 text-white' : 'text-white/60 hover:text-white hover:bg-white/5'}`}
-                >
-                  Customer View
-                </button>
-                <button 
-                  onClick={() => setDebugMode('agent')}
-                  className={`px-3 py-1.5 rounded-md transition-colors ${debugMode === 'agent' || (debugMode === 'auto' && (user?.role === 'agent' || user?.role === 'admin')) ? 'bg-purple-600 text-white' : 'text-white/60 hover:text-white hover:bg-white/5'}`}
-                >
-                  Agent Console
-                </button>
-             </div>
-          </div>
-          <TicketSolverPage toolName={toolName} toolId={toolId} />
-        </div>
+        <AgentConsolePage onSwitchToCustomerView={() => setDebugMode('customer')} />
       );
     }
 
     // Customer Mode: Show Support Chat
     return (
       <div className="p-6 max-w-6xl mx-auto relative">
-        <div className="absolute top-6 right-20 z-50 flex gap-2">
-             <div className="bg-black/50 backdrop-blur-md rounded-lg p-1 border border-white/10 flex text-xs">
-                <button 
-                  onClick={() => setDebugMode('customer')}
-                  className={`px-3 py-1.5 rounded-md transition-colors ${debugMode === 'customer' || (debugMode === 'auto' && user?.role !== 'agent' && user?.role !== 'admin') ? 'bg-blue-600 text-white' : 'text-white/60 hover:text-white hover:bg-white/5'}`}
-                >
-                  Customer View
-                </button>
-                <button 
-                  onClick={() => setDebugMode('agent')}
-                  className={`px-3 py-1.5 rounded-md transition-colors ${debugMode === 'agent' ? 'bg-purple-600 text-white' : 'text-white/60 hover:text-white hover:bg-white/5'}`}
-                >
-                  Agent Console
-                </button>
-             </div>
-        </div>
-
         <TrialBanner />
         <div className="mb-6 flex items-start justify-between">
           <div>
@@ -304,6 +270,12 @@ export default function ToolPage() {
             </p>
           </div>
           <div className="flex items-center gap-2">
+            <button 
+              onClick={() => setDebugMode('agent')}
+              className="text-sm px-3 py-1.5 rounded-md bg-purple-500/20 text-purple-300 hover:bg-purple-500/30 border border-purple-500/30 transition-colors flex items-center gap-2"
+            >
+              👨‍💻 Agent Console
+            </button>
             <ToolSwitcher />
             <button
               onClick={() => setShowConnectorConfig(true)}

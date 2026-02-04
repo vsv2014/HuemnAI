@@ -1,8 +1,9 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { updateAgentStatus, getCurrentUser, getSubscribedTools } from "@/services/api";
+import { getSubscribedTools } from "@/services/api";
 import { useAuthStore } from "@/store/authStore";
+import { useStatusStore } from "@/store/statusStore";
 
 // Extended status types
 const STATUS_OPTIONS = [
@@ -27,19 +28,18 @@ interface SubscribedTool {
 }
 
 export default function StatusWidget() {
-  const { token, user, isAuthenticated } = useAuthStore();
+  const { token, isAuthenticated } = useAuthStore();
+  const { status: currentStatus, setStatus, fetchStatus, loading } = useStatusStore();
   const [isOpen, setIsOpen] = useState(false);
-  const [currentStatus, setCurrentStatus] = useState("offline");
   const [subscribedTools, setSubscribedTools] = useState<SubscribedTool[]>([]);
-  const [loading, setLoading] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (isAuthenticated && token) {
       loadUserData();
-      loadCurrentStatus();
+      fetchStatus();
     }
-  }, [isAuthenticated, token]);
+  }, [isAuthenticated, token, fetchStatus]);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -73,45 +73,14 @@ export default function StatusWidget() {
     }
   };
 
-  const loadCurrentStatus = async () => {
-    if (!token || (!user?.id && !user?.email)) return;
-    try {
-      const userId = user.id?.toString() || user.email || "user1";
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_BASE || "http://127.0.0.1:8000"}/api/status/${userId}`, {
-        headers: {
-          "Authorization": `Bearer ${token}`,
-        },
-      });
-      if (response.ok) {
-        const statusData = await response.json();
-        if (statusData.status && statusData.status !== "not_found") {
-          setCurrentStatus(statusData.status);
-        }
-      } else if (response.status === 401) {
-        // Token invalid, but don't show error - user might not be logged in
-        console.debug("Status check failed: Invalid token (user may not be logged in)");
-      }
-    } catch (error) {
-      console.error("Failed to load status:", error);
-      // Silently fail - status will default to offline
-    }
-  };
-
   const handleStatusChange = async (newStatus: string) => {
-    if (!token || !user) return;
-
-    setLoading(true);
+    if (!token) return;
     try {
-      // Use user.id or email as user identifier
-      const userId = user.id?.toString() || user.email || "user1";
-      await updateAgentStatus(userId, newStatus, token);
-      setCurrentStatus(newStatus);
+      await setStatus(newStatus);
       setIsOpen(false);
     } catch (error) {
       console.error("Failed to update status:", error);
       alert("Failed to update status. Please try again.");
-    } finally {
-      setLoading(false);
     }
   };
 
@@ -166,7 +135,7 @@ export default function StatusWidget() {
                 {subscribedTools.map((tool, index) => (
                   <div
                     key={tool.tool_name || `tool-${index}`}
-                    className="flex items-center gap-3 p-2 rounded-lg hover:bg-white/5 transition-colors"
+                    className="flex items-center gap-2 p-2 rounded-lg hover:bg-white/5 transition-colors"
                   >
                     <span className="text-xl">
                       {getToolIcon(tool.tool_name)}

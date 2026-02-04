@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useChatStore } from "@/store/chatStore";
 import { useAuthStore } from "@/store/authStore";
-import { uploadTicketAttachment } from "@/services/api";
+import { uploadTicketAttachment, transcribeAudio } from "@/services/api";
 import RichMessage from "./RichMessage";
 import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "react-hot-toast";
@@ -45,9 +45,10 @@ export default function CustomerServiceChat() {
   const scheduledChunksRef = useRef(0);
   const playedChunksRef = useRef(0);
   
-  // Speech Recognition
-  const [isListening, setIsListening] = useState(false);
-  const recognitionRef = useRef<any>(null);
+  // Audio Recording (MediaRecorder + Backend STT)
+  const [isRecording, setIsRecording] = useState(false);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
 
   // WebSocket Streaming Logic
   useEffect(() => {
@@ -197,36 +198,64 @@ export default function CustomerServiceChat() {
     }
   };
 
-  const toggleListening = () => {
-    if (isListening) {
-      recognitionRef.current?.stop();
-      setIsListening(false);
-    } else {
-      startListening();
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mediaRecorder = new MediaRecorder(stream);
+      mediaRecorderRef.current = mediaRecorder;
+      audioChunksRef.current = [];
+
+      mediaRecorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          audioChunksRef.current.push(event.data);
+        }
+      };
+
+      mediaRecorder.onstop = async () => {
+        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+        // Create a File object from the Blob
+        const file = new File([audioBlob], "recording.webm", { type: 'audio/webm' });
+        
+        setIsUploading(true); // Reusing uploading state for STT processing
+        try {
+          // Use the backend STT service
+          const result = await transcribeAudio(file, "en", token || undefined);
+          if (result && result.text) {
+            setInput(prev => prev + (prev ? " " : "") + result.text);
+          } else if (result && result.error) {
+            toast.error("Transcription failed: " + result.error);
+          }
+        } catch (error) {
+          console.error("STT Error:", error);
+          toast.error("Failed to transcribe audio");
+        } finally {
+          setIsUploading(false);
+          // Stop all tracks to release microphone
+          stream.getTracks().forEach(track => track.stop());
+        }
+      };
+
+      mediaRecorder.start();
+      setIsRecording(true);
+    } catch (err) {
+      console.error("Error accessing microphone:", err);
+      toast.error("Microphone access denied or not available");
     }
   };
 
-  const startListening = () => {
-    if (typeof window !== 'undefined' && !('webkitSpeechRecognition' in window)) {
-      toast.error("Speech recognition not supported in this browser");
-      return;
+  const stopRecording = () => {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      mediaRecorderRef.current.stop();
+      setIsRecording(false);
     }
-    
-    // @ts-ignore
-    const recognition = new window.webkitSpeechRecognition();
-    recognition.continuous = false;
-    recognition.interimResults = false;
-    recognition.lang = "en-US";
-    
-    recognition.onstart = () => setIsListening(true);
-    recognition.onend = () => setIsListening(false);
-    recognition.onresult = (event: any) => {
-      const transcript = event.results[0][0].transcript;
-      setInput(prev => prev + (prev ? " " : "") + transcript);
-    };
-    
-    recognitionRef.current = recognition;
-    recognition.start();
+  };
+
+  const toggleRecording = () => {
+    if (isRecording) {
+      stopRecording();
+    } else {
+      startRecording();
+    }
   };
 
   const [showVoiceModal, setShowVoiceModal] = useState(false);
@@ -470,7 +499,6 @@ export default function CustomerServiceChat() {
               </div>
             )}
           </div>
-        </div>
       )}
 
       {/* Chat Messages Area */}
@@ -609,15 +637,15 @@ export default function CustomerServiceChat() {
 
               <button
                 type="button"
-                onClick={toggleListening}
+                onClick={toggleRecording}
                 className={`p-3 mb-1 rounded-xl transition-all active:scale-95 ${
-                  isListening 
+                  isRecording 
                     ? "text-red-400 bg-red-400/10 animate-pulse" 
                     : "text-white/60 hover:text-white hover:bg-white/10"
                 }`}
-                title={isListening ? "Stop listening" : "Start voice input"}
+                title={isRecording ? "Stop recording" : "Start voice input"}
               >
-                {isListening ? (
+                {isRecording ? (
                   <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 10a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1v-4z" />

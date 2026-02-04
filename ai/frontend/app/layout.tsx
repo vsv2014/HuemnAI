@@ -152,7 +152,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
   
   return (
     <html lang="en" suppressHydrationWarning>
-      <body className="min-h-screen text-white selection:bg-indigo-500/30" style={{ margin: 0, padding: 0 }}>
+      <body className="min-h-screen text-white selection:bg-indigo-500/30 overflow-x-hidden" style={{ margin: 0, padding: 0 }}>
         {/* Global Animated Background - Visible on all pages */}
         <FullscreenAnimatedBackground />
         

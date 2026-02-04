@@ -383,6 +383,33 @@ export async function getIntegrations(agentId: string | number, token: string) {
   });
 }
 
+export async function transcribeAudio(file: File, language?: string, token?: string) {
+  const formData = new FormData();
+  formData.append("file", file);
+  if (language) formData.append("language", language);
+
+  const headers: HeadersInit = {};
+  if (token) headers["Authorization"] = `Bearer ${token}`;
+
+  try {
+    const response = await fetch(`${API_BASE}/api/stt/transcribe`, {
+      method: "POST",
+      body: formData,
+      headers
+    });
+    
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      return { error: errorData.detail || "Transcription failed", status: response.status };
+    }
+    
+    return await response.json();
+  } catch (error) {
+    console.error("Transcription error:", error);
+    return { error: "Network error", details: error };
+  }
+}
+
 export async function getLanguages(agentId: string | number, token: string) {
   if (!token) return { error: "No authentication token" };
   return safeFetch(`${API_BASE}/api/agents/${agentId}/languages`, {
@@ -766,6 +793,23 @@ export async function updateAgentStatus(userId: string | number, status: string,
       "Content-Type": "application/json"
     },
     body: JSON.stringify({ user_id: String(userId), status })
+  });
+}
+
+export async function updateRoutingStatus(userId: string | number, status: string, token: string, skills: string[] = [], queues: string[] = ["default"]) {
+  if (!token) return { error: "No authentication token" };
+  return safeFetch(`${API_BASE}/api/routing/agent/status`, {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${token}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      agent_id: String(userId),
+      status,
+      skills,
+      queues
+    })
   });
 }
 

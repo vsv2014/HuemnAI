@@ -98,6 +98,7 @@ class NodeType(str, enum.Enum):
     END = "end"  # Exit point
     BRANCH = "branch"  # Branch to multiple paths
     MERGE = "merge"  # Merge multiple paths
+    HANDOFF = "handoff"  # Handoff to human agent
     LOOP = "loop"  # Loop node
     DELAY = "delay"  # Wait/delay node
     EVENT_TRIGGER = "event_trigger"  # Event trigger node
@@ -113,7 +114,6 @@ class NodeType(str, enum.Enum):
     # Response Nodes
     RESPONSE = "response"  # Send response to user
     MESSAGE = "message"  # Send message
-    HANDOFF = "handoff"  # Handoff to human agent
     
     # AI & Machine Learning Nodes
     AI_VISION = "ai_vision"  # AI Vision processing

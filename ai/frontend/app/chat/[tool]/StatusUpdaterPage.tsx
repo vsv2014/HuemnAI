@@ -4,8 +4,9 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import ToolSwitcher from "@/components/ToolSwitcher";
-import { updateAgentStatus, getSubscribedTools } from "@/services/api";
+import { getSubscribedTools } from "@/services/api";
 import { useAuthStore } from "@/store/authStore";
+import { useStatusStore } from "@/store/statusStore";
 
 const STATUS_OPTIONS = [
   { value: "online", label: "Online", icon: "🟢", color: "green" },
@@ -22,17 +23,16 @@ const STATUS_OPTIONS = [
 export default function StatusUpdaterPage() {
   const router = useRouter();
   const { token, user, isAuthenticated } = useAuthStore();
-  const [currentStatus, setCurrentStatus] = useState("offline");
+  const { status: currentStatus, setStatus, fetchStatus, loading } = useStatusStore();
   const [subscribedTools, setSubscribedTools] = useState<any[]>([]);
-  const [loading, setLoading] = useState(false);
   const [updatingStatus, setUpdatingStatus] = useState<string | null>(null);
 
   useEffect(() => {
     if (isAuthenticated && token) {
       loadUserData();
-      loadCurrentStatus();
+      fetchStatus();
     }
-  }, [isAuthenticated, token]);
+  }, [isAuthenticated, token, fetchStatus]);
 
   const loadUserData = async () => {
     if (!token) return;
@@ -47,30 +47,6 @@ export default function StatusUpdaterPage() {
     }
   };
 
-  const loadCurrentStatus = async () => {
-    if (!token || (!user?.id && !user?.email)) return;
-    try {
-      const userId = user.id?.toString() || user.email || "user1";
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_BASE || "http://127.0.0.1:8000"}/api/status/${userId}`, {
-        headers: {
-          "Authorization": `Bearer ${token}`,
-        },
-      });
-      if (response.ok) {
-        const statusData = await response.json();
-        if (statusData.status && statusData.status !== "not_found") {
-          setCurrentStatus(statusData.status);
-        }
-      } else if (response.status === 401) {
-        // Token invalid, but don't show error - user might not be logged in
-        console.debug("Status check failed: Invalid token (user may not be logged in)");
-      }
-    } catch (error) {
-      console.error("Failed to load status:", error);
-      // Silently fail - status will default to offline
-    }
-  };
-
   const handleStatusChange = async (newStatus: string) => {
     if (!token || !user) {
       alert("Please login to update your status");
@@ -78,11 +54,8 @@ export default function StatusUpdaterPage() {
     }
 
     setUpdatingStatus(newStatus);
-    setLoading(true);
     try {
-      const userId = user.id?.toString() || user.email || "user1";
-      await updateAgentStatus(userId, newStatus, token);
-      setCurrentStatus(newStatus);
+      await setStatus(newStatus);
       
       // Show success message
       const statusOption = STATUS_OPTIONS.find(s => s.value === newStatus);
@@ -91,7 +64,6 @@ export default function StatusUpdaterPage() {
       console.error("Failed to update status:", error);
       alert("Failed to update status. Please try again.");
     } finally {
-      setLoading(false);
       setUpdatingStatus(null);
     }
   };

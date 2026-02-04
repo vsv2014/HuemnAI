@@ -1604,14 +1604,64 @@ export default function EnhancedAgentBuilder() {
               )}
 
               {selectedNode.data.nodeType === "llm" && (
-                <div>
-                  <label className="block text-sm text-white/70 mb-1">Prompt</label>
-                  <textarea
-                    value={selectedNode.data.config?.prompt || ""}
-                    onChange={(e) => updateNodeConfiguration(selectedNode.id, { prompt: e.target.value })}
-                    className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white"
-                    rows={4}
-                  />
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm text-white/70 mb-1">Model</label>
+                    <select
+                      value={selectedNode.data.config?.model || "gpt-3.5-turbo"}
+                      onChange={(e) => updateNodeConfiguration(selectedNode.id, { model: e.target.value })}
+                      className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white"
+                    >
+                      <optgroup label="OpenAI">
+                        <option value="gpt-3.5-turbo">GPT-3.5 Turbo</option>
+                        <option value="gpt-4">GPT-4</option>
+                        <option value="gpt-4-turbo">GPT-4 Turbo</option>
+                        <option value="gpt-4o">GPT-4o</option>
+                      </optgroup>
+                      <optgroup label="Anthropic">
+                        <option value="claude-3-sonnet-20240229">Claude 3 Sonnet</option>
+                        <option value="claude-3-opus-20240229">Claude 3 Opus</option>
+                        <option value="claude-3-haiku-20240307">Claude 3 Haiku</option>
+                      </optgroup>
+                      <optgroup label="Google">
+                        <option value="gemini-pro">Gemini Pro</option>
+                        <option value="gemini-1.5-pro">Gemini 1.5 Pro</option>
+                        <option value="gemini-1.5-flash">Gemini 1.5 Flash</option>
+                      </optgroup>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm text-white/70 mb-1">System Prompt</label>
+                    <textarea
+                      value={selectedNode.data.config?.system_prompt || ""}
+                      onChange={(e) => updateNodeConfiguration(selectedNode.id, { system_prompt: e.target.value })}
+                      className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-xs"
+                      rows={3}
+                      placeholder="You are a helpful assistant..."
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm text-white/70 mb-1">User Prompt</label>
+                    <textarea
+                      value={selectedNode.data.config?.prompt || ""}
+                      onChange={(e) => updateNodeConfiguration(selectedNode.id, { prompt: e.target.value })}
+                      className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white"
+                      rows={4}
+                      placeholder="User query or {{last_user_message}}"
+                    />
+                  </div>
+                  <div>
+                     <label className="block text-sm text-white/70 mb-1">Temperature ({selectedNode.data.config?.temperature || 0.7})</label>
+                     <input 
+                        type="range" 
+                        min="0" 
+                        max="2" 
+                        step="0.1"
+                        value={selectedNode.data.config?.temperature || 0.7}
+                        onChange={(e) => updateNodeConfiguration(selectedNode.id, { temperature: parseFloat(e.target.value) })}
+                        className="w-full"
+                     />
+                  </div>
                 </div>
               )}
 

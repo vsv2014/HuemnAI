@@ -345,6 +345,139 @@ class TelephonyService:
                 "error": str(e)
             }
     
+    def generate_client_token(self, identity: str) -> str:
+        """
+        Generate a Twilio Client capability token (Access Token)
+        
+        Args:
+            identity: Unique identity for this client (e.g., agent username/email)
+            
+        Returns:
+            JWT Access Token string
+        """
+        if not self.twilio_enabled:
+            return None
+            
+        try:
+            from twilio.jwt.access_token import AccessToken
+            from twilio.jwt.access_token.grants import VoiceGrant
+            from app.core.config import settings
+            
+            # Use API Key/Secret if available (preferred for Access Tokens), otherwise Account SID/Auth Token
+            # Note: AccessToken requires API Key SID and Secret, not Account SID/Auth Token
+            api_key = settings.TWILIO_API_KEY_SID
+            api_secret = settings.TWILIO_API_KEY_SECRET
+            
+            if not api_key or not api_secret:
+                logger.error("Twilio API Key/Secret not configured. Cannot generate Access Token.")
+                return None
+                
+            # Create access token with credentials
+            token = AccessToken(
+                self.twilio_account_sid,
+                api_key,
+                api_secret,
+                identity=identity
+            )
+            
+            # Create a Voice grant and add to token
+            voice_grant = VoiceGrant(
+                outgoing_application_sid=settings.TWILIO_APP_SID,
+                incoming_allow=True # Allow incoming calls
+            )
+            token.add_grant(voice_grant)
+            
+            return token.to_jwt()
+            
+        except Exception as e:
+            logger.error(f"Error generating client token: {str(e)}", exc_info=True)
+            return None
+
+    def bridge_to_client(self, call_sid: str, client_identity: str, parameters: Optional[Dict[str, str]] = None, record: bool = False) -> Dict[str, Any]:
+        """
+        Bridge a waiting call (e.g. in Queue) to a client (Agent)
+        
+        Args:
+            call_sid: The SID of the waiting call
+            client_identity: The identity of the client to connect to
+            parameters: Optional custom parameters to pass to the client
+            record: Whether to record the bridged call
+            
+        Returns:
+            Dict with result
+        """
+        if not self.twilio_enabled:
+            return {"success": False, "error": "Twilio not configured"}
+            
+        try:
+            # We update the waiting call to Dial the Client
+            # This effectively "dequeues" them by interrupting the <Enqueue> 
+            # and executing this new TwiML
+            
+            # Construct TwiML with optional parameters
+            response = VoiceResponse()
+            
+            dial_kwargs = {}
+            if record:
+                dial_kwargs["record"] = "record-from-ringing-dual"
+                # Optional: Add recording status callback
+                api_base = os.getenv('API_BASE_URL', 'http://localhost:8001')
+                dial_kwargs["recording_status_callback"] = f"{api_base}/api/ivr/recording-callback"
+            
+            dial = response.dial(**dial_kwargs)
+            client = dial.client(client_identity)
+            
+            if parameters:
+                for name, value in parameters.items():
+                    client.parameter(name=name, value=value)
+            
+            twiml = str(response)
+            
+            call = self.twilio_client.calls(call_sid).update(twiml=twiml)
+            
+            return {
+                "success": True,
+                "call_sid": call_sid,
+                "status": "bridged",
+                "to_client": client_identity
+            }
+        except Exception as e:
+            logger.error(f"Error bridging call: {str(e)}", exc_info=True)
+            return {"success": False, "error": str(e)}
+
+    def redirect_call(self, call_sid: str, url: str = None, method: str = "POST") -> Dict[str, Any]:
+        """
+        Redirect a call to a new URL (TwiML).
+        
+        Args:
+            call_sid: Twilio Call SID
+            url: URL to redirect to
+            method: HTTP method (POST or GET)
+            
+        Returns:
+            Dict with redirect information
+        """
+        if not self.twilio_enabled:
+            return {"success": False, "error": "Twilio not configured"}
+            
+        try:
+            # If no URL is provided, we default to the main IVR entry point
+            if not url:
+                api_base = os.getenv('API_BASE_URL', 'http://localhost:8001')
+                url = f"{api_base}/api/ivr/welcome"
+                
+            call = self.twilio_client.calls(call_sid).update(url=url, method=method)
+            
+            return {
+                "success": True,
+                "call_sid": call_sid,
+                "status": "redirected",
+                "to_url": url
+            }
+        except Exception as e:
+            logger.error(f"Error redirecting call: {str(e)}", exc_info=True)
+            return {"success": False, "error": str(e)}
+
     def get_call_status(self, call_sid: str) -> Dict[str, Any]:
         """
         Get status of a call
