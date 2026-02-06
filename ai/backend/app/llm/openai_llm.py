@@ -45,17 +45,22 @@ class OpenAILLM(BaseLLM):
             else:
                 models_to_try = [config_model] + [m for m in fallback_models if m != config_model]
         
-        # NO FALLBACK to environment variables - require UI configuration
+        # Fallback to environment variable in development if DB config missing
         if not api_key:
-            import logging
-            logger = logging.getLogger(__name__)
-            logger.warning("OpenAI API key not configured via UI Settings. User must configure via Settings page.")
-            # Return configuration error immediately
-            response = "⚠️ OpenAI API key not configured. Please go to Settings and add your LLM provider configuration to use this feature."
-            for token in response.split():
-                yield token + " "
-                await asyncio.sleep(0.05)
-            return
+            env_key = os.getenv("OPENAI_API_KEY")
+            if env_key:
+                api_key = env_key
+                # Use provided model or sensible default
+                models_to_try = [model] if model else ["gpt-4o", "gpt-3.5-turbo"]
+            else:
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.warning("OpenAI API key not configured via UI Settings and OPENAI_API_KEY env var not set.")
+                response = "⚠️ OpenAI API key not configured. Please add configuration in Settings or set OPENAI_API_KEY."
+                for token in response.split():
+                    yield token + " "
+                    await asyncio.sleep(0.05)
+                return
         
         # If OpenAI key is available, use real API
         if OPENAI_AVAILABLE and api_key:

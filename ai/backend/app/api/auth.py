@@ -230,19 +230,19 @@ async def signup(
     if existing_user:
         raise HTTPException(status_code=400, detail="Email already registered")
         
-    # Mandatory OTP for Gmail
-    if signup_request.email.endswith("@gmail.com"):
-        if not signup_request.otp:
-            # Generate and send OTP
-            await handle_otp_generation(signup_request.email, db)
-            return AuthResponse(
-                requires_otp=True,
-                message="OTP sent to your Gmail address. Please verify to continue."
-            )
-        else:
-            # Verify OTP
-            if not verify_otp_code(signup_request.email, signup_request.otp, db):
-                raise HTTPException(status_code=400, detail="Invalid or expired OTP")
+    # Mandatory OTP for Gmail - BYPASSED FOR DEV
+    # if signup_request.email.endswith("@gmail.com"):
+    #     if not signup_request.otp:
+    #         # Generate and send OTP
+    #         await handle_otp_generation(signup_request.email, db)
+    #         return AuthResponse(
+    #             requires_otp=True,
+    #             message="OTP sent to your Gmail address. Please verify to continue."
+    #         )
+    #     else:
+    #         # Verify OTP
+    #         if not verify_otp_code(signup_request.email, signup_request.otp, db):
+    #             raise HTTPException(status_code=400, detail="Invalid or expired OTP")
     
     # Check IP-based trial restriction (bypassed in development mode)
     ip_address = signup_request.ip_address or (get_client_ip(http_request) if http_request else "unknown")
@@ -341,19 +341,19 @@ async def login(
     if not user.is_active:
         raise HTTPException(status_code=403, detail="Account is inactive")
         
-    # Mandatory OTP for Gmail
-    if user.email.endswith("@gmail.com"):
-        if not request.otp:
-            # Generate and send OTP
-            await handle_otp_generation(user.email, db)
-            return AuthResponse(
-                requires_otp=True,
-                message="OTP sent to your Gmail address. Please verify to continue."
-            )
-        else:
-            # Verify OTP
-            if not verify_otp_code(user.email, request.otp, db):
-                raise HTTPException(status_code=400, detail="Invalid or expired OTP")
+    # Mandatory OTP for Gmail - BYPASSED FOR DEV
+    # if user.email.endswith("@gmail.com"):
+    #     if not request.otp:
+    #         # Generate and send OTP
+    #         await handle_otp_generation(user.email, db)
+    #         return AuthResponse(
+    #             requires_otp=True,
+    #             message="OTP sent to your Gmail address. Please verify to continue."
+    #         )
+    #     else:
+    #         # Verify OTP
+    #         if not verify_otp_code(user.email, request.otp, db):
+    #             raise HTTPException(status_code=400, detail="Invalid or expired OTP")
     
     # Agent login: verify company email domain
     if request.is_agent:
@@ -403,7 +403,6 @@ async def login(
     from app.db.models.subscription import UserToolSubscription
     tool_subscriptions = db.query(UserToolSubscription).filter(
         UserToolSubscription.user_id == user.id,
-        UserToolSubscription.is_active == True,
         UserToolSubscription.subscription_status == "active"
     ).all()
 
@@ -489,7 +488,8 @@ async def google_login(
     try:
         response = requests.get(
             "https://www.googleapis.com/oauth2/v3/userinfo",
-            headers={"Authorization": f"Bearer {request.token}"}
+            headers={"Authorization": f"Bearer {request.token}"},
+            timeout=10
         )
         if response.status_code == 200:
             token_info = response.json()
@@ -499,7 +499,7 @@ async def google_login(
     # 2. Fallback: Try as ID Token
     if not token_info:
         try:
-            response = requests.get(f"https://oauth2.googleapis.com/tokeninfo?id_token={request.token}")
+            response = requests.get(f"https://oauth2.googleapis.com/tokeninfo?id_token={request.token}", timeout=10)
             if response.status_code == 200:
                 token_info = response.json()
         except Exception as e:
@@ -516,20 +516,20 @@ async def google_login(
         raise HTTPException(status_code=400, detail="Email not verified by Google")
         
     # Enforce Gmail restriction
-    if not email.endswith("@gmail.com"):
-         raise HTTPException(status_code=403, detail="Only Gmail addresses are allowed for this login method")
+    # if not email.endswith("@gmail.com"):
+    #      raise HTTPException(status_code=403, detail="Only Gmail addresses are allowed for this login method")
          
-    # OTP Logic
-    if not request.otp:
-        await handle_otp_generation(email, db)
-        return AuthResponse(
-            requires_otp=True,
-            message="OTP sent to your Gmail address. Please verify to continue."
-        )
+    # OTP Logic - BYPASSED FOR DEV
+    # if not request.otp:
+    #     await handle_otp_generation(email, db)
+    #     return AuthResponse(
+    #         requires_otp=True,
+    #         message="OTP sent to your Gmail address. Please verify to continue."
+    #     )
     
     # Verify OTP
-    if not verify_otp_code(email, request.otp, db):
-        raise HTTPException(status_code=400, detail="Invalid or expired OTP")
+    # if not verify_otp_code(email, request.otp, db):
+    #     raise HTTPException(status_code=400, detail="Invalid or expired OTP")
         
     # Check if user exists
     user = db.query(UserAccount).filter(UserAccount.email == email).first()

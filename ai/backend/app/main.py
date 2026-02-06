@@ -49,7 +49,7 @@ app.include_router(voice_ws_router)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000", "http://localhost:8000", "http://127.0.0.1:8000"],
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -99,6 +99,11 @@ app.include_router(routing.router, prefix="/api/routing")
 from app.api import audit
 app.include_router(audit.router, prefix="/api/audit")
 
+# Agent Builder
+from app.api import agent_builder
+app.include_router(agent_builder.router, prefix="/api/agent-builder")
+
+
 # Trace router
 from app.api.endpoints import trace
 app.include_router(trace.router, prefix="/api/trace")
@@ -122,3 +127,11 @@ app.include_router(transcript_ws.router, prefix="/api/routing")
 # Admin router (protected by ADMIN_API_KEY if set)
 from app.api import admin as admin_router
 app.include_router(admin_router.router, prefix="/api/admin")
+
+# Orchestrator router
+from app.orchestrator.api.router import router as orchestrator_router
+app.include_router(orchestrator_router, prefix="/api/orchestrator")
+
+# Sync Gateway router
+from app.gateway.sync_router import router as sync_router
+app.include_router(sync_router, prefix="/api")

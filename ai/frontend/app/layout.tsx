@@ -145,6 +145,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
   // Hide header on all agent builder pages and sub-pages (settings, genai, analytics, etc.)
   // Also hide for Knowledge AI, Chat Tools, Settings page, and Auth pages (Login/Signup) to provide immersive experience
   const shouldHideHeader = pathname?.startsWith('/agents') || 
+                           pathname?.startsWith('/agent-builder') ||
                            pathname?.includes('knowledge-ai') || 
                            pathname?.startsWith('/chat/') || 
                            pathname?.startsWith('/voice') ||

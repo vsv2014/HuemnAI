@@ -122,6 +122,12 @@ export default function ProductCard({
       return;
     }
     
+    // AI Orchestrator (New Golden Tool)
+    if (toolSlug === "ai-orchestrator") {
+      router.push("/agent-builder");
+      return;
+    }
+    
     // Economic Trends goes to products page, not chat
     if (toolSlug === "economic-trends") {
       router.push("/products/economic-trends");

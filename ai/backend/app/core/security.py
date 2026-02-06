@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi import Security, HTTPException
-from jose import jwt, JWTError
+import jwt
 from cryptography.fernet import Fernet
 import base64
 import hashlib
@@ -42,7 +42,7 @@ def create_access_token(data: dict):
 def decode_access_token(token: str):
     try:
         return jwt.decode(token, settings.SECRET_KEY, algorithms=[ALGORITHM])
-    except JWTError:
+    except jwt.PyJWTError:
         raise HTTPException(status_code=401, detail="Invalid token")
 
 def get_current_user(

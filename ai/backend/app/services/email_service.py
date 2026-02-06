@@ -1,4 +1,10 @@
+import logging
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+from app.core.config import settings
 
+logger = logging.getLogger(__name__)
 
 def get_otp_email_template(otp_code: str) -> str:
     """Generate HTML template for OTP email"""
@@ -160,3 +166,23 @@ async def send_otp_email(email: str, otp_code: str) -> bool:
     except Exception as e:
         logger.error(f"Failed to send OTP email to {email}: {str(e)}")
         return False
+
+async def send_welcome_email(email: str, username: str) -> bool:
+    """Send welcome email (Stub)"""
+    logger.info(f"Welcome email stub called for {email}")
+    return True
+
+async def send_login_notification_email(email: str, ip_address: str, user_agent: str) -> bool:
+    """Send login notification email (Stub)"""
+    logger.info(f"Login notification stub called for {email}")
+    return True
+
+async def send_password_reset_email(email: str, token: str) -> bool:
+    """Send password reset email (Stub)"""
+    logger.info(f"Password reset stub called for {email} with token {token}")
+    return True
+
+async def send_demo_thank_you_email(email: str, name: str) -> bool:
+    """Send demo thank you email (Stub)"""
+    logger.info(f"Demo thank you email stub called for {email}")
+    return True

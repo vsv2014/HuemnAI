@@ -28,6 +28,14 @@ export default function AppSidebar({ agentId }: { agentId: number }) {
 
   const sections: SidebarSection[] = [
     {
+      id: "main-tool",
+      label: "Main Tool",
+      icon: "🏗️",
+      items: [
+        { id: "builder", label: "Agent Builder", icon: "💻", path: `/agent-builder` },
+      ],
+    },
+    {
       id: "virtual-assistant",
       label: "Virtual Assistant",
       icon: "🤖",

@@ -9,6 +9,9 @@ from app.db.session import SessionLocal, get_db
 from app.db.models.api_config import APIConfig
 from sqlalchemy.orm import Session
 import logging
+from app.services.socket_manager import manager
+from app.services.config_service import get_llm_config
+import json
 
 logger = logging.getLogger(__name__)
 
@@ -405,7 +408,22 @@ async def create_config(payload: CreateConfigPayload, db: Session = Depends(get_
     db.add(config)
     db.commit()
     db.refresh(config)
-    
+    # Broadcast LLM status if creating an LLM config
+    try:
+        if config.provider_type == "llm":
+            cfg = get_llm_config()
+            status = {
+                "event": "llm_status",
+                "data": {
+                    "configured": bool(cfg and cfg.get("api_key")),
+                    "provider": (cfg or {}).get("provider"),
+                    "source": "database" if (cfg and cfg.get("is_database")) else ("env" if cfg else "none"),
+                }
+            }
+            await manager.broadcast(json.dumps(status))
+    except Exception:
+        pass
+
     return {
         "success": True,
         "config": config.to_dict(include_sensitive=False),
@@ -460,7 +478,22 @@ async def update_config(config_id: int, payload: UpdateConfigPayload, db: Sessio
     
     db.commit()
     db.refresh(config)
-    
+    # Broadcast LLM status if this is an LLM config
+    try:
+        if config.provider_type == "llm":
+            cfg = get_llm_config()
+            status = {
+                "event": "llm_status",
+                "data": {
+                    "configured": bool(cfg and cfg.get("api_key")),
+                    "provider": (cfg or {}).get("provider"),
+                    "source": "database" if (cfg and cfg.get("is_database")) else ("env" if cfg else "none"),
+                }
+            }
+            await manager.broadcast(json.dumps(status))
+    except Exception:
+        pass
+
     return {
         "success": True,
         "config": config.to_dict(include_sensitive=False),
@@ -524,4 +557,3 @@ async def test_config(config_id: int, db: Session = Depends(get_db)):
     except Exception as e:
         logger.error(f"Error testing config {config_id}: {e}", exc_info=True)
         return {"success": False, "message": f"Connection test failed: {str(e)}"}
-

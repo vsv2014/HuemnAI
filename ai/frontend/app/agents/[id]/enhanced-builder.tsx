@@ -15,6 +15,9 @@ import ReactFlow, {
   useEdgesState,
   Connection,
   NodeTypes,
+  BaseEdge,
+  EdgeLabelRenderer,
+  getSmoothStepPath,
 } from "reactflow";
 import "reactflow/dist/style.css";
 import Link from "next/link";
@@ -102,6 +105,75 @@ export default function EnhancedAgentBuilder() {
   const [selectedNode, setSelectedNode] = useState<Node | null>(null);
   const [connectorMetadata, setConnectorMetadata] = useState<any[]>([]);
   const [voiceProfiles, setVoiceProfiles] = useState<any[]>([]);
+  const [showLegend, setShowLegend] = useState(false);
+
+  const PremiumEdge = ({
+    id,
+    sourceX,
+    sourceY,
+    targetX,
+    targetY,
+    sourcePosition,
+    targetPosition,
+  }: any) => {
+    const [edgePath, labelX, labelY] = getSmoothStepPath({
+      sourceX,
+      sourceY,
+      targetX,
+      targetY,
+      sourcePosition,
+      targetPosition,
+      borderRadius: 12
+    });
+    const gradId = `grad-${id}`;
+    const pathId = `path-${id}`;
+    const arrowId = `arrow-${id}`;
+    return (
+      <g filter="url(#shadow)">
+        <defs>
+          <linearGradient id={gradId} x1="0%" y1="0%" x2="100%" y2="0%">
+            <stop offset="0%" stopColor="#06b6d4" />
+            <stop offset="50%" stopColor="#f59e0b" />
+            <stop offset="100%" stopColor="#60a5fa" />
+          </linearGradient>
+          <filter id="shadow" x="-50%" y="-50%" width="200%" height="200%">
+            <feDropShadow dx="0" dy="0" stdDeviation="2" floodColor="rgba(245,158,11,0.25)" />
+          </filter>
+          <marker id={arrowId} viewBox="0 0 10 10" refX="10" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+            <path d="M 0 0 L 10 5 L 0 10 z" fill="#60a5fa" opacity="0.9" />
+          </marker>
+        </defs>
+        <style>
+          {`@keyframes edgeDash { to { stroke-dashoffset: -240; } }
+            .edge-dash-${id} { stroke-dasharray: 6 10; animation: edgeDash 2.4s linear infinite; }`}
+        </style>
+        <path id={pathId} d={edgePath} stroke={`url(#${gradId})`} strokeWidth="2.5" fill="none" opacity="0.95" markerEnd={`url(#${arrowId})`} />
+        <path d={edgePath} className={`edge-dash-${id}`} stroke="#22d3ee" fill="none" strokeWidth={1.5} markerEnd={`url(#${arrowId})`} />
+        <circle r="2.2" fill="#22d3ee">
+          <animateMotion dur="2s" repeatCount="indefinite">
+            <mpath href={`#${pathId}`} />
+          </animateMotion>
+        </circle>
+        <circle r="2" fill="#f59e0b" opacity="0.9">
+          <animateMotion dur="3.2s" repeatCount="indefinite">
+            <mpath href={`#${pathId}`} />
+          </animateMotion>
+        </circle>
+        <circle r="1.8" fill="#60a5fa" opacity="0.9">
+          <animateMotion dur="1.6s" repeatCount="indefinite">
+            <mpath href={`#${pathId}`} />
+          </animateMotion>
+        </circle>
+        <EdgeLabelRenderer>
+          <div style={{ transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)` }} className="pointer-events-none text-[10px] font-bold tracking-widest uppercase text-cyan-300 bg-black/40 px-1.5 py-0.5 rounded border border-cyan-500/30 shadow-[0_0_10px_rgba(6,182,212,0.2)]">
+            Data Flow
+          </div>
+        </EdgeLabelRenderer>
+      </g>
+    );
+  };
+
+  const edgeTypes = { premium: PremiumEdge };
 
   useEffect(() => {
     // Fetch connector metadata
@@ -554,6 +626,58 @@ export default function EnhancedAgentBuilder() {
 
         {/* ReactFlow Canvas */}
         <div className="flex-1 relative">
+          {!showLegend && (
+            <button
+              onClick={() => setShowLegend(true)}
+              className="absolute left-4 top-4 z-10 bg-neutral-900/70 backdrop-blur-md border border-amber-500/30 rounded-full px-3 py-1.5 text-xs text-amber-400"
+              title="Show Legend"
+            >
+              Legend
+            </button>
+          )}
+          {showLegend && (
+            <div className="absolute left-4 top-4 z-10 bg-neutral-900/70 backdrop-blur-md border border-neutral-700 rounded-lg p-3 w-[220px] text-xs text-neutral-300 space-y-2">
+              <div className="flex items-center justify-between">
+                <div className="font-bold text-neutral-200">Legend</div>
+                <button
+                  onClick={() => setShowLegend(false)}
+                  className="text-neutral-400 hover:text-amber-400"
+                  title="Hide Legend"
+                >
+                  ✕
+                </button>
+              </div>
+              <div className="flex items-center space-x-2">
+                <span className="w-3 h-3 rounded-full bg-neutral-600 border border-neutral-500"></span>
+                <span>Unvisited</span>
+              </div>
+              <div className="flex items-center space-x-2">
+                <span className="w-3 h-3 rounded-full bg-blue-500 shadow-[0_0_8px_rgba(59,130,246,0.8)]"></span>
+                <span>Active</span>
+              </div>
+              <div className="flex items-center space-x-2">
+                <span className="w-3 h-3 rounded-full bg-emerald-500"></span>
+                <span>Visited</span>
+              </div>
+              <div className="h-px bg-neutral-700"></div>
+              <div className="flex items-center space-x-2">
+                <span className="w-8 h-0 border-t border-neutral-500"></span>
+                <span>Sequential</span>
+              </div>
+              <div className="flex items-center space-x-2">
+                <span className="w-8 h-0 border-t border-sky-400 border-dashed"></span>
+                <span>Conditional</span>
+              </div>
+              <div className="flex items-center space-x-2">
+                <span className="w-8 h-0 border-t border-amber-500 border-dotted"></span>
+                <span>Digression</span>
+              </div>
+              <div className="flex items-center space-x-2">
+                <span className="w-8 h-0 border-t-[3px] border-cyan-400"></span>
+                <span>Taken Path</span>
+              </div>
+            </div>
+          )}
           <ReactFlow
             nodes={nodes}
             edges={edges}
@@ -562,6 +686,12 @@ export default function EnhancedAgentBuilder() {
             onConnect={onConnect}
             onNodeClick={handleNodeClick}
             nodeTypes={nodeTypes}
+            edgeTypes={edgeTypes}
+            defaultEdgeOptions={{
+              type: 'premium',
+              animated: true,
+              style: { stroke: '#fbbf24', strokeWidth: 2, opacity: 0.95 }
+            }}
             fitView
             className="bg-[#0a1020]"
             minZoom={0.05}
@@ -2410,4 +2540,3 @@ export default function EnhancedAgentBuilder() {
     </div>
   );
 }
-

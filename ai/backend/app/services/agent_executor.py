@@ -21,9 +21,54 @@ import shutil
 import time
 from pathlib import Path
 import math
+import ast
+import operator
+import tempfile
 import difflib
 
 logger = logging.getLogger(__name__)
+
+def safe_math_eval(expression: str, allowed_names: Dict[str, Any]) -> Any:
+    def eval_node(node):
+        if isinstance(node, ast.Expression):
+            return eval_node(node.body)
+        if isinstance(node, ast.Constant):
+            return node.value
+        if isinstance(node, ast.UnaryOp) and isinstance(node.op, (ast.UAdd, ast.USub)):
+            operand = eval_node(node.operand)
+            return +operand if isinstance(node.op, ast.UAdd) else -operand
+        if isinstance(node, ast.BinOp) and isinstance(node.op, (ast.Add, ast.Sub, ast.Mult, ast.Div, ast.Pow, ast.Mod)):
+            left = eval_node(node.left)
+            right = eval_node(node.right)
+            ops = {
+                ast.Add: operator.add,
+                ast.Sub: operator.sub,
+                ast.Mult: operator.mul,
+                ast.Div: operator.truediv,
+                ast.Pow: operator.pow,
+                ast.Mod: operator.mod,
+            }
+            return ops[type(node.op)](left, right)
+        if isinstance(node, ast.Name):
+            if node.id in allowed_names:
+                return allowed_names[node.id]
+            raise ValueError("name not allowed")
+        if isinstance(node, ast.Call):
+            func_node = node.func
+            if isinstance(func_node, ast.Name) and func_node.id in allowed_names:
+                func = allowed_names[func_node.id]
+                args = [eval_node(a) for a in node.args]
+                return func(*args)
+            if isinstance(func_node, ast.Attribute) and isinstance(func_node.value, ast.Name) and func_node.value.id == "math":
+                allowed_attrs = {"sqrt","ceil","floor","sin","cos","tan","log","log10","exp","fabs","factorial","pow"}
+                if func_node.attr in allowed_attrs:
+                    func = getattr(math, func_node.attr)
+                    args = [eval_node(a) for a in node.args]
+                    return func(*args)
+            raise ValueError("function not allowed")
+        raise ValueError("expression not allowed")
+    tree = ast.parse(expression, mode="eval")
+    return eval_node(tree)
 
 def persist_analytics_event(
     agent_id: int, 
@@ -3203,9 +3248,8 @@ Return only the intent name that best matches."""
             # defined available functions
             if function_name == "calculate_math":
                 expression = parameters.get("expression")
-                # Safe eval
                 allowed_names = {"abs": abs, "round": round, "min": min, "max": max, "sum": sum, "math": math}
-                result = eval(expression, {"__builtins__": None}, allowed_names)
+                result = safe_math_eval(expression, allowed_names)
                 
             elif function_name == "get_current_time":
                 format_str = parameters.get("format", "%Y-%m-%d %H:%M:%S")
@@ -3542,8 +3586,8 @@ Return only the intent name that best matches."""
             if temp_file_path and os.path.exists(temp_file_path):
                 try:
                     os.unlink(temp_file_path)
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.warning(f"Failed to remove temp file: {e}")
     
     async def _execute_file_processor_node(self, node: AgentNode, context: Dict[str, Any]) -> Dict[str, Any]:
         """Execute File Processor node"""
@@ -3553,8 +3597,7 @@ Return only the intent name that best matches."""
         destination_path = self._replace_variables(config.get("destination_path", ""), context)
         content = self._replace_variables(config.get("content", ""), context)
         
-        # Security check: Ensure paths are within allowed directory (e.g., /tmp/huemn_storage)
-        base_storage = Path("/tmp/huemn_storage")
+        base_storage = Path(tempfile.gettempdir()) / "huemn_storage"
         base_storage.mkdir(parents=True, exist_ok=True)
         
         try:
@@ -4791,4 +4834,3 @@ Return only the intent name that best matches."""
             "context": context,
             "metadata": {"recorded": True, "feedback_value": feedback_value}
         }
-
