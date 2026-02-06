@@ -34,3 +34,6 @@ public/
 
 # Misc
 *.sqlite3
+_export/
+__export__/
+huemn0602.zip
