@@ -51,23 +51,43 @@ export async function createCheckoutSession(planId: number, billingPeriod: "mont
 
 /* ---------------- AUTH ---------------- */
 
-export async function login(email: string, password: string) {
-  return safeFetch(`${API_BASE}/api/auth/login`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({ email, password })
-  });
-}
-
-export async function signup(email: string, password: string, name: string, ipAddress?: string) {
+export async function signup(email: string, password: string, name: string, ipAddress?: string, otp?: string) {
   return safeFetch(`${API_BASE}/api/auth/signup`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json"
     },
-    body: JSON.stringify({ email, password, name, ip_address: ipAddress })
+    body: JSON.stringify({ email, password, name, ip_address: ipAddress, otp })
+  });
+}
+
+export async function login(email: string, password: string, otp?: string) {
+  return safeFetch(`${API_BASE}/api/auth/login`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ email, password, otp })
+  });
+}
+
+export async function googleLogin(token: string, otp?: string, ipAddress?: string) {
+  return safeFetch(`${API_BASE}/api/auth/google-login`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ token, otp, ip_address: ipAddress })
+  });
+}
+
+export async function verifyOtp(email: string, otp: string) {
+  return safeFetch(`${API_BASE}/api/auth/verify-otp`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ email, otp })
   });
 }
 

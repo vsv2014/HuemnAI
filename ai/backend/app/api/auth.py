@@ -8,10 +8,13 @@ import secrets
 import jwt
 from sqlalchemy.orm import Session
 from app.db.session import get_db
-from app.db.models.subscription import UserAccount, SubscriptionPlan, Subscription, UserIntegration, UserToolSubscription
+from app.db.models.subscription import UserAccount, SubscriptionPlan, Subscription, UserIntegration, UserToolSubscription, EmailVerification
 from app.core.config import settings
-from app.services.email_service import send_welcome_email, send_login_notification_email, send_password_reset_email
+from app.services.email_service import send_welcome_email, send_login_notification_email, send_password_reset_email, send_otp_email
 import logging
+import requests
+import random
+import string
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -27,11 +30,22 @@ class SignupRequest(BaseModel):
     password: str
     name: str
     ip_address: Optional[str] = None
+    otp: Optional[str] = None
 
 class LoginRequest(BaseModel):
     email: EmailStr
     password: str
     is_agent: Optional[bool] = False  # True for agent login (requires company email)
+    otp: Optional[str] = None
+
+class GoogleLoginRequest(BaseModel):
+    token: str
+    otp: Optional[str] = None
+    ip_address: Optional[str] = None
+
+class VerifyOTPRequest(BaseModel):
+    email: EmailStr
+    otp: str
 
 class ForgotPasswordRequest(BaseModel):
     email: EmailStr
@@ -41,11 +55,13 @@ class ResetPasswordRequest(BaseModel):
     new_password: str
 
 class AuthResponse(BaseModel):
-    token: str
-    user: dict
-    subscription_status: str
+    token: Optional[str] = None
+    user: Optional[dict] = None
+    subscription_status: Optional[str] = None
     trial_days_remaining: Optional[int] = None
     subscribed_tools: Optional[list] = None
+    requires_otp: bool = False
+    message: Optional[str] = None
 
 def hash_password(password: str) -> str:
     """Hash password using SHA256 (in production, use bcrypt)"""
@@ -143,6 +159,61 @@ def validate_password_complexity(password: str) -> None:
     if not re.search(r"[!@#$%^&*(),.?\":{}|<>]", password):
         raise HTTPException(status_code=400, detail="Password must contain at least one special character")
 
+def generate_otp() -> str:
+    """Generate 6-digit OTP"""
+    return "".join(random.choices(string.digits, k=6))
+
+async def handle_otp_generation(email: str, db: Session) -> bool:
+    """Generate and send OTP"""
+    otp = generate_otp()
+    expires_at = datetime.utcnow() + timedelta(minutes=10)
+    
+    # Check if entry exists
+    verification = db.query(EmailVerification).filter(EmailVerification.email == email).first()
+    if verification:
+        verification.otp_code = otp
+        verification.expires_at = expires_at
+        verification.created_at = datetime.utcnow()
+    else:
+        verification = EmailVerification(
+            email=email,
+            otp_code=otp,
+            expires_at=expires_at,
+            created_at=datetime.utcnow()
+        )
+        db.add(verification)
+    
+    db.commit()
+    
+    # Send email
+    return await send_otp_email(email, otp)
+
+def verify_otp_code(email: str, otp: str, db: Session) -> bool:
+    """Verify OTP code"""
+    verification = db.query(EmailVerification).filter(EmailVerification.email == email).first()
+    if not verification:
+        return False
+    
+    if verification.otp_code != otp:
+        return False
+        
+    if verification.expires_at < datetime.utcnow():
+        return False
+        
+    return True
+
+@router.post("/send-otp")
+async def send_otp_endpoint(
+    request: ForgotPasswordRequest, # Reuse model with email field
+    db: Session = Depends(get_db)
+):
+    """Send OTP to email"""
+    if not request.email.endswith("@gmail.com"):
+        raise HTTPException(status_code=400, detail="OTP service is currently limited to Gmail addresses")
+        
+    await handle_otp_generation(request.email, db)
+    return {"message": "OTP sent successfully"}
+
 @router.post("/signup", response_model=AuthResponse)
 async def signup(
     signup_request: SignupRequest,
@@ -158,6 +229,20 @@ async def signup(
     existing_user = db.query(UserAccount).filter(UserAccount.email == signup_request.email).first()
     if existing_user:
         raise HTTPException(status_code=400, detail="Email already registered")
+        
+    # Mandatory OTP for Gmail
+    if signup_request.email.endswith("@gmail.com"):
+        if not signup_request.otp:
+            # Generate and send OTP
+            await handle_otp_generation(signup_request.email, db)
+            return AuthResponse(
+                requires_otp=True,
+                message="OTP sent to your Gmail address. Please verify to continue."
+            )
+        else:
+            # Verify OTP
+            if not verify_otp_code(signup_request.email, signup_request.otp, db):
+                raise HTTPException(status_code=400, detail="Invalid or expired OTP")
     
     # Check IP-based trial restriction (bypassed in development mode)
     ip_address = signup_request.ip_address or (get_client_ip(http_request) if http_request else "unknown")
@@ -255,6 +340,20 @@ async def login(
     
     if not user.is_active:
         raise HTTPException(status_code=403, detail="Account is inactive")
+        
+    # Mandatory OTP for Gmail
+    if user.email.endswith("@gmail.com"):
+        if not request.otp:
+            # Generate and send OTP
+            await handle_otp_generation(user.email, db)
+            return AuthResponse(
+                requires_otp=True,
+                message="OTP sent to your Gmail address. Please verify to continue."
+            )
+        else:
+            # Verify OTP
+            if not verify_otp_code(user.email, request.otp, db):
+                raise HTTPException(status_code=400, detail="Invalid or expired OTP")
     
     # Agent login: verify company email domain
     if request.is_agent:
@@ -364,6 +463,164 @@ async def login(
         "trial_days_remaining": trial_days_remaining,
         "subscribed_tools": subscribed_tools
     }
+
+@router.post("/verify-otp")
+async def verify_otp_endpoint(
+    request: VerifyOTPRequest,
+    db: Session = Depends(get_db)
+):
+    """Verify OTP code"""
+    if not verify_otp_code(request.email, request.otp, db):
+        raise HTTPException(status_code=400, detail="Invalid or expired OTP")
+    return {"message": "OTP verified successfully"}
+
+@router.post("/google-login", response_model=AuthResponse)
+async def google_login(
+    request: GoogleLoginRequest,
+    background_tasks: BackgroundTasks,
+    http_request: Request,
+    db: Session = Depends(get_db)
+):
+    """Google Login/Signup with mandatory OTP"""
+    # Verify Google Token (Support both Access Token and ID Token)
+    token_info = None
+    
+    # 1. Try as Access Token (UserInfo endpoint) - Preferred for useGoogleLogin
+    try:
+        response = requests.get(
+            "https://www.googleapis.com/oauth2/v3/userinfo",
+            headers={"Authorization": f"Bearer {request.token}"}
+        )
+        if response.status_code == 200:
+            token_info = response.json()
+    except Exception as e:
+        logger.warning(f"Google Access Token verification failed: {e}")
+
+    # 2. Fallback: Try as ID Token
+    if not token_info:
+        try:
+            response = requests.get(f"https://oauth2.googleapis.com/tokeninfo?id_token={request.token}")
+            if response.status_code == 200:
+                token_info = response.json()
+        except Exception as e:
+            logger.warning(f"Google ID Token verification failed: {e}")
+            
+    if not token_info:
+        raise HTTPException(status_code=400, detail="Invalid Google Token")
+    
+    email = token_info.get("email")
+    if not email:
+        raise HTTPException(status_code=400, detail="Invalid Token: No email found")
+        
+    if not token_info.get("email_verified"):
+        raise HTTPException(status_code=400, detail="Email not verified by Google")
+        
+    # Enforce Gmail restriction
+    if not email.endswith("@gmail.com"):
+         raise HTTPException(status_code=403, detail="Only Gmail addresses are allowed for this login method")
+         
+    # OTP Logic
+    if not request.otp:
+        await handle_otp_generation(email, db)
+        return AuthResponse(
+            requires_otp=True,
+            message="OTP sent to your Gmail address. Please verify to continue."
+        )
+    
+    # Verify OTP
+    if not verify_otp_code(email, request.otp, db):
+        raise HTTPException(status_code=400, detail="Invalid or expired OTP")
+        
+    # Check if user exists
+    user = db.query(UserAccount).filter(UserAccount.email == email).first()
+    
+    if not user:
+        # Create user (Signup via Google)
+        password = secrets.token_urlsafe(16)
+        password_hash = hash_password(password)
+        
+        trial_start = datetime.utcnow()
+        trial_end = trial_start + timedelta(days=14)
+        
+        user = UserAccount(
+            email=email,
+            password_hash=password_hash,
+            name=token_info.get("name", email.split("@")[0]),
+            ip_address=request.ip_address or get_client_ip(http_request),
+            subscription_status="trial",
+            trial_started_at=trial_start,
+            trial_ends_at=trial_end,
+            has_used_trial=True,
+            is_active=True
+        )
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+        
+        # Initialize default tool subscriptions
+        default_tools = [
+            ("agent-builder", "Agent Builder"),
+            ("customer-service", "Customer Service"),
+            ("hr-services", "HR Services"),
+            ("knowledge-ai", "Knowledge AI"),
+            ("analytics-dashboard", "Analytics Dashboard")
+        ]
+        
+        for tool_name, tool_display_name in default_tools:
+            tool_sub = UserToolSubscription(
+                user_id=user.id,
+                tool_name=tool_name,
+                tool_display_name=tool_display_name,
+                subscription_status="active",
+                tokens_remaining=50000,
+                tokens_total=50000
+            )
+            db.add(tool_sub)
+        
+        db.commit()
+        
+    # Check trial/subscription status
+    trial_days_remaining = None
+    if user.subscription_status == "trial" and user.trial_ends_at:
+        trial_days = (user.trial_ends_at - datetime.utcnow()).days
+        trial_days_remaining = max(0, trial_days)
+        if trial_days < 0:
+            user.subscription_status = "expired"
+            db.commit()
+            
+    # Get user's subscribed tools
+    tool_subscriptions = db.query(UserToolSubscription).filter(
+        UserToolSubscription.user_id == user.id,
+        UserToolSubscription.is_active == True,
+        UserToolSubscription.subscription_status == "active"
+    ).all()
+    
+    subscribed_tools = [{
+        "tool_name": sub.tool_name,
+        "tool_display_name": sub.tool_display_name,
+        "subscribed_at": sub.subscribed_at.isoformat() if sub.subscribed_at else None
+    } for sub in tool_subscriptions]
+    
+    # Create token
+    token = create_jwt_token(user.id, user.email)
+    
+    # Send login notification in background
+    ip_address = get_client_ip(http_request) if http_request else "unknown"
+    background_tasks.add_task(send_login_notification_email, user.name, user.email, ip_address)
+    
+    return AuthResponse(
+        token=token,
+        user={
+            "id": user.id,
+            "email": user.email,
+            "name": user.name,
+            "role": user.role,
+            "subscription_status": user.subscription_status
+        },
+        subscription_status=user.subscription_status,
+        trial_days_remaining=trial_days_remaining,
+        subscribed_tools=subscribed_tools
+    )
 
 @router.post("/forgot-password")
 async def forgot_password(

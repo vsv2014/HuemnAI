@@ -9,6 +9,7 @@ import Rotating3DLogo from "@/components/Rotating3DLogo";
 import MobileMenu from "@/components/MobileMenu";
 import HeaderSearch from "@/components/HeaderSearch";
 import StatusWidget from "@/components/StatusWidget";
+import { GoogleOAuthProvider } from '@react-oauth/google';
 import { useAuthStore } from "@/store/authStore";
 import { getCurrentUser, getSubscriptionStatus } from "@/services/api";
 
@@ -153,6 +154,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en" suppressHydrationWarning>
       <body className="min-h-screen text-white selection:bg-indigo-500/30 overflow-x-hidden" style={{ margin: 0, padding: 0 }}>
+        <GoogleOAuthProvider clientId={process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || "YOUR_GOOGLE_CLIENT_ID"}>
         {/* Global Animated Background - Visible on all pages */}
         <FullscreenAnimatedBackground />
         
@@ -300,6 +302,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
 
         {/* PAGE CONTENT */}
         <main className="relative z-10" style={{ margin: 0 }}>{children}</main>
+        </GoogleOAuthProvider>
       </body>
     </html>
   );

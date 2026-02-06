@@ -99,35 +99,39 @@ class UserToolSubscription(Base):
     __tablename__ = "user_tool_subscriptions"
     
     id = Column(Integer, primary_key=True)
-    user_id = Column(Integer, ForeignKey("user_accounts.id"), nullable=False)
-    tool_name = Column(String, nullable=False)  # "customer_service", "ticket_solver", etc.
-    tool_display_name = Column(String)  # "Customer Service", "Ticket Solver", etc.
-    subscription_status = Column(String, default="active")  # "active", "expired", "cancelled"
+    user_id = Column(Integer, ForeignKey("user_accounts.id"))
+    tool_name = Column(String)  # "agent-builder", "customer-service", etc.
+    tool_display_name = Column(String)
+    subscription_status = Column(String, default="active")
     subscribed_at = Column(DateTime, default=datetime.utcnow)
-    expires_at = Column(DateTime, nullable=True)  # None for lifetime subscriptions
-    is_active = Column(Boolean, default=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    expires_at = Column(DateTime, nullable=True)
     
-    # Per-tool token system
-    tokens_remaining = Column(Integer, default=50000)  # 50,000 tokens per tool
-    tokens_total = Column(Integer, default=50000)  # Total tokens allocated for this tool
+    # Usage tracking
+    tokens_used = Column(Integer, default=0)
+    tokens_remaining = Column(Integer, default=0)
+    tokens_total = Column(Integer, default=0)
     
-    # Relationships
     user = relationship("UserAccount", back_populates="tool_subscriptions")
+    sessions = relationship("UserToolSession", back_populates="tool_subscription")
 
 class UserToolSession(Base):
-    """Track user sessions per tool for token consumption"""
+    """Track active sessions for a tool"""
     __tablename__ = "user_tool_sessions"
     
     id = Column(Integer, primary_key=True)
-    user_id = Column(Integer, ForeignKey("user_accounts.id"), nullable=False)
-    tool_name = Column(String, nullable=False)
-    session_started_at = Column(DateTime, default=datetime.utcnow)
+    tool_subscription_id = Column(Integer, ForeignKey("user_tool_subscriptions.id"))
+    session_id = Column(String, unique=True, index=True)
+    started_at = Column(DateTime, default=datetime.utcnow)
     last_activity_at = Column(DateTime, default=datetime.utcnow)
-    tokens_consumed = Column(Integer, default=0)  # Tokens consumed in this session
     is_active = Column(Boolean, default=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
     
-    # Relationships
-    user = relationship("UserAccount")
+    tool_subscription = relationship("UserToolSubscription", back_populates="sessions")
+
+class EmailVerification(Base):
+    """Store OTPs for email verification"""
+    __tablename__ = "email_verifications"
+    
+    email = Column(String, primary_key=True, index=True)
+    otp_code = Column(String)
+    expires_at = Column(DateTime)
+    created_at = Column(DateTime, default=datetime.utcnow)
