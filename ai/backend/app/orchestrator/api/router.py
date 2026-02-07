@@ -1,4 +1,4 @@
-from fastapi import APIRouter, WebSocket, HTTPException
+from fastapi import APIRouter, WebSocket, HTTPException, UploadFile, File
 from pydantic import BaseModel
 from typing import Dict, Any, Optional
 import asyncio
@@ -194,3 +194,57 @@ async def console_ws(ws: WebSocket, session_id: str):
             await ws.receive_text()
     except Exception:
         manager.disconnect(ws, client_id=session_id)
+
+@router.post("/export")
+async def export_session(session_id: str):
+    session = await MemoryStore.get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    import io, zipfile, json
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        z.writestr("plan.json", json.dumps(session.get("plan", {}), ensure_ascii=False))
+        z.writestr("flow.json", json.dumps(session.get("flow", {}), ensure_ascii=False))
+        z.writestr("code/system_core.py", (session.get("code") or "").encode("utf-8"))
+        z.writestr("meta.json", json.dumps({"session_id": session_id, "created_at": session.get("created_at")}, ensure_ascii=False))
+    buf.seek(0)
+    from fastapi.responses import StreamingResponse
+    headers = {"Content-Disposition": f'attachment; filename="orchestrator_{session_id}.zip"'}
+    return StreamingResponse(buf, media_type="application/zip", headers=headers)
+
+@router.post("/import")
+async def import_session(file: UploadFile = File(...)):
+    import io, zipfile, json
+    data = await file.read()
+    try:
+        with zipfile.ZipFile(io.BytesIO(data), "r") as z:
+            plan = json.loads(z.read("plan.json").decode("utf-8")) if "plan.json" in z.namelist() else {}
+            flow = json.loads(z.read("flow.json").decode("utf-8")) if "flow.json" in z.namelist() else {}
+            code = z.read("code/system_core.py").decode("utf-8") if "code/system_core.py" in z.namelist() else ""
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid zip file")
+    session_id = MemoryStore.new_session()
+    await MemoryStore.save_session(session_id, {"plan": plan, "flow": flow, "code": code})
+    try:
+        g = sync_mod._graphs.get(session_id)
+        if not g:
+            sync_mod._graphs[session_id] = sync_mod.UnifiedGraph(session_id)
+            g = sync_mod._graphs[session_id]
+        await g.set_code("system_core.py", code or "")
+        init_nodes = [
+            {
+                "id": n["id"],
+                "type": n.get("type") or "step",
+                "position": {"x": n.get("x", 100), "y": n.get("y", 100)},
+                "data": n.get("data", {"id": n["id"], "label": n.get("label", n["id"])})
+            } for n in (flow.get("nodes") or [])
+        ]
+        init_edges = [
+            {"id": e.get("id", f'{e.get("source")}-{e.get("target")}'), "source": e.get("source"), "target": e.get("target")}
+            for e in (flow.get("edges") or [])
+        ]
+        await g.set_nodes(init_nodes)
+        await g.set_edges(init_edges)
+    except Exception:
+        pass
+    return {"session_id": session_id, "flow": flow}

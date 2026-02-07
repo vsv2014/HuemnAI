@@ -521,12 +521,26 @@ export async function autoAssignTicket(ticketId: number, token: string) {
   });
 }
 
-export async function exportAuditLogs(token: string, format: string) {
+export async function exportAuditLogs(token: string, format: "csv" | "json" | "docx", params?: { user_id?: number; action?: string; resource_type?: string }) {
   if (!token) return { error: "No authentication token" };
-  // Stub implementation
-  return safeFetch(`${API_BASE}/api/audit/export?format=${format}`, {
-    headers: { "Authorization": `Bearer ${token}` }
-  });
+  const query = new URLSearchParams();
+  query.append("format", format);
+  if (params?.user_id) query.append("user_id", String(params.user_id));
+  if (params?.action) query.append("action", params.action);
+  if (params?.resource_type) query.append("resource_type", params.resource_type);
+  try {
+    const res = await fetch(`${API_BASE}/api/audit/export?${query.toString()}`, {
+      headers: { "Authorization": `Bearer ${token}` }
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      return { error: err.detail || "Export failed", status: res.status };
+    }
+    const blob = await res.blob();
+    return { blob };
+  } catch (e) {
+    return { error: "Network error", details: e };
+  }
 }
 
 export async function getShadowEvaluations(agentId: number, token: string) {
@@ -796,6 +810,82 @@ export async function chatWithKnowledge(message: string, history: any[], token: 
       },
       body: JSON.stringify({ message, history })
     });
+}
+
+/* ---------------- IMPORT/EXPORT ---------------- */
+
+export async function exportAgentZip(agentId: number, token: string) {
+  if (!token) return { error: "No authentication token" };
+  try {
+    const res = await fetch(`${API_BASE}/api/agents/${agentId}/export`, {
+      headers: { "Authorization": `Bearer ${token}` }
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      return { error: err.detail || "Export failed", status: res.status };
+    }
+    const blob = await res.blob();
+    return blob;
+  } catch (e) {
+    return { error: "Network error", details: e };
+  }
+}
+
+export async function importAgentZip(file: File, importType: "full" | "incremental", token: string) {
+  if (!token) return { error: "No authentication token" };
+  const formData = new FormData();
+  formData.append("file", file);
+  formData.append("import_type", importType);
+  try {
+    const res = await fetch(`${API_BASE}/api/agents/import`, {
+      method: "POST",
+      headers: { "Authorization": `Bearer ${token}` },
+      body: formData
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      return { error: err.detail || "Import failed", status: res.status };
+    }
+    return await res.json();
+  } catch (e) {
+    return { error: "Network error", details: e };
+  }
+}
+
+export async function exportOrchestratorSession(sessionId: string) {
+  try {
+    const res = await fetch(`${API_BASE}/api/orchestrator/export`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ session_id: sessionId })
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      return { error: err.detail || "Export failed", status: res.status };
+    }
+    const blob = await res.blob();
+    return blob;
+  } catch (e) {
+    return { error: "Network error", details: e };
+  }
+}
+
+export async function importOrchestratorZip(file: File) {
+  const formData = new FormData();
+  formData.append("file", file);
+  try {
+    const res = await fetch(`${API_BASE}/api/orchestrator/import`, {
+      method: "POST",
+      body: formData
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      return { error: err.detail || "Import failed", status: res.status };
+    }
+    return await res.json();
+  } catch (e) {
+    return { error: "Network error", details: e };
+  }
 }
 
 export const hrService = {

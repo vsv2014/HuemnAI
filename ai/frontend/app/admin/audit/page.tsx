@@ -131,7 +131,21 @@ export default function AuditLogPage() {
                 className="flex items-center gap-2 px-4 py-2 bg-gray-800 hover:bg-gray-700 rounded-lg transition-colors border border-gray-700 text-sm"
             >
                 <Download className="w-4 h-4" />
-                Export CSV
+                Export Excel (CSV)
+            </button>
+            <button 
+                onClick={() => handleExport('json')}
+                className="flex items-center gap-2 px-4 py-2 bg-gray-800 hover:bg-gray-700 rounded-lg transition-colors border border-gray-700 text-sm"
+            >
+                <Download className="w-4 h-4" />
+                Export JSON
+            </button>
+            <button 
+                onClick={() => handleExport('docx')}
+                className="flex items-center gap-2 px-4 py-2 bg-gray-800 hover:bg-gray-700 rounded-lg transition-colors border border-gray-700 text-sm"
+            >
+                <Download className="w-4 h-4" />
+                Export Word (DOCX)
             </button>
             <button 
                 onClick={handleRefresh}

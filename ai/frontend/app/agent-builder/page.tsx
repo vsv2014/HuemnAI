@@ -43,7 +43,7 @@ import ReactFlow, {
 import "reactflow/dist/style.css";
 import TrialBanner from "@/components/TrialBanner";
 import { useAuthStore } from "@/store/authStore";
-import { startToolSession } from "@/services/api";
+import { startToolSession, exportOrchestratorSession, importOrchestratorZip } from "@/services/api";
 
 // --- Types ---
 interface ExecutionResult {
@@ -298,6 +298,8 @@ export default function AgentBuilderPage() {
   const [split, setSplit] = useState(0.5);
   const [dragging, setDragging] = useState(false);
   const [optionsOpen, setOptionsOpen] = useState(false);
+  const importInputRef = useRef<HTMLInputElement | null>(null);
+  const [busyExport, setBusyExport] = useState(false);
   const [hoveringDivider, setHoveringDivider] = useState(false);
   const [clientId] = useState<string>(() => Math.random().toString(36).slice(2));
   const wsSyncRef = useRef<WebSocket | null>(null);
@@ -727,6 +729,104 @@ export default function AgentBuilderPage() {
             <button className="bg-gradient-to-r from-indigo-600 to-sky-500 hover:from-indigo-500 hover:to-sky-400 text-white px-4 py-2 rounded shadow-lg shadow-blue-900/30 flex items-center space-x-2 text-sm font-bold transition-all transform hover:scale-105">
               <Save className="w-4 h-4" />
               <span>Save System</span>
+            </button>
+            <button
+              onClick={async () => {
+                if (!sessionId) {
+                  toast.error("No active session to export");
+                  return;
+                }
+                setBusyExport(true);
+                const res = await exportOrchestratorSession(sessionId);
+                setBusyExport(false);
+                if ((res as any)?.error) {
+                  toast.error("Export failed");
+                  return;
+                }
+                const blob = res as Blob;
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement("a");
+                a.href = url;
+                a.download = `orchestrator_${sessionId}.zip`;
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+                URL.revokeObjectURL(url);
+                toast.success("Exported");
+              }}
+              className="bg-neutral-800 border border-white/10 hover:bg-neutral-700 text-sky-300 px-3 py-2 rounded text-sm font-bold"
+            >
+              {busyExport ? "Exporting..." : "Export"}
+            </button>
+            <input
+              ref={importInputRef}
+              type="file"
+              accept=".zip"
+              className="hidden"
+              onChange={async (e) => {
+                const file = e.target.files?.[0];
+                if (!file) return;
+                try {
+                  const res = await importOrchestratorZip(file);
+                  if ((res as any)?.error) {
+                    toast.error("Import failed");
+                    return;
+                  }
+                  const sid = (res as any)?.session_id as string;
+                  if (!sid) {
+                    toast.error("Invalid import");
+                    return;
+                  }
+                  setSessionId(sid);
+                  try {
+                    const ws = new WebSocket(`ws://localhost:8000/api/sync/${sid}`);
+                    wsSyncRef.current = ws;
+                    ws.onmessage = (evt) => {
+                      try {
+                        const msg = JSON.parse(evt.data);
+                        if (msg.event === "graph_nodes") {
+                          const mappedNodes: Node[] = msg.data.nodes.map((n: any) => ({
+                            id: n.id,
+                            type: n.type,
+                            position: n.position || { x: 100, y: 100 },
+                            data: n.data || { id: n.id, label: n.label, status: "unvisited" }
+                          }));
+                          setNodes(mappedNodes);
+                        } else if (msg.event === "graph_edges") {
+                          const seen = new Set<string>();
+                          const mappedEdges: Edge[] = [];
+                          for (const e of msg.data.edges) {
+                            if (seen.has(e.id)) continue;
+                            seen.add(e.id);
+                            mappedEdges.push({
+                              id: e.id,
+                              source: e.source,
+                              sourceHandle: "out",
+                              target: e.target,
+                              targetHandle: "in",
+                              type: "premium",
+                              animated: true
+                            });
+                          }
+                          setEdges(mappedEdges);
+                        } else if (msg.event === "graph_code") {
+                          setGeneratedCode(msg.data.content);
+                        }
+                      } catch {}
+                    };
+                  } catch {}
+                  setActiveTab("network");
+                  toast.success("Imported session");
+                } finally {
+                  e.target.value = "";
+                }
+              }}
+            />
+            <button
+              onClick={() => importInputRef.current?.click()}
+              className="bg-neutral-800 border border-white/10 hover:bg-neutral-700 text-sky-300 px-3 py-2 rounded text-sm font-bold"
+            >
+              Import
             </button>
             <button
               onClick={() => setOptionsOpen((v) => !v)}

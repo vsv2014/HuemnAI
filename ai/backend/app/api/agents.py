@@ -1,5 +1,5 @@
-from fastapi import APIRouter, HTTPException, Depends, Header, BackgroundTasks, Request
-from fastapi.responses import JSONResponse
+from fastapi import APIRouter, HTTPException, Depends, Header, BackgroundTasks, Request, UploadFile, File, Form
+from fastapi.responses import JSONResponse, StreamingResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import and_, or_
 from typing import List, Optional, Dict, Any
@@ -1093,3 +1093,214 @@ async def get_available_agents_for_integration(agent_id: int, db: Session = Depe
         for agent in available_agents
     ]
 
+# ============================================================================
+# Import/Export
+# ============================================================================
+
+@router.get("/{agent_id}/export")
+async def export_agent(agent_id: int, db: Session = Depends(get_db)):
+    agent = db.query(Agent).filter(Agent.id == agent_id).first()
+    if not agent:
+        raise HTTPException(status_code=404, detail="Agent not found")
+    nodes = db.query(AgentNode).filter(AgentNode.agent_id == agent_id).all()
+    connections = db.query(AgentConnection).filter(AgentConnection.agent_id == agent_id).all()
+    flows = db.query(AgentFlow).filter(AgentFlow.agent_id == agent_id).all()
+    integrations = db.query(AgentIntegration).filter(AgentIntegration.master_agent_id == agent_id).all()
+    import io, zipfile, json
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        z.writestr("agent.json", json.dumps({
+            "id": agent.id,
+            "name": agent.name,
+            "description": agent.description,
+            "agent_type": agent.agent_type.value if agent.agent_type else None,
+            "system_prompt": agent.system_prompt,
+            "welcome_message": agent.welcome_message,
+            "fallback_message": agent.fallback_message,
+            "settings": agent.settings,
+            "tags": agent.tags,
+            "entry_node_id": agent.entry_node_id,
+            "version": agent.version,
+            "is_active": agent.is_active,
+            "is_public": agent.is_public
+        }, ensure_ascii=False))
+        z.writestr("nodes.json", json.dumps([
+            {
+                "id": n.id,
+                "node_type": n.node_type.value if n.node_type else None,
+                "name": n.name,
+                "label": n.label,
+                "config": n.config,
+                "position_x": n.position_x,
+                "position_y": n.position_y,
+                "timeout": n.timeout,
+                "retry_count": n.retry_count,
+                "error_handling": n.error_handling,
+                "description": n.description,
+                "tags": n.tags
+            } for n in nodes
+        ], ensure_ascii=False))
+        z.writestr("connections.json", json.dumps([
+            {
+                "id": c.id,
+                "source_node_id": c.source_node_id,
+                "target_node_id": c.target_node_id,
+                "condition": c.condition,
+                "priority": c.priority,
+                "label": c.label
+            } for c in connections
+        ], ensure_ascii=False))
+        z.writestr("flows.json", json.dumps([
+            {
+                "id": f.id,
+                "name": f.name,
+                "description": f.description,
+                "flow_definition": f.flow_definition,
+                "is_active": f.is_active,
+                "is_default": f.is_default
+            } for f in flows
+        ], ensure_ascii=False))
+        z.writestr("integrations.json", json.dumps([
+            {
+                "id": i.id,
+                "sub_agent_id": i.sub_agent_id,
+                "name": i.name,
+                "description": i.description,
+                "routing_condition": i.routing_condition,
+                "priority": i.priority,
+                "pass_context": i.pass_context,
+                "merge_response": i.merge_response
+            } for i in integrations
+        ], ensure_ascii=False))
+    buf.seek(0)
+    headers = {"Content-Disposition": f'attachment; filename="agent_{agent_id}.zip"'}
+    return StreamingResponse(buf, media_type="application/zip", headers=headers)
+
+@router.post("/import")
+async def import_agent(
+    file: UploadFile = File(...),
+    import_type: str = Form("full"),
+    db: Session = Depends(get_db)
+):
+    import io, zipfile, json
+    data = await file.read()
+    try:
+        with zipfile.ZipFile(io.BytesIO(data), "r") as z:
+            agent_data = json.loads(z.read("agent.json").decode("utf-8"))
+            nodes_data = json.loads(z.read("nodes.json").decode("utf-8")) if "nodes.json" in z.namelist() else []
+            connections_data = json.loads(z.read("connections.json").decode("utf-8")) if "connections.json" in z.namelist() else []
+            flows_data = json.loads(z.read("flows.json").decode("utf-8")) if "flows.json" in z.namelist() else []
+            integrations_data = json.loads(z.read("integrations.json").decode("utf-8")) if "integrations.json" in z.namelist() else []
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid zip file")
+    target_agent = None
+    existing_id = agent_data.get("id")
+    if import_type == "incremental" and existing_id:
+        target_agent = db.query(Agent).filter(Agent.id == existing_id).first()
+    if not target_agent:
+        atype = agent_data.get("agent_type") or AgentType.CHATBOT.value
+        try:
+            atype_enum = AgentType(atype)
+        except Exception:
+            atype_enum = AgentType.CHATBOT
+        target_agent = Agent(
+            name=agent_data.get("name") or "Imported Agent",
+            description=agent_data.get("description"),
+            agent_type=atype_enum,
+            system_prompt=agent_data.get("system_prompt"),
+            welcome_message=agent_data.get("welcome_message"),
+            fallback_message=agent_data.get("fallback_message"),
+            settings=agent_data.get("settings"),
+            tags=agent_data.get("tags"),
+            is_active=bool(agent_data.get("is_active", True)),
+            is_public=bool(agent_data.get("is_public", False)),
+            version=agent_data.get("version") or "1.0.0"
+        )
+        db.add(target_agent)
+        db.commit()
+        db.refresh(target_agent)
+    else:
+        for k in ["name","description","system_prompt","welcome_message","fallback_message","settings","tags","version"]:
+            v = agent_data.get(k)
+            if v is not None:
+                setattr(target_agent, k, v)
+        db.commit()
+        db.refresh(target_agent)
+    node_id_map: Dict[int, int] = {}
+    if import_type == "full":
+        db.query(AgentConnection).filter(AgentConnection.agent_id == target_agent.id).delete()
+        db.query(AgentNode).filter(AgentNode.agent_id == target_agent.id).delete()
+        db.query(AgentFlow).filter(AgentFlow.agent_id == target_agent.id).delete()
+        db.commit()
+    for n in nodes_data:
+        try:
+            nt = n.get("node_type")
+            nt_enum = NodeType(nt) if nt else NodeType.MESSAGE
+        except Exception:
+            nt_enum = NodeType.MESSAGE
+        node = AgentNode(
+            agent_id=target_agent.id,
+            node_type=nt_enum,
+            name=n.get("name") or f"Node-{uuid.uuid4().hex[:6]}",
+            label=n.get("label"),
+            config=n.get("config"),
+            position_x=int(n.get("position_x") or 0),
+            position_y=int(n.get("position_y") or 0),
+            timeout=int(n.get("timeout") or 30),
+            retry_count=int(n.get("retry_count") or 0),
+            error_handling=n.get("error_handling"),
+            description=n.get("description"),
+            tags=n.get("tags")
+        )
+        db.add(node)
+        db.flush()
+        if "id" in n and isinstance(n["id"], int):
+            node_id_map[n["id"]] = node.id
+        if nt_enum == NodeType.START and not target_agent.entry_node_id:
+            target_agent.entry_node_id = node.id
+    db.commit()
+    if import_type == "full":
+        db.query(AgentConnection).filter(AgentConnection.agent_id == target_agent.id).delete()
+        db.commit()
+    for c in connections_data:
+        src = c.get("source_node_id")
+        tgt = c.get("target_node_id")
+        src_id = node_id_map.get(src, src)
+        tgt_id = node_id_map.get(tgt, tgt)
+        conn = AgentConnection(
+            agent_id=target_agent.id,
+            source_node_id=src_id,
+            target_node_id=tgt_id,
+            condition=c.get("condition"),
+            priority=int(c.get("priority") or 0),
+            label=c.get("label")
+        )
+        db.add(conn)
+    db.commit()
+    for f in flows_data:
+        flow = AgentFlow(
+            agent_id=target_agent.id,
+            name=f.get("name") or "Imported Flow",
+            description=f.get("description"),
+            flow_definition=f.get("flow_definition") or {},
+            is_active=bool(f.get("is_active", True)),
+            is_default=bool(f.get("is_default", False))
+        )
+        db.add(flow)
+    db.commit()
+    for i in integrations_data:
+        sub_id = i.get("sub_agent_id")
+        if sub_id:
+            integ = AgentIntegration(
+                master_agent_id=target_agent.id,
+                sub_agent_id=sub_id,
+                name=i.get("name"),
+                description=i.get("description"),
+                routing_condition=i.get("routing_condition"),
+                priority=int(i.get("priority") or 0),
+                pass_context=bool(i.get("pass_context", True)),
+                merge_response=bool(i.get("merge_response", True))
+            )
+            db.add(integ)
+    db.commit()
+    return {"status": "success", "agent_id": target_agent.id}

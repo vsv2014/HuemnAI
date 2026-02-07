@@ -1,29 +1,76 @@
 "use client";
 
 import { useState, useCallback } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import AgentLayout from "@/components/AgentLayout";
 import ErrorBoundary from "@/components/ErrorBoundary";
+import { useAuthStore } from "@/store/authStore";
+import { importAgentZip, exportAgentZip } from "@/services/api";
 
 export default function ImportExportPage() {
   const params = useParams();
+  const router = useRouter();
   const agentId = parseInt(params?.id as string);
+  const { token } = useAuthStore();
   const [activeTab, setActiveTab] = useState<"import" | "export">("import");
   const [fileType, setFileType] = useState<"zip" | "json">("zip");
   const [importType, setImportType] = useState<"full" | "incremental">("full");
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [busy, setBusy] = useState(false);
 
   const handleImport = useCallback(async () => {
     if (!selectedFile) {
       alert("Please select a file");
       return;
     }
-    alert(`Importing ${fileType} file as ${importType} import...`);
-  }, [selectedFile, fileType, importType]);
+    if (!token) {
+      alert("You must be logged in");
+      return;
+    }
+    if (fileType !== "zip") {
+      alert("Only ZIP import is supported");
+      return;
+    }
+    setBusy(true);
+    const res = await importAgentZip(selectedFile, importType, token);
+    setBusy(false);
+    if ((res as any)?.error) {
+      alert(`Import failed: ${(res as any).error}`);
+      return;
+    }
+    const newId = (res as any)?.agent_id;
+    alert("Import successful");
+    if (newId) {
+      router.push(`/agents/${newId}`);
+    }
+  }, [selectedFile, fileType, importType, token, router]);
 
   const handleExport = useCallback(async () => {
-    alert("Exporting agent definition...");
-  }, []);
+    if (!token) {
+      alert("You must be logged in");
+      return;
+    }
+    if (fileType !== "zip") {
+      alert("Only ZIP export is supported");
+      return;
+    }
+    setBusy(true);
+    const res = await exportAgentZip(agentId, token);
+    setBusy(false);
+    if ((res as any)?.error) {
+      alert(`Export failed: ${(res as any).error}`);
+      return;
+    }
+    const blob = res as Blob;
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `agent_${agentId}.zip`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  }, [agentId, token, fileType]);
 
   return (
     <ErrorBoundary>
@@ -34,7 +81,7 @@ export default function ImportExportPage() {
               Import & Export
             </h1>
             <p className="text-white/60 text-lg">
-              Import or export the current App definition as a JSON file.
+              Import or export the current App definition as a ZIP file.
             </p>
           </div>
 
@@ -99,9 +146,10 @@ export default function ImportExportPage() {
                 </div>
                 <button
                   onClick={handleImport}
-                  className="w-full px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium"
+                  disabled={busy}
+                  className="w-full px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  Import
+                  {busy ? "Importing..." : "Import"}
                 </button>
               </div>
             </div>
@@ -124,9 +172,10 @@ export default function ImportExportPage() {
                 </div>
                 <button
                   onClick={handleExport}
-                  className="w-full px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium"
+                  disabled={busy}
+                  className="w-full px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  Export
+                  {busy ? "Preparing..." : "Export"}
                 </button>
               </div>
             </div>
