@@ -1,11 +1,11 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { useParams, useRouter } from "next/navigation";
 import AgentLayout from "@/components/AgentLayout";
 import ErrorBoundary from "@/components/ErrorBoundary";
 import { useAuthStore } from "@/store/authStore";
-import { importAgentZip, exportAgentZip } from "@/services/api";
+import { importAgentZip, exportAgentZip, getAgent, createAgent } from "@/services/api";
 
 export default function ImportExportPage() {
   const params = useParams();
@@ -17,6 +17,33 @@ export default function ImportExportPage() {
   const [importType, setImportType] = useState<"full" | "incremental">("full");
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [busy, setBusy] = useState(false);
+  const [missingAgent, setMissingAgent] = useState(false);
+  const [agentName, setAgentName] = useState<string>("");
+  const [agentDesc, setAgentDesc] = useState<string>("");
+
+  useEffect(() => {
+    let cancelled = false;
+    async function checkAgent() {
+      if (!token || !agentId || Number.isNaN(agentId)) return;
+      const res = await getAgent(agentId, token);
+      if (cancelled) return;
+      if ((res as any)?.error) {
+        if ((res as any).status === 404) {
+          setMissingAgent(true);
+        } else {
+          alert(`Failed to load agent: ${(res as any).error}`);
+        }
+      } else {
+        setMissingAgent(false);
+        setAgentName(res.name || "");
+        setAgentDesc(res.description || "");
+      }
+    }
+    checkAgent();
+    return () => {
+      cancelled = true;
+    };
+  }, [agentId, token]);
 
   const handleImport = useCallback(async () => {
     if (!selectedFile) {
@@ -50,6 +77,10 @@ export default function ImportExportPage() {
       alert("You must be logged in");
       return;
     }
+    if (missingAgent) {
+      alert("This agent does not exist. Please create it first.");
+      return;
+    }
     if (fileType !== "zip") {
       alert("Only ZIP export is supported");
       return;
@@ -71,6 +102,30 @@ export default function ImportExportPage() {
     a.remove();
     URL.revokeObjectURL(url);
   }, [agentId, token, fileType]);
+
+  const handleQuickCreate = useCallback(async () => {
+    if (!token) {
+      alert("You must be logged in");
+      return;
+    }
+    setBusy(true);
+    const res = await createAgent({
+      name: agentName || "New Agent",
+      description: agentDesc || "Auto-created from Import/Export page",
+      agent_type: "chatbot"
+    }, token);
+    setBusy(false);
+    if ((res as any)?.error) {
+      alert(`Create agent failed: ${(res as any).error}`);
+      return;
+    }
+    const newId = (res as any)?.id;
+    if (newId) {
+      router.push(`/agents/${newId}/deploy/import-export`);
+    } else {
+      alert("Agent created but ID missing; please reopen Agents page.");
+    }
+  }, [token, agentName, agentDesc, router]);
 
   return (
     <ErrorBoundary>
@@ -159,6 +214,32 @@ export default function ImportExportPage() {
             <div className="bg-[#1a1f3a]/80 backdrop-blur-xl border border-white/10 rounded-2xl p-6 shadow-2xl">
               <h2 className="text-lg font-semibold mb-4 text-white">Export Agent Definition</h2>
               <div className="space-y-4">
+                {missingAgent && (
+                  <div className="p-4 border border-red-500/40 rounded-lg bg-red-900/20 text-red-300">
+                    This agent was not found. Create it now to enable export.
+                    <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                      <input
+                        placeholder="Agent name"
+                        value={agentName}
+                        onChange={(e) => setAgentName(e.target.value)}
+                        className="w-full px-4 py-2 bg-[#0f1419]/60 border border-white/10 rounded-lg text-white"
+                      />
+                      <input
+                        placeholder="Agent description"
+                        value={agentDesc}
+                        onChange={(e) => setAgentDesc(e.target.value)}
+                        className="w-full px-4 py-2 bg-[#0f1419]/60 border border-white/10 rounded-lg text-white"
+                      />
+                      <button
+                        onClick={handleQuickCreate}
+                        disabled={busy}
+                        className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed sm:col-span-2"
+                      >
+                        {busy ? "Creating..." : "Create Agent"}
+                      </button>
+                    </div>
+                  </div>
+                )}
                 <div>
                   <label className="block text-sm font-medium text-white/60 mb-2">File Type</label>
                   <select
