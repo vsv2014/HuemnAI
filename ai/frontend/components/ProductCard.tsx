@@ -27,10 +27,13 @@ export default function ProductCard({
     if (isSettings || slug === "settings") return null;
     const toolMap: Record<string, string> = {
       "agent-builder": "agent_builder",
+      "ai-orchestrator": "agent_builder",
       "customer-service": "customer_service",
+      "crm": "crm",
       "hr-services": "hr_services",
       "knowledge-ai": "knowledge_ai",
       "analytics-dashboard": "analytics_dashboard",
+      "voice": "voice_studio",
     };
     return toolMap[slug || ""] || null;
   };
@@ -128,6 +131,18 @@ export default function ProductCard({
       return;
     }
     
+    // Voice Studio goes to dedicated page
+    if (toolSlug === "voice") {
+      router.push("/voice");
+      return;
+    }
+    
+    // CRM goes to dedicated page
+    if (toolSlug === "crm") {
+      router.push("/crm");
+      return;
+    }
+    
     // Economic Trends goes to products page, not chat
     if (toolSlug === "economic-trends") {
       router.push("/products/economic-trends");
@@ -204,6 +219,16 @@ export default function ProductCard({
           <path d="M17.5 6.5h4v4h-4z" fill="#9333ea" opacity="0.6" />
           <path d="M6.5 17.5h4v4h-4z" fill="#10b981" opacity="0.6" />
           <path d="M17.5 17.5h4v4h-4z" fill="#f59e0b" opacity="0.6" />
+        </svg>
+      );
+    }
+    if (key.includes("crm")) {
+      return (
+        <svg className="w-10 h-10 sm:w-12 sm:h-12" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <rect x="3" y="4" width="18" height="16" rx="2" stroke="#fff" strokeWidth="1.4" />
+          <path d="M7 8h10" stroke="#7be0ff" strokeWidth="1.4" strokeLinecap="round" />
+          <path d="M7 12h6" stroke="#ffd47a" strokeWidth="1.4" strokeLinecap="round" />
+          <path d="M7 16h8" stroke="#9be7ff" strokeWidth="1.4" strokeLinecap="round" />
         </svg>
       );
     }

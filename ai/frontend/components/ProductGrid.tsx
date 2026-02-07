@@ -10,6 +10,7 @@ import TrialStatusBanner from "./TrialStatusBanner";
 const TOOL_SLUG_TO_NAME: Record<string, string> = {
   "agent-builder": "agent_builder",
   "customer-service": "customer_service",
+  "crm": "crm",
   "ticket-assigner": "ticket_assigner",
   "ticket-solver": "ticket_solver",
   "status-updater": "status_updater",
@@ -22,10 +23,11 @@ const ALL_TOOLS = [
   { title: "AI Orchestrator", desc: "Premium AI Architect with Golden Standard. Build, visualize, and orchestrate multi-agent systems with real-time code generation.", slug: "ai-orchestrator", isMain: true },
   { title: "🤖 Agent Builder", desc: "Build your own AI agents with visual flow builder. Create chatbots, IVR agents, and more with unlimited nodes, LLM integration, and API connections.", slug: "agent-builder" },
   { title: "Customer Service & Agent Console", desc: "Unified platform for customer support and agent ticket resolution. Handles L1 analysis, auto-assignment, and ticket solving.", slug: "customer-service" },
+  { title: "CRM", desc: "Manage contacts, deals, pipeline stages, and AI insights.", slug: "crm" },
   { title: "HR Services", desc: "Employee lifecycle support: hiring, onboarding, policies, and HR queries.", slug: "hr-services" },
   { title: "Knowledge AI", desc: "Search and surface SOPs, documents, and internal knowledge effectively.", slug: "knowledge-ai" },
   { title: "Analytics Dashboard", desc: "Track performance, ticket solving rate, SLA metrics, team workload, and comprehensive analytics with futuristic visualizations.", slug: "analytics-dashboard" },
-  { title: "🎙️ Voice Studio", desc: "Manage AI voices, clone custom voices, and configure speech settings.", slug: "voice", isSettings: true },
+  { title: "🎙️ Voice Studio", desc: "Manage AI voices, clone custom voices, and configure speech settings.", slug: "voice" },
   { title: "⚙️ Settings & Configuration", desc: "Configure API keys, LLM providers, and integrations. Manage all your settings securely from one place.", slug: "settings", isSettings: true },
 ];
 

@@ -15,6 +15,9 @@ const getToolNameFromPath = (path: string): string | null => {
   if (path.includes("hr-services")) return "hr_services";
   if (path.includes("knowledge-ai")) return "knowledge_ai";
   if (path.includes("analytics-dashboard")) return "analytics_dashboard";
+  if (path.includes("agent-builder")) return "agent_builder";
+  if (path.includes("agents")) return "agent_builder";
+  if (path.includes("voice")) return "voice_studio";
   return null;
 };
 
@@ -59,7 +62,7 @@ export default function TrialBanner({ minimal = false }: { minimal?: boolean }) 
     }
   };
 
-  if (subscriptionStatus !== "trial" || trialDaysRemaining === null || !toolName) {
+  if (subscriptionStatus !== "trial" || !toolName) {
     return null;
   }
 
@@ -221,4 +224,3 @@ export default function TrialBanner({ minimal = false }: { minimal?: boolean }) 
     </div>
   );
 }
-

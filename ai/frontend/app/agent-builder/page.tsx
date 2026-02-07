@@ -41,6 +41,9 @@ import ReactFlow, {
   getBezierPath
 } from "reactflow";
 import "reactflow/dist/style.css";
+import TrialBanner from "@/components/TrialBanner";
+import { useAuthStore } from "@/store/authStore";
+import { startToolSession } from "@/services/api";
 
 // --- Types ---
 interface ExecutionResult {
@@ -679,6 +682,13 @@ export default function AgentBuilderPage() {
     toast.success("Network auto-arranged", { style: { background: '#333', color: '#60a5fa' } });
   };
 
+  const { token, isAuthenticated } = useAuthStore();
+  useEffect(() => {
+    if (isAuthenticated && token) {
+      startToolSession("agent_builder", token).catch(() => {});
+    }
+  }, [isAuthenticated, token]);
+
   return (
     <div className="flex h-screen bg-neutral-950 text-gray-200 overflow-hidden font-sans selection:bg-sky-500/20">
       {/* Main Container */}
@@ -757,6 +767,9 @@ export default function AgentBuilderPage() {
             )}
           </div>
         </header>
+        <div className="px-4 py-2">
+          <TrialBanner minimal />
+        </div>
 
         {/* Content Split View */}
         <div ref={containerRef} className="flex-1 flex overflow-hidden">

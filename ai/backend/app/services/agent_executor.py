@@ -13,6 +13,7 @@ from app.schemas.node_configs import NODE_CONFIG_REGISTRY
 from app.llm.registry import get_available_llm, get_llm
 from app.llm.openai_llm import OpenAILLM
 from app.services.socket_manager import manager
+from app.core.config import settings
 from datetime import datetime
 import json
 import logging
@@ -25,6 +26,11 @@ import ast
 import operator
 import tempfile
 import difflib
+import asyncio
+import httpx
+import imaplib
+import email
+from email.header import decode_header
 
 logger = logging.getLogger(__name__)
 
@@ -179,6 +185,36 @@ class AgentExecutor:
         self.db = db
         self.background_tasks = background_tasks
         self.debug_trace = []  # Track execution flow for debugging
+        self._node_cache: Dict[str, Dict[str, Any]] = {}
+        self._rate_limits: Dict[int, list] = {}
+    
+    def _validate_json_schema(self, schema: Dict[str, Any], payload: Dict[str, Any]) -> Optional[str]:
+        try:
+            if not schema or not isinstance(schema, dict):
+                return None
+            required = schema.get("required", []) or []
+            props = schema.get("properties", {}) or {}
+            for r in required:
+                if r not in payload:
+                    return f"Missing required field: {r}"
+            for k, spec in props.items():
+                if k in payload and isinstance(spec, dict):
+                    t = spec.get("type")
+                    if t == "string" and not isinstance(payload[k], str):
+                        return f"Field '{k}' must be string"
+                    if t == "number" and not isinstance(payload[k], (int, float)):
+                        return f"Field '{k}' must be number"
+                    if t == "boolean" and not isinstance(payload[k], bool):
+                        return f"Field '{k}' must be boolean"
+            return None
+        except Exception as e:
+            logger.warning(f"Validation error: {e}")
+            return "Schema validation failed"
+    
+    def _cache_key(self, node: AgentNode, context: Dict[str, Any]) -> str:
+        base = f"{node.id}:{node.node_type.value}"
+        lm = str(context.get("last_user_message", ""))[:256]
+        return base + ":" + str(abs(hash(lm)))
     
     def _track_analytics_event(
         self, 
@@ -615,145 +651,283 @@ class AgentExecutor:
         # Execute node based on type
         result = None
         try:
-            if node.node_type == NodeType.START:
-                result = await self._execute_start_node(node, context)
-            elif node.node_type == NodeType.LLM:
-                result = await self._execute_llm_node(node, context)
-            elif node.node_type == NodeType.ENTITY:
-                result = await self._execute_entity_extraction_node(node, context)
-            elif node.node_type == NodeType.INTENT:
-                result = await self._execute_intent_node(node, context)
-            elif node.node_type == NodeType.CONDITION:
-                result = await self._execute_condition_node(node, context)
-            elif node.node_type == NodeType.API:
-                result = await self._execute_api_node(node, context)
-            elif node.node_type == NodeType.DATABASE:
-                result = await self._execute_database_node(node, context)
-            elif node.node_type == NodeType.SERVICE:
-                result = await self._execute_service_node(node, context)
-            elif node.node_type == NodeType.CONNECTOR:
-                result = await self._execute_connector_node(node, context)
-            elif node.node_type == NodeType.WEBHOOK:
-                result = await self._execute_webhook_node(node, context)
-            elif node.node_type == NodeType.RESPONSE:
-                result = await self._execute_response_node(node, context)
-            elif node.node_type == NodeType.MESSAGE:
-                result = await self._execute_message_node(node, context)
-            elif node.node_type == NodeType.VARIABLE:
-                result = await self._execute_variable_node(node, context)
-            elif node.node_type == NodeType.PREMIUM_VOICE_TTS:
-                result = await self._execute_premium_voice_tts_node(node, context)
-            elif node.node_type == NodeType.END:
-                result = await self._execute_end_node(node, context)
-            elif node.node_type == NodeType.LOOP:
-                result = await self._execute_loop_node(node, context)
-            elif node.node_type == NodeType.DELAY:
-                result = await self._execute_delay_node(node, context)
-            elif node.node_type == NodeType.BRANCH:
-                result = await self._execute_branch_node(node, context)
-            elif node.node_type == NodeType.MERGE:
-                result = await self._execute_merge_node(node, context)
-            elif node.node_type == NodeType.HANDOFF:
-                result = await self._execute_handoff_node(node, context)
-            elif node.node_type == NodeType.AGENT_DELEGATE:
-                result = await self._execute_agent_delegate_node(node, context, conversation_id)
-            elif node.node_type == NodeType.IVR_CALL:
-                result = await self._execute_ivr_call_node(node, context)
-            # AI & Machine Learning Nodes
-            elif node.node_type == NodeType.AI_VISION:
-                result = await self._execute_ai_vision_node(node, context)
-            elif node.node_type == NodeType.AI_VOICE:
-                result = await self._execute_ai_voice_node(node, context)
-            elif node.node_type == NodeType.AI_CODE:
-                result = await self._execute_ai_code_node(node, context)
-            elif node.node_type == NodeType.AI_RAG:
-                result = await self._execute_ai_rag_node(node, context)
-            elif node.node_type == NodeType.AI_EMBEDDING:
-                result = await self._execute_ai_embedding_node(node, context)
-            elif node.node_type == NodeType.AI_VECTOR_SEARCH:
-                result = await self._execute_ai_vector_search_node(node, context)
-            elif node.node_type == NodeType.AI_FUNCTION:
-                result = await self._execute_ai_function_node(node, context)
-            elif node.node_type == NodeType.AI_MEMORY:
-                result = await self._execute_ai_memory_node(node, context)
-            elif node.node_type == NodeType.AI_DECISION:
-                result = await self._execute_ai_decision_node(node, context)
-            elif node.node_type == NodeType.AI_MULTI_AGENT:
-                result = await self._execute_ai_multi_agent_node(node, context)
-            # Data Processing Nodes
-            elif node.node_type == NodeType.DATA_ANALYSIS:
-                result = await self._execute_data_analysis_node(node, context)
-            elif node.node_type == NodeType.DOCUMENT_PROCESSOR:
-                result = await self._execute_document_processor_node(node, context)
-            elif node.node_type == NodeType.FILE_PROCESSOR:
-                result = await self._execute_file_processor_node(node, context)
-            elif node.node_type == NodeType.WEB_SCRAPER:
-                result = await self._execute_web_scraper_node(node, context)
-            elif node.node_type == NodeType.EMAIL_PROCESSOR:
-                result = await self._execute_email_processor_node(node, context)
-            # Communication Nodes
-            elif node.node_type == NodeType.NOTIFICATION:
-                result = await self._execute_notification_node(node, context)
-            elif node.node_type == NodeType.CALENDAR:
-                result = await self._execute_calendar_node(node, context)
-            elif node.node_type == NodeType.STREAMING:
-                result = await self._execute_streaming_node(node, context)
-            # Automation Nodes
-            elif node.node_type == NodeType.WORKFLOW_AUTOMATION:
-                result = await self._execute_workflow_automation_node(node, context)
-            elif node.node_type == NodeType.TASK_SCHEDULER:
-                result = await self._execute_task_scheduler_node(node, context)
-            elif node.node_type == NodeType.HANDOFF:
-                result = await self._execute_handoff_node(node, context)
-            elif node.node_type == NodeType.EVENT_TRIGGER:
-                result = await self._execute_event_trigger_node(node, context)
-            elif node.node_type == NodeType.SESSION_STATE:
-                result = await self._execute_session_state_node(node, context)
-            elif node.node_type == NodeType.AUTH_PROVIDER:
-                result = await self._execute_auth_provider_node(node, context)
-            elif node.node_type == NodeType.QUEUE_PUBLISHER:
-                result = await self._execute_queue_publisher_node(node, context)
-            elif node.node_type == NodeType.QUEUE_LISTENER:
-                result = await self._execute_queue_listener_node(node, context)
-            elif node.node_type == NodeType.DIALOG_POLICY:
-                result = await self._execute_dialog_policy_node(node, context)
-            elif node.node_type == NodeType.INTENT_FLOW:
-                result = await self._execute_intent_flow_node(node, context)
-            elif node.node_type == NodeType.PERSONA_CONTROL:
-                result = await self._execute_persona_control_node(node, context)
-            elif node.node_type == NodeType.KB_SYNC:
-                result = await self._execute_kb_sync_node(node, context)
-            elif node.node_type == NodeType.PREMIUM_VOICE_TTS:
-                result = await self._execute_premium_voice_tts_node(node, context)
-            elif node.node_type == NodeType.RICH_MESSAGE:
-                result = await self._execute_rich_message_node(node, context)
-            elif node.node_type == NodeType.VOICE_TRANSLATION:
-                result = await self._execute_voice_translation_node(node, context)
-            elif node.node_type == NodeType.HANDOFF_INTELLIGENCE:
-                result = await self._execute_handoff_intelligence_node(node, context)
+            perf = (node.config or {}).get("performance_config", {}) or {}
+            rate_rpm = int(perf.get("rate_limit_rpm") or 0)
+            burst = int(perf.get("rate_limit_burst") or 0)
+            cache_enabled = bool(perf.get("cache_results"))
+            cache_ttl = int(perf.get("cache_ttl_seconds") or 0)
+            monitoring = (node.config or {}).get("monitoring_config", {}) or {}
+            validation_cfg = (node.config or {}).get("validation_config", {}) or {}
+            err_cfg = (node.config or {}).get("universal_error_config", {}) or {}
             
-            # Data & Analytics Extensions
-            elif node.node_type == NodeType.DATA_TRANSFORMER:
-                result = await self._execute_data_transformer_node(node, context)
-            elif node.node_type == NodeType.DB_TRANSACTION:
-                result = await self._execute_db_transaction_node(node, context)
-            elif node.node_type == NodeType.AI_INSIGHT:
-                result = await self._execute_ai_insight_node(node, context)
-
-            # Automation & Orchestration
-            elif node.node_type == NodeType.ORCHESTRATOR:
-                result = await self._execute_orchestrator_node(node, context)
-            elif node.node_type == NodeType.SCHEDULER_CLUSTER:
-                result = await self._execute_scheduler_cluster_node(node, context)
-            elif node.node_type == NodeType.ADAPTIVE_LEARNER:
-                result = await self._execute_adaptive_learner_node(node, context)
-                
-            else:
-                result = {
-                    "response": "",
-                    "node_id": None,
-                    "context": context,
-                    "metadata": {"error": f"Unsupported node type: {node.node_type}"}
+            # Rate limit
+            if rate_rpm > 0:
+                now = datetime.utcnow().timestamp()
+                window = now - 60.0
+                bucket = self._rate_limits.setdefault(node.id, [])
+                bucket = [t for t in bucket if t >= window]
+                if len(bucket) >= rate_rpm + burst:
+                    self._rate_limits[node.id] = bucket
+                    return {
+                        "response": "Rate limit exceeded",
+                        "node_id": None,
+                        "context": context,
+                        "metadata": {"error": "rate_limit", "rpm": rate_rpm, "burst": burst}
+                    }
+                bucket.append(now)
+                self._rate_limits[node.id] = bucket
+            
+            # Input validation
+            if validation_cfg.get("input_enabled"):
+                err = self._validate_json_schema(validation_cfg.get("input_schema") or {}, context or {})
+                if err:
+                    return {
+                        "response": f"Input validation failed: {err}",
+                        "node_id": None,
+                        "context": context,
+                        "metadata": {"error": "input_validation_failed", "details": err}
+                    }
+            
+            # Cache lookup
+            if cache_enabled and cache_ttl > 0:
+                ck = self._cache_key(node, context)
+                entry = self._node_cache.get(ck)
+                if entry and entry.get("expires_at", 0) >= datetime.utcnow().timestamp():
+                    cached = entry.get("value") or {}
+                    cached["metadata"] = {**(cached.get("metadata") or {}), "cache_hit": True}
+                    return cached
+            
+            async def _exec_once():
+                local_result = None
+                if node.node_type == NodeType.START:
+                    local_result = await self._execute_start_node(node, context)
+                elif node.node_type == NodeType.LLM:
+                    local_result = await self._execute_llm_node(node, context)
+                elif node.node_type == NodeType.ENTITY:
+                    local_result = await self._execute_entity_extraction_node(node, context)
+                elif node.node_type == NodeType.INTENT:
+                    local_result = await self._execute_intent_node(node, context)
+                elif node.node_type == NodeType.CONDITION:
+                    local_result = await self._execute_condition_node(node, context)
+                elif node.node_type == NodeType.API:
+                    local_result = await self._execute_api_node(node, context)
+                elif node.node_type == NodeType.DATABASE:
+                    local_result = await self._execute_database_node(node, context)
+                elif node.node_type == NodeType.SERVICE:
+                    local_result = await self._execute_service_node(node, context)
+                elif node.node_type == NodeType.CONNECTOR:
+                    local_result = await self._execute_connector_node(node, context)
+                elif node.node_type == NodeType.WEBHOOK:
+                    local_result = await self._execute_webhook_node(node, context)
+                elif node.node_type == NodeType.RESPONSE:
+                    local_result = await self._execute_response_node(node, context)
+                elif node.node_type == NodeType.MESSAGE:
+                    local_result = await self._execute_message_node(node, context)
+                elif node.node_type == NodeType.VARIABLE:
+                    local_result = await self._execute_variable_node(node, context)
+                elif node.node_type == NodeType.PREMIUM_VOICE_TTS:
+                    local_result = await self._execute_premium_voice_tts_node(node, context)
+                elif node.node_type == NodeType.END:
+                    local_result = await self._execute_end_node(node, context)
+                elif node.node_type == NodeType.LOOP:
+                    local_result = await self._execute_loop_node(node, context)
+                elif node.node_type == NodeType.DELAY:
+                    local_result = await self._execute_delay_node(node, context)
+                elif node.node_type == NodeType.BRANCH:
+                    local_result = await self._execute_branch_node(node, context)
+                elif node.node_type == NodeType.MERGE:
+                    local_result = await self._execute_merge_node(node, context)
+                elif node.node_type == NodeType.HANDOFF:
+                    local_result = await self._execute_handoff_node(node, context)
+                elif node.node_type == NodeType.AGENT_DELEGATE:
+                    local_result = await self._execute_agent_delegate_node(node, context, conversation_id)
+                elif node.node_type == NodeType.IVR_CALL:
+                    local_result = await self._execute_ivr_call_node(node, context)
+                elif node.node_type == NodeType.AI_VISION:
+                    local_result = await self._execute_ai_vision_node(node, context)
+                elif node.node_type == NodeType.AI_VOICE:
+                    local_result = await self._execute_ai_voice_node(node, context)
+                elif node.node_type == NodeType.AI_CODE:
+                    local_result = await self._execute_ai_code_node(node, context)
+                elif node.node_type == NodeType.AI_RAG:
+                    local_result = await self._execute_ai_rag_node(node, context)
+                elif node.node_type == NodeType.AI_EMBEDDING:
+                    local_result = await self._execute_ai_embedding_node(node, context)
+                elif node.node_type == NodeType.AI_VECTOR_SEARCH:
+                    local_result = await self._execute_ai_vector_search_node(node, context)
+                elif node.node_type == NodeType.AI_FUNCTION:
+                    local_result = await self._execute_ai_function_node(node, context)
+                elif node.node_type == NodeType.AI_MEMORY:
+                    local_result = await self._execute_ai_memory_node(node, context)
+                elif node.node_type == NodeType.AI_DECISION:
+                    local_result = await self._execute_ai_decision_node(node, context)
+                elif node.node_type == NodeType.AI_MULTI_AGENT:
+                    local_result = await self._execute_ai_multi_agent_node(node, context)
+                elif node.node_type == NodeType.DATA_ANALYSIS:
+                    local_result = await self._execute_data_analysis_node(node, context)
+                elif node.node_type == NodeType.DOCUMENT_PROCESSOR:
+                    local_result = await self._execute_document_processor_node(node, context)
+                elif node.node_type == NodeType.FILE_PROCESSOR:
+                    local_result = await self._execute_file_processor_node(node, context)
+                elif node.node_type == NodeType.WEB_SCRAPER:
+                    local_result = await self._execute_web_scraper_node(node, context)
+                elif node.node_type == NodeType.EMAIL_PROCESSOR:
+                    local_result = await self._execute_email_processor_node(node, context)
+                elif node.node_type == NodeType.NOTIFICATION:
+                    local_result = await self._execute_notification_node(node, context)
+                elif node.node_type == NodeType.CALENDAR:
+                    local_result = await self._execute_calendar_node(node, context)
+                elif node.node_type == NodeType.STREAMING:
+                    local_result = await self._execute_streaming_node(node, context)
+                elif node.node_type == NodeType.WORKFLOW_AUTOMATION:
+                    local_result = await self._execute_workflow_automation_node(node, context)
+                elif node.node_type == NodeType.TASK_SCHEDULER:
+                    local_result = await self._execute_task_scheduler_node(node, context)
+                elif node.node_type == NodeType.EVENT_TRIGGER:
+                    local_result = await self._execute_event_trigger_node(node, context)
+                elif node.node_type == NodeType.SESSION_STATE:
+                    local_result = await self._execute_session_state_node(node, context)
+                elif node.node_type == NodeType.AUTH_PROVIDER:
+                    local_result = await self._execute_auth_provider_node(node, context)
+                elif node.node_type == NodeType.QUEUE_PUBLISHER:
+                    local_result = await self._execute_queue_publisher_node(node, context)
+                elif node.node_type == NodeType.QUEUE_LISTENER:
+                    local_result = await self._execute_queue_listener_node(node, context)
+                elif node.node_type == NodeType.DIALOG_POLICY:
+                    local_result = await self._execute_dialog_policy_node(node, context)
+                elif node.node_type == NodeType.INTENT_FLOW:
+                    local_result = await self._execute_intent_flow_node(node, context)
+                elif node.node_type == NodeType.PERSONA_CONTROL:
+                    local_result = await self._execute_persona_control_node(node, context)
+                elif node.node_type == NodeType.KB_SYNC:
+                    local_result = await self._execute_kb_sync_node(node, context)
+                elif node.node_type == NodeType.PREMIUM_VOICE_TTS:
+                    local_result = await self._execute_premium_voice_tts_node(node, context)
+                elif node.node_type == NodeType.RICH_MESSAGE:
+                    local_result = await self._execute_rich_message_node(node, context)
+                elif node.node_type == NodeType.VOICE_TRANSLATION:
+                    local_result = await self._execute_voice_translation_node(node, context)
+                elif node.node_type == NodeType.HANDOFF_INTELLIGENCE:
+                    local_result = await self._execute_handoff_intelligence_node(node, context)
+                elif node.node_type == NodeType.DATA_TRANSFORMER:
+                    local_result = await self._execute_data_transformer_node(node, context)
+                elif node.node_type == NodeType.DB_TRANSACTION:
+                    local_result = await self._execute_db_transaction_node(node, context)
+                elif node.node_type == NodeType.AI_INSIGHT:
+                    local_result = await self._execute_ai_insight_node(node, context)
+                elif node.node_type == NodeType.ORCHESTRATOR:
+                    local_result = await self._execute_orchestrator_node(node, context)
+                elif node.node_type == NodeType.SCHEDULER_CLUSTER:
+                    local_result = await self._execute_scheduler_cluster_node(node, context)
+                elif node.node_type == NodeType.ADAPTIVE_LEARNER:
+                    local_result = await self._execute_adaptive_learner_node(node, context)
+                else:
+                    local_result = {
+                        "response": "",
+                        "node_id": None,
+                        "context": context,
+                        "metadata": {"error": f"Unsupported node type: {node.node_type}"}
+                    }
+                return local_result
+            
+            timeout_cfg = int(perf.get("timeout_seconds") or (err_cfg.get("timeout_seconds") or 0))
+            attempts = 1
+            if err_cfg.get("retry_enabled"):
+                attempts = max(1, int(err_cfg.get("retry_max_attempts") or 1))
+            base_delay = float(err_cfg.get("retry_delay_seconds") or 0)
+            strategy = str(err_cfg.get("retry_backoff_strategy") or "fixed")
+            multiplier = float(err_cfg.get("retry_backoff_multiplier") or 2.0)
+            jitter_flag = bool(err_cfg.get("retry_jitter") or False)
+            last_error = None
+            for i in range(attempts):
+                try:
+                    if timeout_cfg > 0:
+                        result = await asyncio.wait_for(_exec_once(), timeout=timeout_cfg)
+                    else:
+                        result = await _exec_once()
+                    last_error = None
+                    break
+                except Exception as e:
+                    last_error = e
+                    if i < attempts - 1:
+                        d = base_delay
+                        if strategy == "exponential":
+                            d = base_delay * (multiplier ** i)
+                        elif strategy == "linear":
+                            d = base_delay * (i + 1)
+                        if jitter_flag:
+                            try:
+                                j = (int.from_bytes(os.urandom(2, ), "big") % 100) / 100.0
+                                d = d * (0.5 + j)
+                            except Exception:
+                                pass
+                        if d > 0:
+                            await asyncio.sleep(min(d, 30.0))
+                    else:
+                        on_err = str(err_cfg.get("on_error") or "retry")
+                        alert_url = err_cfg.get("alert_webhook_url") or monitoring.get("alert_webhook_url")
+                        if alert_url:
+                            try:
+                                async with httpx.AsyncClient(timeout=5.0) as client:
+                                    await client.post(alert_url, json={
+                                        "agent_id": agent_id,
+                                        "node_id": node_id,
+                                        "node_type": node.node_type.value,
+                                        "error": str(last_error),
+                                        "timestamp": datetime.utcnow().isoformat()
+                                    })
+                            except Exception:
+                                pass
+                        if on_err == "fallback" and err_cfg.get("fallback_node_id"):
+                            result = {
+                                "response": "",
+                                "next_node_id": int(str(err_cfg.get("fallback_node_id"))),
+                                "context": context,
+                                "metadata": {"error": str(last_error)},
+                                "prevent_default_connection": True
+                            }
+                        elif on_err == "skip":
+                            result = {
+                                "response": "",
+                                "next_node_id": None,
+                                "context": context,
+                                "metadata": {"error": str(last_error), "skipped": True}
+                            }
+                        elif on_err == "end":
+                            result = {
+                                "response": "",
+                                "next_node_id": None,
+                                "context": context,
+                                "metadata": {"error": str(last_error), "end": True},
+                                "prevent_default_connection": True
+                            }
+                        else:
+                            raise last_error
+            
+            # Output validation
+            if validation_cfg.get("output_enabled"):
+                out_payload = {**(result.get("context") or {})}
+                err = self._validate_json_schema(validation_cfg.get("output_schema") or {}, out_payload)
+                if err:
+                    # Apply simple error handling fallback
+                    if (err_cfg.get("on_error") == "fallback") and err_cfg.get("fallback_node_id"):
+                        result["next_node_id"] = int(str(err_cfg.get("fallback_node_id")))
+                        result["prevent_default_connection"] = True
+                        result["metadata"] = {**(result.get("metadata") or {}), "output_validation_failed": True, "details": err}
+                    else:
+                        result = {
+                            "response": f"Output validation failed: {err}",
+                            "node_id": None,
+                            "context": context,
+                            "metadata": {"error": "output_validation_failed", "details": err}
+                        }
+            
+            # Cache store
+            if cache_enabled and cache_ttl > 0 and not (result.get("metadata") or {}).get("error"):
+                ck = self._cache_key(node, context)
+                self._node_cache[ck] = {
+                    "value": result,
+                    "expires_at": (datetime.utcnow().timestamp() + cache_ttl)
                 }
         except Exception as e:
             logger.error(f"Error executing node {node_id}: {str(e)}", exc_info=True)
@@ -3744,9 +3918,89 @@ Return only the intent name that best matches."""
                      result_data = {"status": "error", "error": "Missing recipient, subject, or body"}
                      
             elif operation == "read":
-                # Placeholder for reading emails (IMAP integration would be needed)
-                # In a real implementation, this would check an inbox
-                result_data = {"status": "not_implemented", "message": "Email reading not yet supported"}
+                username = settings.SMTP_USER
+                password = settings.SMTP_PASSWORD
+                if not username or not password:
+                    result_data = {"status": "error", "error": "IMAP not configured"}
+                else:
+                    host = "imap.gmail.com"
+                    h = (settings.SMTP_HOST or "").lower()
+                    if "gmail" in h:
+                        host = "imap.gmail.com"
+                    elif "outlook" in h or "office365" in h:
+                        host = "outlook.office365.com"
+                    elif "yahoo" in h:
+                        host = "imap.mail.yahoo.com"
+                    elif h.startswith("smtp."):
+                        host = "imap." + h[5:]
+                    elif h:
+                        host = h
+                    mailbox = self._replace_variables(config.get("mailbox", "INBOX"), context)
+                    max_emails = int(config.get("max_emails", 5))
+                    messages = []
+                    try:
+                        M = imaplib.IMAP4_SSL(host, 993)
+                        M.login(username, password)
+                        M.select(mailbox)
+                        criteria = config.get("search", "UNSEEN")
+                        status, data = M.search(None, criteria)
+                        ids = data[0].split() if status == "OK" and data and data[0] else []
+                        ids = list(reversed(ids))[:max_emails]
+                        def _decode(v):
+                            if not v:
+                                return ""
+                            parts = []
+                            for t, enc in decode_header(v):
+                                if isinstance(t, bytes):
+                                    try:
+                                        parts.append(t.decode(enc or "utf-8", errors="ignore"))
+                                    except Exception:
+                                        parts.append(t.decode("utf-8", errors="ignore"))
+                                else:
+                                    parts.append(t)
+                            return "".join(parts)
+                        for i in ids:
+                            s, msg_data = M.fetch(i, "(RFC822)")
+                            if s != "OK" or not msg_data or not msg_data[0]:
+                                continue
+                            raw = msg_data[0][1]
+                            msg = email.message_from_bytes(raw)
+                            subject = _decode(msg.get("Subject"))
+                            sender = _decode(msg.get("From"))
+                            date = _decode(msg.get("Date"))
+                            body = ""
+                            if msg.is_multipart():
+                                for part in msg.walk():
+                                    ct = (part.get_content_type() or "").lower()
+                                    cd = str(part.get("Content-Disposition") or "").lower()
+                                    if "attachment" in cd:
+                                        continue
+                                    if ct == "text/plain":
+                                        try:
+                                            body = part.get_payload(decode=True).decode(part.get_content_charset() or "utf-8", errors="ignore")
+                                        except Exception:
+                                            body = part.get_payload(decode=True).decode("utf-8", errors="ignore")
+                                        break
+                            else:
+                                if (msg.get_content_type() or "").lower() == "text/plain":
+                                    try:
+                                        body = msg.get_payload(decode=True).decode(msg.get_content_charset() or "utf-8", errors="ignore")
+                                    except Exception:
+                                        body = msg.get_payload(decode=True).decode("utf-8", errors="ignore")
+                            snippet = (body or "").strip().replace("\r", " ").replace("\n", " ")
+                            snippet = snippet[:200]
+                            messages.append({"subject": subject, "from": sender, "date": date, "snippet": snippet})
+                        try:
+                            M.close()
+                        except Exception:
+                            pass
+                        try:
+                            M.logout()
+                        except Exception:
+                            pass
+                        result_data = {"status": "read", "count": len(messages), "messages": messages}
+                    except Exception as e:
+                        result_data = {"status": "error", "error": str(e)}
                 
             context["email_result"] = result_data
             

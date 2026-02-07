@@ -91,6 +91,28 @@ const nodeTypeColors: Record<string, string> = {
   sap: "#008fd3",
   hubspot: "#ff7a59",
   zoho: "#e32630",
+    // Prompt Additions
+    ai_vision: "#7dd3fc",
+    ai_voice: "#22c55e",
+    ai_code_gen: "#f59e0b",
+    ai_rag: "#60a5fa",
+    ai_embedding: "#34d399",
+    ai_vector_search: "#a3e635",
+    ai_function: "#9333ea",
+    ai_memory: "#0ea5e9",
+    ai_decision: "#ef4444",
+    database: "#fb7185",
+    webhook: "#f87171",
+    agent_delegate: "#fcd34d",
+    data_analysis: "#06b6d4",
+    document_processor: "#94a3b8",
+    file_processor: "#64748b",
+    web_scraper: "#22c55e",
+    email_processor: "#60a5fa",
+    notification: "#fbbf24",
+    calendar: "#3b82f6",
+    streaming: "#22d3ee",
+    ivr_call: "#14b8a6",
 };
 
 export default function EnhancedAgentBuilder() {
@@ -106,6 +128,7 @@ export default function EnhancedAgentBuilder() {
   const [connectorMetadata, setConnectorMetadata] = useState<any[]>([]);
   const [voiceProfiles, setVoiceProfiles] = useState<any[]>([]);
   const [showLegend, setShowLegend] = useState(false);
+  const [activeTab, setActiveTab] = useState<string>("Basic");
 
   const PremiumEdge = ({
     id,
@@ -176,6 +199,7 @@ export default function EnhancedAgentBuilder() {
   const edgeTypes = { premium: PremiumEdge };
 
   useEffect(() => {
+    setActiveTab("Basic");
     // Fetch connector metadata
     fetch('/api/connectors/metadata')
       .then(res => res.json())
@@ -556,6 +580,29 @@ export default function EnhancedAgentBuilder() {
     { type: "sap", label: "SAP", color: nodeTypeColors.sap },
     { type: "hubspot", label: "HubSpot", color: nodeTypeColors.hubspot },
     { type: "zoho", label: "Zoho", color: nodeTypeColors.zoho },
+    
+    // Prompt Additions
+    { type: "ai_vision", label: "AI Vision", color: nodeTypeColors.ai_vision },
+    { type: "ai_voice", label: "AI Voice", color: nodeTypeColors.ai_voice },
+    { type: "ai_code_gen", label: "AI Code Gen", color: nodeTypeColors.ai_code_gen },
+    { type: "ai_rag", label: "AI RAG", color: nodeTypeColors.ai_rag },
+    { type: "ai_embedding", label: "AI Embedding", color: nodeTypeColors.ai_embedding },
+    { type: "ai_vector_search", label: "AI Vector Search", color: nodeTypeColors.ai_vector_search },
+    { type: "ai_function", label: "AI Function", color: nodeTypeColors.ai_function },
+    { type: "ai_memory", label: "AI Memory", color: nodeTypeColors.ai_memory },
+    { type: "ai_decision", label: "AI Decision", color: nodeTypeColors.ai_decision },
+    { type: "database", label: "Database", color: nodeTypeColors.database },
+    { type: "webhook", label: "Webhook", color: nodeTypeColors.webhook },
+    { type: "agent_delegate", label: "Agent Delegate", color: nodeTypeColors.agent_delegate },
+    { type: "data_analysis", label: "Data Analysis", color: nodeTypeColors.data_analysis },
+    { type: "document_processor", label: "Document Processor", color: nodeTypeColors.document_processor },
+    { type: "file_processor", label: "File Processor", color: nodeTypeColors.file_processor },
+    { type: "web_scraper", label: "Web Scraper", color: nodeTypeColors.web_scraper },
+    { type: "email_processor", label: "Email Processor", color: nodeTypeColors.email_processor },
+    { type: "notification", label: "Notification", color: nodeTypeColors.notification },
+    { type: "calendar", label: "Calendar", color: nodeTypeColors.calendar },
+    { type: "streaming", label: "Streaming", color: nodeTypeColors.streaming },
+    { type: "ivr_call", label: "IVR Call", color: nodeTypeColors.ivr_call },
   ];
 
   return (
@@ -720,7 +767,6 @@ export default function EnhancedAgentBuilder() {
                 </svg>
               </button>
             </div>
-            
             <div className="space-y-4">
               <div>
                 <label className="block text-sm text-white/70 mb-1">Label</label>
@@ -736,6 +782,245 @@ export default function EnhancedAgentBuilder() {
                   className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white"
                 />
               </div>
+              
+              <div className="flex items-center gap-1 bg-black/20 rounded-lg p-1 mb-2">
+                {["Basic","Error","Validation","Performance","Monitoring"].map((tab) => (
+                  <button
+                    key={tab}
+                    onClick={() => setActiveTab(tab)}
+                    className={`flex-1 py-1 text-[10px] rounded ${activeTab===tab ? 'bg-white/10 text-white' : 'text-white/60 hover:text-white'}`}
+                  >
+                    {tab}
+                  </button>
+                ))}
+              </div>
+              
+              {activeTab === "Error" && (
+                <div className="space-y-3">
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="block text-xs text-white/70 mb-1">On Error</label>
+                      <select
+                        value={selectedNode.data.config?.universal_error_config?.on_error || "retry"}
+                        onChange={(e)=>updateNodeConfiguration(selectedNode.id,{ universal_error_config: { ...(selectedNode.data.config?.universal_error_config||{}), on_error: e.target.value } })}
+                        className="w-full px-2 py-1 bg-white/5 border border-white/10 rounded text-xs text-white"
+                      >
+                        <option value="retry">Retry</option>
+                        <option value="skip">Skip</option>
+                        <option value="fallback">Fallback</option>
+                        <option value="end">End</option>
+                      </select>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={selectedNode.data.config?.universal_error_config?.retry_enabled ?? true}
+                        onChange={(e)=>updateNodeConfiguration(selectedNode.id,{ universal_error_config: { ...(selectedNode.data.config?.universal_error_config||{}), retry_enabled: e.target.checked } })}
+                        className="rounded border-white/10 bg-white/5"
+                      />
+                      <span className="text-xs text-white/70">Retry Enabled</span>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="block text-xs text-white/70 mb-1">Max Attempts</label>
+                      <input
+                        type="number"
+                        value={selectedNode.data.config?.universal_error_config?.retry_max_attempts ?? 3}
+                        onChange={(e)=>updateNodeConfiguration(selectedNode.id,{ universal_error_config: { ...(selectedNode.data.config?.universal_error_config||{}), retry_max_attempts: parseInt(e.target.value) } })}
+                        className="w-full px-2 py-1 bg-white/5 border border-white/10 rounded text-xs text-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-white/70 mb-1">Delay (sec)</label>
+                      <input
+                        type="number"
+                        value={selectedNode.data.config?.universal_error_config?.retry_delay_seconds ?? 1}
+                        onChange={(e)=>updateNodeConfiguration(selectedNode.id,{ universal_error_config: { ...(selectedNode.data.config?.universal_error_config||{}), retry_delay_seconds: parseInt(e.target.value) } })}
+                        className="w-full px-2 py-1 bg-white/5 border border-white/10 rounded text-xs text-white"
+                      />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="block text-xs text-white/70 mb-1">Backoff</label>
+                      <select
+                        value={selectedNode.data.config?.universal_error_config?.retry_backoff_strategy || "fixed"}
+                        onChange={(e)=>updateNodeConfiguration(selectedNode.id,{ universal_error_config: { ...(selectedNode.data.config?.universal_error_config||{}), retry_backoff_strategy: e.target.value } })}
+                        className="w-full px-2 py-1 bg-white/5 border border-white/10 rounded text-xs text-white"
+                      >
+                        <option value="fixed">Fixed</option>
+                        <option value="exponential">Exponential</option>
+                        <option value="linear">Linear</option>
+                      </select>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={selectedNode.data.config?.universal_error_config?.retry_jitter ?? false}
+                        onChange={(e)=>updateNodeConfiguration(selectedNode.id,{ universal_error_config: { ...(selectedNode.data.config?.universal_error_config||{}), retry_jitter: e.target.checked } })}
+                        className="rounded border-white/10 bg-white/5"
+                      />
+                      <span className="text-xs text-white/70">Jitter</span>
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-xs text-white/70 mb-1">Fallback Node ID</label>
+                    <input
+                      value={selectedNode.data.config?.universal_error_config?.fallback_node_id || ""}
+                      onChange={(e)=>updateNodeConfiguration(selectedNode.id,{ universal_error_config: { ...(selectedNode.data.config?.universal_error_config||{}), fallback_node_id: e.target.value } })}
+                      className="w-full px-2 py-1 bg-white/5 border border-white/10 rounded text-xs text-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-white/70 mb-1">Alert Webhook URL</label>
+                    <input
+                      value={selectedNode.data.config?.universal_error_config?.alert_webhook_url || ""}
+                      onChange={(e)=>updateNodeConfiguration(selectedNode.id,{ universal_error_config: { ...(selectedNode.data.config?.universal_error_config||{}), alert_webhook_url: e.target.value } })}
+                      className="w-full px-2 py-1 bg-white/5 border border-white/10 rounded text-xs text-white"
+                    />
+                  </div>
+                </div>
+              )}
+              
+              {activeTab === "Validation" && (
+                <div className="space-y-3">
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={selectedNode.data.config?.validation_config?.input_enabled ?? false}
+                      onChange={(e)=>updateNodeConfiguration(selectedNode.id,{ validation_config: { ...(selectedNode.data.config?.validation_config||{}), input_enabled: e.target.checked } })}
+                      className="rounded border-white/10 bg-white/5"
+                    />
+                    <span className="text-xs text-white/70">Input Validation Enabled</span>
+                  </div>
+                  <textarea
+                    value={JSON.stringify(selectedNode.data.config?.validation_config?.input_schema || {}, null, 2)}
+                    onChange={(e)=>{ try { const schema=JSON.parse(e.target.value); updateNodeConfiguration(selectedNode.id,{ validation_config: { ...(selectedNode.data.config?.validation_config||{}), input_schema: schema } }); } catch {} }}
+                    className="w-full px-2 py-1 bg-white/5 border border-white/10 rounded text-xs text-white font-mono"
+                    rows={6}
+                    placeholder="{}"
+                  />
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={selectedNode.data.config?.validation_config?.output_enabled ?? false}
+                      onChange={(e)=>updateNodeConfiguration(selectedNode.id,{ validation_config: { ...(selectedNode.data.config?.validation_config||{}), output_enabled: e.target.checked } })}
+                      className="rounded border-white/10 bg-white/5"
+                    />
+                    <span className="text-xs text-white/70">Output Validation Enabled</span>
+                  </div>
+                  <textarea
+                    value={JSON.stringify(selectedNode.data.config?.validation_config?.output_schema || {}, null, 2)}
+                    onChange={(e)=>{ try { const schema=JSON.parse(e.target.value); updateNodeConfiguration(selectedNode.id,{ validation_config: { ...(selectedNode.data.config?.validation_config||{}), output_schema: schema } }); } catch {} }}
+                    className="w-full px-2 py-1 bg-white/5 border border-white/10 rounded text-xs text-white font-mono"
+                    rows={6}
+                    placeholder="{}"
+                  />
+                </div>
+              )}
+              
+              {activeTab === "Performance" && (
+                <div className="space-y-3">
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={selectedNode.data.config?.performance_config?.cache_results ?? false}
+                      onChange={(e)=>updateNodeConfiguration(selectedNode.id,{ performance_config: { ...(selectedNode.data.config?.performance_config||{}), cache_results: e.target.checked } })}
+                      className="rounded border-white/10 bg-white/5"
+                    />
+                    <span className="text-xs text-white/70">Cache Results</span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="block text-xs text-white/70 mb-1">Cache TTL (sec)</label>
+                      <input
+                        type="number"
+                        value={selectedNode.data.config?.performance_config?.cache_ttl_seconds ?? 300}
+                        onChange={(e)=>updateNodeConfiguration(selectedNode.id,{ performance_config: { ...(selectedNode.data.config?.performance_config||{}), cache_ttl_seconds: parseInt(e.target.value) } })}
+                        className="w-full px-2 py-1 bg-white/5 border border-white/10 rounded text-xs text-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-white/70 mb-1">Timeout (sec)</label>
+                      <input
+                        type="number"
+                        value={selectedNode.data.config?.performance_config?.timeout_seconds ?? 30}
+                        onChange={(e)=>updateNodeConfiguration(selectedNode.id,{ performance_config: { ...(selectedNode.data.config?.performance_config||{}), timeout_seconds: parseInt(e.target.value) } })}
+                        className="w-full px-2 py-1 bg-white/5 border border-white/10 rounded text-xs text-white"
+                      />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="block text-xs text-white/70 mb-1">Rate Limit (req/min)</label>
+                      <input
+                        type="number"
+                        value={selectedNode.data.config?.performance_config?.rate_limit_rpm ?? 100}
+                        onChange={(e)=>updateNodeConfiguration(selectedNode.id,{ performance_config: { ...(selectedNode.data.config?.performance_config||{}), rate_limit_rpm: parseInt(e.target.value) } })}
+                        className="w-full px-2 py-1 bg-white/5 border border-white/10 rounded text-xs text-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-white/70 mb-1">Burst</label>
+                      <input
+                        type="number"
+                        value={selectedNode.data.config?.performance_config?.rate_limit_burst ?? 10}
+                        onChange={(e)=>updateNodeConfiguration(selectedNode.id,{ performance_config: { ...(selectedNode.data.config?.performance_config||{}), rate_limit_burst: parseInt(e.target.value) } })}
+                        className="w-full px-2 py-1 bg-white/5 border border-white/10 rounded text-xs text-white"
+                      />
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={selectedNode.data.config?.performance_config?.allow_parallel ?? true}
+                      onChange={(e)=>updateNodeConfiguration(selectedNode.id,{ performance_config: { ...(selectedNode.data.config?.performance_config||{}), allow_parallel: e.target.checked } })}
+                      className="rounded border-white/10 bg-white/5"
+                    />
+                    <span className="text-xs text-white/70">Allow Parallel Execution</span>
+                  </div>
+                </div>
+              )}
+              
+              {activeTab === "Monitoring" && (
+                <div className="space-y-3">
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={selectedNode.data.config?.monitoring_config?.track_execution_time ?? true}
+                      onChange={(e)=>updateNodeConfiguration(selectedNode.id,{ monitoring_config: { ...(selectedNode.data.config?.monitoring_config||{}), track_execution_time: e.target.checked } })}
+                      className="rounded border-white/10 bg-white/5"
+                    />
+                    <span className="text-xs text-white/70">Track Execution Time</span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="block text-xs text-white/70 mb-1">Log Level</label>
+                      <select
+                        value={selectedNode.data.config?.monitoring_config?.log_level || "info"}
+                        onChange={(e)=>updateNodeConfiguration(selectedNode.id,{ monitoring_config: { ...(selectedNode.data.config?.monitoring_config||{}), log_level: e.target.value } })}
+                        className="w-full px-2 py-1 bg-white/5 border border-white/10 rounded text-xs text-white"
+                      >
+                        <option value="info">Info</option>
+                        <option value="warning">Warning</option>
+                        <option value="error">Error</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs text-white/70 mb-1">Alert Webhook</label>
+                      <input
+                        value={selectedNode.data.config?.monitoring_config?.alert_webhook_url || ""}
+                        onChange={(e)=>updateNodeConfiguration(selectedNode.id,{ monitoring_config: { ...(selectedNode.data.config?.monitoring_config||{}), alert_webhook_url: e.target.value } })}
+                        className="w-full px-2 py-1 bg-white/5 border border-white/10 rounded text-xs text-white"
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
+              
+              {activeTab === "Basic" && (
+              <>
 
               {selectedNode.data.nodeType === "start" && (
                 <div className="space-y-4">
@@ -1807,6 +2092,397 @@ export default function EnhancedAgentBuilder() {
                 </div>
               )}
 
+              {selectedNode.data.nodeType === "ai_vision" && (
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-sm text-white/70 mb-1">Analysis Type</label>
+                    <select
+                      value={selectedNode.data.config?.analysis_type || "object_detection"}
+                      onChange={(e)=>updateNodeConfiguration(selectedNode.id,{ analysis_type: e.target.value })}
+                      className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white"
+                    >
+                      <option value="object_detection">Object Detection</option>
+                      <option value="classification">Classification</option>
+                      <option value="ocr">OCR</option>
+                      <option value="scene_understanding">Scene Understanding</option>
+                      <option value="face_detection">Face Detection</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm text-white/70 mb-1">Model</label>
+                    <select
+                      value={selectedNode.data.config?.model || "gpt-4-vision"}
+                      onChange={(e)=>updateNodeConfiguration(selectedNode.id,{ model: e.target.value })}
+                      className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white"
+                    >
+                      <option value="gpt-4-vision">GPT-4 Vision</option>
+                      <option value="claude-3-vision">Claude 3 Vision</option>
+                      <option value="google-vision">Google Vision</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm text-white/70 mb-1">Image Source</label>
+                    <select
+                      value={selectedNode.data.config?.image_source || "url"}
+                      onChange={(e)=>updateNodeConfiguration(selectedNode.id,{ image_source: e.target.value })}
+                      className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white"
+                    >
+                      <option value="url">URL</option>
+                      <option value="variable">Variable</option>
+                      <option value="base64">Base64</option>
+                    </select>
+                  </div>
+                  {selectedNode.data.config?.image_source === "url" && (
+                    <div>
+                      <label className="block text-sm text-white/70 mb-1">Image URL</label>
+                      <input
+                        value={selectedNode.data.config?.image_url || ""}
+                        onChange={(e)=>updateNodeConfiguration(selectedNode.id,{ image_url: e.target.value })}
+                        className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white"
+                      />
+                    </div>
+                  )}
+                  {selectedNode.data.config?.image_source === "variable" && (
+                    <div>
+                      <label className="block text-sm text-white/70 mb-1">Image Variable</label>
+                      <input
+                        value={selectedNode.data.config?.image_variable || ""}
+                        onChange={(e)=>updateNodeConfiguration(selectedNode.id,{ image_variable: e.target.value })}
+                        className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white"
+                      />
+                    </div>
+                  )}
+                  {selectedNode.data.config?.image_source === "base64" && (
+                    <div>
+                      <label className="block text-sm text-white/70 mb-1">Image Base64</label>
+                      <textarea
+                        value={selectedNode.data.config?.image_base64 || ""}
+                        onChange={(e)=>updateNodeConfiguration(selectedNode.id,{ image_base64: e.target.value })}
+                        className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white font-mono text-xs"
+                        rows={3}
+                      />
+                    </div>
+                  )}
+                  <div>
+                    <label className="block text-sm text-white/70 mb-1">Output Variable</label>
+                    <input
+                      value={selectedNode.data.config?.output_variable || ""}
+                      onChange={(e)=>updateNodeConfiguration(selectedNode.id,{ output_variable: e.target.value })}
+                      className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {selectedNode.data.nodeType === "ai_voice" && (
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-sm text-white/70 mb-1">Processing Type</label>
+                    <select
+                      value={selectedNode.data.config?.processing_type || "speech_to_text"}
+                      onChange={(e)=>updateNodeConfiguration(selectedNode.id,{ processing_type: e.target.value })}
+                      className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white"
+                    >
+                      <option value="speech_to_text">Speech to Text</option>
+                      <option value="audio_analysis">Audio Analysis</option>
+                      <option value="speaker_identification">Speaker Identification</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm text-white/70 mb-1">Model</label>
+                    <select
+                      value={selectedNode.data.config?.model || "openai-whisper"}
+                      onChange={(e)=>updateNodeConfiguration(selectedNode.id,{ model: e.target.value })}
+                      className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white"
+                    >
+                      <option value="openai-whisper">OpenAI Whisper</option>
+                      <option value="google-cloud-speech">Google Cloud Speech</option>
+                      <option value="azure-speech">Azure Speech</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm text-white/70 mb-1">Audio Source</label>
+                    <select
+                      value={selectedNode.data.config?.audio_source || "url"}
+                      onChange={(e)=>updateNodeConfiguration(selectedNode.id,{ audio_source: e.target.value })}
+                      className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white"
+                    >
+                      <option value="url">URL</option>
+                      <option value="variable">Variable</option>
+                      <option value="base64">Base64</option>
+                      <option value="raw_bytes">Raw Bytes</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm text-white/70 mb-1">Output Variable</label>
+                    <input
+                      value={selectedNode.data.config?.output_variable || ""}
+                      onChange={(e)=>updateNodeConfiguration(selectedNode.id,{ output_variable: e.target.value })}
+                      className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {selectedNode.data.nodeType === "database" && (
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-sm text-white/70 mb-1">Database Type</label>
+                    <select
+                      value={selectedNode.data.config?.database_type || "postgresql"}
+                      onChange={(e)=>updateNodeConfiguration(selectedNode.id,{ database_type: e.target.value })}
+                      className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white"
+                    >
+                      <option value="postgresql">PostgreSQL</option>
+                      <option value="mysql">MySQL</option>
+                      <option value="mongodb">MongoDB</option>
+                      <option value="dynamodb">DynamoDB</option>
+                      <option value="firestore">Firestore</option>
+                      <option value="snowflake">Snowflake</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm text-white/70 mb-1">Operation</label>
+                    <select
+                      value={selectedNode.data.config?.operation || "select"}
+                      onChange={(e)=>updateNodeConfiguration(selectedNode.id,{ operation: e.target.value })}
+                      className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white"
+                    >
+                      <option value="select">Select</option>
+                      <option value="insert">Insert</option>
+                      <option value="update">Update</option>
+                      <option value="delete">Delete</option>
+                      <option value="count">Count</option>
+                      <option value="aggregate">Aggregate</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm text-white/70 mb-1">Table/Collection</label>
+                    <input
+                      value={selectedNode.data.config?.query_config?.table_name || ""}
+                      onChange={(e)=>updateNodeConfiguration(selectedNode.id,{ query_config: { ...(selectedNode.data.config?.query_config||{}), table_name: e.target.value } })}
+                      className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {selectedNode.data.nodeType === "webhook" && (
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-sm text-white/70 mb-1">Allowed Methods</label>
+                    <input
+                      value={(selectedNode.data.config?.http_config?.allowed_methods || ["POST"]).join(",")}
+                      onChange={(e)=>updateNodeConfiguration(selectedNode.id,{ http_config: { ...(selectedNode.data.config?.http_config||{}), allowed_methods: e.target.value.split(",").map(s=>s.trim()) } })}
+                      className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white"
+                      placeholder="POST,PUT,PATCH"
+                    />
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={selectedNode.data.config?.validation?.validate_signature ?? false}
+                      onChange={(e)=>updateNodeConfiguration(selectedNode.id,{ validation: { ...(selectedNode.data.config?.validation||{}), validate_signature: e.target.checked } })}
+                      className="rounded border-white/10 bg-white/5"
+                    />
+                    <span className="text-xs text-white/70">Validate Signature</span>
+                  </div>
+                  <div>
+                    <label className="block text-sm text-white/70 mb-1">Response Status</label>
+                    <input
+                      type="number"
+                      value={selectedNode.data.config?.response_config?.http_status ?? 200}
+                      onChange={(e)=>updateNodeConfiguration(selectedNode.id,{ response_config: { ...(selectedNode.data.config?.response_config||{}), http_status: parseInt(e.target.value) } })}
+                      className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {selectedNode.data.nodeType === "ai_function" && (
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-sm text-white/70 mb-1">Model</label>
+                    <select
+                      value={selectedNode.data.config?.model || "gpt-4"}
+                      onChange={(e)=>updateNodeConfiguration(selectedNode.id,{ model: e.target.value })}
+                      className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white"
+                    >
+                      <option value="gpt-4">GPT-4</option>
+                      <option value="gpt-4-turbo">GPT-4 Turbo</option>
+                      <option value="claude-3-opus">Claude 3 Opus</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm text-white/70 mb-1">System Prompt</label>
+                    <textarea
+                      value={selectedNode.data.config?.system_prompt || ""}
+                      onChange={(e)=>updateNodeConfiguration(selectedNode.id,{ system_prompt: e.target.value })}
+                      className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-xs"
+                      rows={3}
+                    />
+                  </div>
+                </div>
+              )}
+
+              {selectedNode.data.nodeType === "ai_memory" && (
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-sm text-white/70 mb-1">Memory Type</label>
+                    <select
+                      value={selectedNode.data.config?.memory_type || "short_term"}
+                      onChange={(e)=>updateNodeConfiguration(selectedNode.id,{ memory_type: e.target.value })}
+                      className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white"
+                    >
+                      <option value="short_term">Short Term</option>
+                      <option value="long_term">Long Term</option>
+                      <option value="episodic">Episodic</option>
+                      <option value="semantic">Semantic</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm text-white/70 mb-1">Storage Backend</label>
+                    <select
+                      value={selectedNode.data.config?.storage_backend || "redis"}
+                      onChange={(e)=>updateNodeConfiguration(selectedNode.id,{ storage_backend: e.target.value })}
+                      className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white"
+                    >
+                      <option value="redis">Redis</option>
+                      <option value="postgres">Postgres</option>
+                      <option value="mongodb">MongoDB</option>
+                      <option value="memcached">Memcached</option>
+                    </select>
+                  </div>
+                </div>
+              )}
+
+              {selectedNode.data.nodeType === "ai_decision" && (
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-sm text-white/70 mb-1">Decision Question</label>
+                    <input
+                      value={selectedNode.data.config?.decision_question || ""}
+                      onChange={(e)=>updateNodeConfiguration(selectedNode.id,{ decision_question: e.target.value })}
+                      className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm text-white/70 mb-1">Reasoning Depth</label>
+                    <select
+                      value={selectedNode.data.config?.reasoning_config?.reasoning_depth || "moderate"}
+                      onChange={(e)=>updateNodeConfiguration(selectedNode.id,{ reasoning_config: { ...(selectedNode.data.config?.reasoning_config||{}), reasoning_depth: e.target.value } })}
+                      className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white"
+                    >
+                      <option value="shallow">Shallow</option>
+                      <option value="moderate">Moderate</option>
+                      <option value="deep">Deep</option>
+                    </select>
+                  </div>
+                </div>
+              )}
+
+              {selectedNode.data.nodeType === "ai_rag" && (
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-sm text-white/70 mb-1">Knowledge Base</label>
+                    <input
+                      value={selectedNode.data.config?.knowledge_base || ""}
+                      onChange={(e)=>updateNodeConfiguration(selectedNode.id,{ knowledge_base: e.target.value })}
+                      className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm text-white/70 mb-1">Top K</label>
+                    <input
+                      type="number"
+                      value={selectedNode.data.config?.retrieval_config?.top_k ?? 5}
+                      onChange={(e)=>updateNodeConfiguration(selectedNode.id,{ retrieval_config: { ...(selectedNode.data.config?.retrieval_config||{}), top_k: parseInt(e.target.value) } })}
+                      className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {selectedNode.data.nodeType === "ai_embedding" && (
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-sm text-white/70 mb-1">Embedding Model</label>
+                    <select
+                      value={selectedNode.data.config?.embedding_model || "text-embedding-3-small"}
+                      onChange={(e)=>updateNodeConfiguration(selectedNode.id,{ embedding_model: e.target.value })}
+                      className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white"
+                    >
+                      <option value="text-embedding-3-small">text-embedding-3-small</option>
+                      <option value="text-embedding-3-large">text-embedding-3-large</option>
+                      <option value="nomic-embed-text">nomic-embed-text</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm text-white/70 mb-1">Input Text</label>
+                    <textarea
+                      value={selectedNode.data.config?.input_text || ""}
+                      onChange={(e)=>updateNodeConfiguration(selectedNode.id,{ input_text: e.target.value })}
+                      className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-xs"
+                      rows={3}
+                    />
+                  </div>
+                </div>
+              )}
+
+              {selectedNode.data.nodeType === "ai_vector_search" && (
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-sm text-white/70 mb-1">Vector DB</label>
+                    <select
+                      value={selectedNode.data.config?.vector_db || "pinecone"}
+                      onChange={(e)=>updateNodeConfiguration(selectedNode.id,{ vector_db: e.target.value })}
+                      className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white"
+                    >
+                      <option value="pinecone">Pinecone</option>
+                      <option value="weaviate">Weaviate</option>
+                      <option value="milvus">Milvus</option>
+                      <option value="qdrant">Qdrant</option>
+                      <option value="chroma">Chroma</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm text-white/70 mb-1">Top K</label>
+                    <input
+                      type="number"
+                      value={selectedNode.data.config?.search_parameters?.top_k ?? 5}
+                      onChange={(e)=>updateNodeConfiguration(selectedNode.id,{ search_parameters: { ...(selectedNode.data.config?.search_parameters||{}), top_k: parseInt(e.target.value) } })}
+                      className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {selectedNode.data.nodeType === "agent_delegate" && (
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-sm text-white/70 mb-1">Target Agent ID</label>
+                    <input
+                      value={selectedNode.data.config?.target_agent_id || ""}
+                      onChange={(e)=>updateNodeConfiguration(selectedNode.id,{ target_agent_id: e.target.value })}
+                      className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm text-white/70 mb-1">Execution Mode</label>
+                    <select
+                      value={selectedNode.data.config?.execution_config?.execution_mode || "async"}
+                      onChange={(e)=>updateNodeConfiguration(selectedNode.id,{ execution_config: { ...(selectedNode.data.config?.execution_config||{}), execution_mode: e.target.value } })}
+                      className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white"
+                    >
+                      <option value="async">Async</option>
+                      <option value="sync">Sync</option>
+                      <option value="spawn">Spawn</option>
+                    </select>
+                  </div>
+                </div>
+              )}
+              </>
+              )}
 
 
               {selectedNode.data.nodeType === "api" && (

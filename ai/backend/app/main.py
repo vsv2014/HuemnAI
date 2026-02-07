@@ -12,10 +12,13 @@ from app.api.voice_ws import router as voice_ws_router
 from app.api import knowledge, hr, auth, subscription, demo_request, analytics, widget, ticket_assigner
 from app.api import webhooks, config as config_api, tools as tools_api, ticket_solver, knowledge_sources
 from app.api import agents, agent_templates
-from app.api import enterprise, ivr, conversations, voice, stt, feature_flags
+from app.api import enterprise, ivr, conversations, voice, stt, feature_flags, crm
+from app.api import crm_ws
+from app.api import workflow
 from app.core.lifecycle import register_lifecycle
 from app.services.status_service import start_status_watcher
 from app.services.knowledge_crawler_scheduler import start_knowledge_crawler_scheduler
+from app.services.status_service import start_token_consumer
 
 # Initialize structured logging and Sentry
 from app.core.logging import setup_logging
@@ -39,6 +42,7 @@ start_status_watcher()
 
 # Start knowledge crawler scheduler
 start_knowledge_crawler_scheduler()
+start_token_consumer(interval_seconds=60)
 
 # Initialize Prometheus Metrics
 Instrumentator().instrument(app).expose(app, include_in_schema=False)
@@ -90,6 +94,9 @@ app.include_router(conversations.router, prefix="/api/conversations")
 app.include_router(voice.router, prefix="/api/voice")
 app.include_router(stt.router, prefix="/api/stt")
 app.include_router(feature_flags.router, prefix="/api/feature-flags")
+app.include_router(crm.router, prefix="/api/crm")
+app.include_router(crm_ws.router)
+app.include_router(workflow.router, prefix="/api/workflow")
 
 # Routing / Agent Console
 from app.api import routing

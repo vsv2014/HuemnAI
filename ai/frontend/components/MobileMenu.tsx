@@ -82,6 +82,8 @@ export default function MobileMenu({ isAuthenticated, onLogout }: MobileMenuProp
             💰 Pricing
           </Link>
 
+          
+
           {isAuthenticated ? (
             <>
               {/* Subscription/Trial Status */}

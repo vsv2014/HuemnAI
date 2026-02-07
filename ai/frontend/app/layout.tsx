@@ -148,6 +148,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
                            pathname?.startsWith('/agent-builder') ||
                            pathname?.includes('knowledge-ai') || 
                            pathname?.startsWith('/chat/') || 
+                           pathname?.startsWith('/crm') ||
                            pathname?.startsWith('/voice') ||
                            pathname?.startsWith('/settings') || 
                            pathname?.startsWith('/auth/');
@@ -241,6 +242,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
                 Home
               </Link>
             )}
+
 
             {/* Auth Section */}
             {isAuthenticated ? (

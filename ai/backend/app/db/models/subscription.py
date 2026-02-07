@@ -103,6 +103,7 @@ class UserToolSubscription(Base):
     tool_name = Column(String)  # "agent-builder", "customer-service", etc.
     tool_display_name = Column(String)
     subscription_status = Column(String, default="active")
+    is_active = Column(Boolean, default=True)
     subscribed_at = Column(DateTime, default=datetime.utcnow)
     expires_at = Column(DateTime, nullable=True)
     
@@ -121,8 +122,13 @@ class UserToolSession(Base):
     id = Column(Integer, primary_key=True)
     tool_subscription_id = Column(Integer, ForeignKey("user_tool_subscriptions.id"))
     session_id = Column(String, unique=True, index=True)
+    user_id = Column(Integer, index=True)
+    tool_name = Column(String, index=True)
+    session_started_at = Column(DateTime, default=datetime.utcnow)
     started_at = Column(DateTime, default=datetime.utcnow)
     last_activity_at = Column(DateTime, default=datetime.utcnow)
+    last_consumption_at = Column(DateTime, default=datetime.utcnow)
+    tokens_consumed = Column(Integer, default=0)
     is_active = Column(Boolean, default=True)
     
     tool_subscription = relationship("UserToolSubscription", back_populates="sessions")

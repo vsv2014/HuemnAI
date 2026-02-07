@@ -6,6 +6,8 @@ from app.db.session import SessionLocal
 from app.db.models.ticket import Ticket
 from app.db.models.user import User
 from app.db.models.status_history import StatusHistory
+from app.db.models.subscription import UserToolSubscription, UserToolSession
+from app.db.session import SessionLocal as _SessionLocal
 import logging
 
 logger = logging.getLogger(__name__)
@@ -220,6 +222,49 @@ def get_available_agents() -> List[Dict[str, Any]]:
         return agents
     finally:
         db.close()
+
+def start_token_consumer(interval_seconds: int = 300):
+    def _run():
+        while True:
+            try:
+                db = _SessionLocal()
+                now = time.time()
+                sessions = db.query(UserToolSession).filter(UserToolSession.is_active == True).all()
+                logger.info(f"Token consumer scanning {len(sessions)} sessions")
+                for s in sessions:
+                    if not s.last_activity_at:
+                        continue
+                    last_act = s.last_activity_at.timestamp()
+                    if now - last_act > 15 * 60:
+                        continue
+                    last_cons = s.last_consumption_at.timestamp() if s.last_consumption_at else 0
+                    if now - last_cons < interval_seconds:
+                        logger.info(f"Skip session {s.id} tool={s.tool_name}: last_cons too recent")
+                        continue
+                    sub = None
+                    if s.tool_subscription_id:
+                        sub = db.query(UserToolSubscription).filter(UserToolSubscription.id == s.tool_subscription_id).first()
+                    if not sub and s.user_id and s.tool_name:
+                        sub = db.query(UserToolSubscription).filter(UserToolSubscription.user_id == s.user_id, UserToolSubscription.tool_name == s.tool_name).first()
+                    if not sub:
+                        continue
+                    if sub.tokens_remaining is None:
+                        sub.tokens_remaining = 50000
+                        sub.tokens_total = 50000
+                    if sub.tokens_remaining <= 0:
+                        continue
+                    sub.tokens_remaining -= 1
+                    sub.tokens_used = (sub.tokens_used or 0) + 1
+                    s.tokens_consumed = (s.tokens_consumed or 0) + 1
+                    s.last_consumption_at = datetime.utcnow()
+                    db.commit()
+                    logger.debug(f"Consumed 1 token for user_id={s.user_id} tool={s.tool_name}; remaining={sub.tokens_remaining}")
+                db.close()
+            except Exception as e:
+                logger.error(f"Token consumer error: {e}", exc_info=True)
+            time.sleep(60)
+    Thread(target=_run, daemon=True).start()
+    logger.info("Token consumer started")
 
 def get_all_agents_status() -> Dict[str, Dict[str, Any]]:
     """Get status for all agents"""

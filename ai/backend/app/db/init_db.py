@@ -21,20 +21,26 @@ from app.db.models import enterprise
 from app.db.models import audit
 # HR models
 from app.db.models import hr
+from app.db.models import crm
 
 def init_db():
     """
     Initialize database.
 
-    In development (ENV == 'dev') we drop and recreate tables to keep schema in sync.
-    In other environments we do not auto-mutate the schema - use Alembic migrations instead.
+    In development (ENV == 'dev') we only ensure tables exist to preserve data.
+    Use Alembic migrations for schema changes. Set DB_RESET_ON_STARTUP=1 to force reset.
     """
     from app.core.config import settings
+    import os
 
     if settings.ENV == "dev":
-        Base.metadata.drop_all(bind=engine)
-        Base.metadata.create_all(bind=engine)
-        print("Database initialized with latest schema (dev mode)")
+        if os.getenv("DB_RESET_ON_STARTUP", "0") == "1":
+            Base.metadata.drop_all(bind=engine)
+            Base.metadata.create_all(bind=engine)
+            print("Database reset and initialized (dev mode, DB_RESET_ON_STARTUP=1)")
+        else:
+            Base.metadata.create_all(bind=engine)
+            print("Database checked/initialized without reset (dev mode)")
     else:
         # In production, do not create/drop tables automatically
         print("Skipping automatic DB init in non-dev environment. Use Alembic migrations to manage schema.")

@@ -3,9 +3,10 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuthStore } from "@/store/authStore";
-import { getAgents, deleteAgent } from "@/services/api";
+import { getAgents, deleteAgent, startToolSession } from "@/services/api";
 import Link from "next/link";
 import EnhancedFooter from "@/components/EnhancedFooter";
+import TrialBanner from "@/components/TrialBanner";
 
 interface Agent {
   id: number;
@@ -20,7 +21,7 @@ interface Agent {
 
 export default function AgentsPage() {
   const router = useRouter();
-  const { isAuthenticated, token } = useAuthStore();
+  const { isAuthenticated, token, subscriptionStatus } = useAuthStore();
   const [agents, setAgents] = useState<Agent[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -32,6 +33,12 @@ export default function AgentsPage() {
     }
     loadAgents();
   }, [isAuthenticated, token]);
+
+  useEffect(() => {
+    if (isAuthenticated && token && subscriptionStatus === "trial") {
+      startToolSession("agent_builder", token).catch(() => {});
+    }
+  }, [isAuthenticated, token, subscriptionStatus]);
 
   const loadAgents = async () => {
     if (!token) return;
@@ -104,6 +111,7 @@ export default function AgentsPage() {
                 + Create Agent
               </Link>
             </div>
+            <TrialBanner />
           </div>
 
           {/* Error Message */}

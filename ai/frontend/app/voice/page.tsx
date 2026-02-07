@@ -18,7 +18,8 @@ import {
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useAuthStore } from "@/store/authStore";
-import { getVoiceProfiles, deleteVoiceProfile, cloneVoice, updateVoiceProfile, syncHuemnVoices } from "@/services/api";
+import { getVoiceProfiles, deleteVoiceProfile, cloneVoice, updateVoiceProfile, syncHuemnVoices, startToolSession } from "@/services/api";
+import TrialBanner from "@/components/TrialBanner";
 
 const containerVariants = {
   hidden: { opacity: 0 },
@@ -297,6 +298,7 @@ export default function VoiceStudio() {
 
   useEffect(() => {
     if (isAuthenticated && token) {
+      startToolSession("voice_studio", token).catch(() => {});
       loadProfiles();
     }
   }, [isAuthenticated, token]);
@@ -501,6 +503,8 @@ export default function VoiceStudio() {
             </button>
           </div>
         </div>
+
+        <TrialBanner minimal />
 
         {/* Controls Bar */}
         <div className="sticky top-4 z-40 bg-[#0a0a0f]/80 backdrop-blur-xl border border-white/5 p-4 rounded-2xl flex flex-col md:flex-row gap-4 items-center justify-between">
