@@ -1,0 +1,38 @@
+@startuml SystemArchitecture
+title HUEMN.Ai System Architecture
+
+actor User
+rectangle "Next.js Frontend\nlocalhost:3000" as FE
+rectangle "Nginx Reverse Proxy" as N
+rectangle "FastAPI Backend\napp.main:app" as BE
+cloud "WebSockets\nvoice_ws, ws_status, crm_ws" as WS
+database "PostgreSQL / SQLite (dev)" as DB
+queue "Redis\nCache/Events" as RD
+rectangle "Services Layer\nLLM, memory, routing, connectors,\nanalytics, audit, ticket" as SV
+rectangle "External Connectors\nJira, Zendesk, Salesforce,\nGreenhouse, LinkedIn, HubSpot,\nSAP, Zoho, ServiceNow" as EXT
+
+User --> FE
+FE --> N : HTTP/WS /api/*
+N --> BE
+BE --> SV
+SV --> DB
+SV --> RD
+SV --> EXT
+BE ..> WS
+
+@enduml
+
+@startuml ModuleMap
+title HUEMN.Ai Module Map
+
+package "Backend" {
+  [Routers\napp/api/*] --> [Services\napp/services/*]
+  [Services\napp/services/*] --> [DB Models\napp/db/models/*]
+  [Services\napp/services/*] --> [LLM Providers\napp/llm/*]
+  [Services\napp/services/*] --> [Event Bus\nservices/event_bus]
+  [Event Bus\nservices/event_bus] --> [Socket Manager\nservices/socket_manager]
+  [LLM Providers\napp/llm/*] --> [Registry\nllm/registry]
+  [DB Models\napp/db/models/*] --> [Session\ndb/session]
+}
+
+@enduml

@@ -352,6 +352,8 @@ curl -X POST "http://127.0.0.1:8001/api/actions/" \
 
 ## Architecture Highlights
 
+See the full system and module diagrams in [ai/ARCHITECTURE.md](ai/ARCHITECTURE.md).
+
 - **Frontend**: Next.js 15 with React 18, Tailwind CSS, Parallax Tilt, Lottie
 - **Backend**: FastAPI with async/await, SSE streaming, CORS enabled
 - **Styling**: 3D CSS transforms, hover glows, animated gradients

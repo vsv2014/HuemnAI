@@ -8,6 +8,7 @@ from app.core.connector_manager import discover_and_enable_connectors
 from app.services.status_service import start_token_consumer
 from app.services.event_bus import start_forwarder
 from app.services.workflow_scheduler import start_workflow_scheduler
+from app.db.session import ping_database
 
 
 def register_lifecycle(app: FastAPI):
@@ -17,6 +18,7 @@ def register_lifecycle(app: FastAPI):
         # Register default tools and load DB config
         register_default_tools()
         load_tool_configs()
+        ping_database()
         # Auto-discover connectors and enable if valid
         discover_and_enable_connectors()
         start_status_watcher()

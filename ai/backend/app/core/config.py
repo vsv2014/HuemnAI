@@ -8,11 +8,12 @@ class Settings:
     # Core
     APP_NAME = "HUEMN.Ai"
     ENV = os.getenv("ENV", "dev")
+    IS_PROD = ENV.lower() in ("prod", "production")
 
     # Database
-    DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./huemn.db")
-    if ENV == "prod":
-        if not os.getenv("DATABASE_URL"):
+    DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./huemn.db" if not IS_PROD else "")
+    if IS_PROD:
+        if not DATABASE_URL:
             raise RuntimeError("DATABASE_URL is required in production and must point to PostgreSQL")
         if DATABASE_URL.startswith("sqlite"):
             raise RuntimeError("SQLite is not allowed in production. Set DATABASE_URL to PostgreSQL.")

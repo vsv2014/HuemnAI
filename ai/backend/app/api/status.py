@@ -9,6 +9,7 @@ from app.services.status_service import (
     record_activity,
     get_all_agents_status
 )
+from app.db.session import ping_database
 
 router = APIRouter()
 
@@ -78,3 +79,11 @@ async def get_status(user_id: str):
 async def get_all_status():
     """Get status for all agents"""
     return get_all_agents_status()
+
+@router.get("/db")
+async def db_health():
+    try:
+        ping_database()
+        return {"database": "ok"}
+    except Exception as e:
+        return {"database": "error", "detail": str(e)}
