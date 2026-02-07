@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import { useRouter } from "next/navigation";
 
 interface Rotating3DLogoProps {
   size?: "small" | "medium" | "large" | "xlarge";
@@ -12,6 +13,7 @@ export default function Rotating3DLogo({
   className = "" 
 }: Rotating3DLogoProps) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const router = useRouter();
 
   const sizeMap = {
     small: "w-12 h-12",
@@ -65,11 +67,12 @@ export default function Rotating3DLogo({
   return (
     <div 
       ref={containerRef}
-      className={`rotating-3d-logo ${sizeMap[size]} ${className} flex items-center justify-center`}
+      className={`rotating-3d-logo ${sizeMap[size]} ${className} flex items-center justify-center cursor-pointer`}
       style={{
         transformStyle: 'preserve-3d',
         perspective: '1000px'
       }}
+      onClick={() => router.push("/")}
     >
       <img
         src="/images/logo-head.png?v=3"
@@ -82,4 +85,3 @@ export default function Rotating3DLogo({
     </div>
   );
 }
-

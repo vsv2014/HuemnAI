@@ -7,7 +7,7 @@ import { CopilotChat } from "@/components/crm/CopilotChat";
 import ActivityTimeline from "@/components/crm/ActivityTimeline";
 import { useAuthStore } from "@/store/authStore";
 import { startToolSession, consumeToken } from "@/services/api";
-import { Home, HelpCircle } from "lucide-react";
+import { Home, HelpCircle, ChevronLeft } from "lucide-react";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "http://127.0.0.1:8000";
 
@@ -60,6 +60,14 @@ export default function CRMPage() {
         <h1 className="text-3xl font-bold text-white">CRM</h1>
         <div className="flex items-center gap-2">
           <button
+            onClick={() => router.back()}
+            className="px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white/80 hover:text-white hover:bg-white/10 transition-colors flex items-center gap-2"
+            title="Back"
+          >
+            <ChevronLeft className="w-4 h-4" />
+            <span className="text-sm">Back</span>
+          </button>
+          <button
             onClick={() => router.push("/")}
             className="px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white/80 hover:text-white hover:bg-white/10 transition-colors flex items-center gap-2"
             title="Home"
@@ -77,26 +85,9 @@ export default function CRMPage() {
           </button>
         </div>
       </div>
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-        <div className="bg-[#1a1f3a]/80 backdrop-blur-xl border border-white/10 rounded-2xl p-6">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-semibold text-white">Contacts</h2>
-            <button
-              onClick={async ()=>{
-                try{
-                  const r = await fetch(`${API_BASE}/api/crm/seed`,{method:"POST",headers});
-                  if (r.ok && token){ await consumeToken("crm", 1, token); }
-                } catch {}
-              }}
-              className="px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white/80 hover:text-white hover:bg-white/10 transition-colors"
-            >
-              Generate Sample Data
-            </button>
-          </div>
-          <ContactsManager data={{}} onRefresh={() => {}} token={token || ""} />
-        </div>
-        <div className="bg-[#1a1f3a]/80 backdrop-blur-xl border border-white/10 rounded-2xl p-6">
-          <div className="flex items-center justify-between mb-4">
+      <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
+        <div className="xl:col-span-2 bg-[#1a1f3a]/80 backdrop-blur-xl border border-white/10 rounded-2xl p-4">
+          <div className="flex items-center justify-between mb-3">
             <h2 className="text-lg font-semibold text-white">Pipeline</h2>
             <button
               onClick={async ()=>{
@@ -115,14 +106,31 @@ export default function CRMPage() {
             onStageChange={handleStageChange}
           />
         </div>
-      </div>
-      <div className="bg-[#1a1f3a]/80 backdrop-blur-xl border border-white/10 rounded-2xl p-6">
-        <h2 className="text-lg font-semibold text-white mb-4">Activity Feed</h2>
-        <ActivityTimeline />
-      </div>
-      <div className="bg-[#1a1f3a]/80 backdrop-blur-xl border border-white/10 rounded-2xl p-6">
-        <h2 className="text-lg font-semibold text-white mb-4">Copilot</h2>
-        <CopilotChat contextDealId={selectedDealId ?? undefined} />
+        <div className="xl:col-span-1 bg-[#1a1f3a]/80 backdrop-blur-xl border border-white/10 rounded-2xl p-4">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-lg font-semibold text-white">Contacts</h2>
+            <button
+              onClick={async ()=>{
+                try{
+                  const r = await fetch(`${API_BASE}/api/crm/seed`,{method:"POST",headers});
+                  if (r.ok && token){ await consumeToken("crm", 1, token); }
+                } catch {}
+              }}
+              className="px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white/80 hover:text-white hover:bg-white/10 transition-colors"
+            >
+              Generate Sample Data
+            </button>
+          </div>
+          <ContactsManager data={{}} onRefresh={() => {}} token={token || ""} />
+          <div className="mt-6">
+            <h3 className="text-md font-semibold text-white mb-3">Activity Timeline</h3>
+            <ActivityTimeline />
+          </div>
+          <div className="mt-6">
+            <h3 className="text-md font-semibold text-white mb-3">Copilot</h3>
+            <CopilotChat contextDealId={selectedDealId ?? undefined} />
+          </div>
+        </div>
       </div>
     </div>
   );

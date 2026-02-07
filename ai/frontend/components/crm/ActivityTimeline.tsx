@@ -80,18 +80,18 @@ export default function ActivityTimeline() {
           + Add Activity
         </button>
       </div>
-      <div className="space-y-3">
+      <div className="space-y-2 max-h-[320px] overflow-y-auto pr-1">
         {activities.length === 0 ? (
           <div className="text-white/50 text-sm">No activities yet</div>
         ) : (
           activities.map((a)=>(
-            <div key={a.id} className="bg-[#121530]/80 border border-white/10 rounded-xl p-4">
+            <div key={a.id} className="bg-[#121530]/80 border border-white/10 rounded-xl p-3">
               <div className="flex justify-between text-white">
-                <div className="font-semibold">{a.title}</div>
+                <div className="font-semibold text-sm">{a.title}</div>
                 <div className="text-xs text-white/60">{a.timestamp}</div>
               </div>
-              <div className="text-white/70 text-sm mt-1">{a.description}</div>
-              <div className="text-white/50 text-xs mt-2">Type: {a.type} • Channel: {a.channel} {a.sentiment ? `• Sentiment: ${a.sentiment}` : ""}</div>
+              <div className="text-white/70 text-xs mt-1">{a.description}</div>
+              <div className="text-white/50 text-[11px] mt-2">Type: {a.type} • Channel: {a.channel} {a.sentiment ? `• Sentiment: ${a.sentiment}` : ""}</div>
             </div>
           ))
         )}

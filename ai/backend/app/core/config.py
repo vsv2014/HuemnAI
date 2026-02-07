@@ -11,6 +11,11 @@ class Settings:
 
     # Database
     DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./huemn.db")
+    if ENV == "prod":
+        if not os.getenv("DATABASE_URL"):
+            raise RuntimeError("DATABASE_URL is required in production and must point to PostgreSQL")
+        if DATABASE_URL.startswith("sqlite"):
+            raise RuntimeError("SQLite is not allowed in production. Set DATABASE_URL to PostgreSQL.")
 
     # Redis / Cache
     REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379")

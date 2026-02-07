@@ -52,34 +52,34 @@ interface StageColumnProps {
 
 const DealCard: React.FC<DealCardProps> = ({ deal, onClick, onMove, readOnly }) => {
   const riskColor = {
-    low: 'bg-green-50 border-green-200',
-    medium: 'bg-yellow-50 border-yellow-200',
-    high: 'bg-red-50 border-red-200',
+    low: 'bg-[#0f1b34]/70 border-white/10',
+    medium: 'bg-[#2b2410]/70 border-white/10',
+    high: 'bg-[#2b1010]/70 border-white/10',
   };
   return (
     <div
       onClick={onClick}
-      className={`p-3 rounded-lg border-2 hover:shadow-md transition overflow-hidden ${
+      className={`p-3 rounded-lg border-2 hover:shadow-md transition overflow-hidden h-[150px] flex flex-col justify-between ${
         riskColor[deal.risk_level || 'low']
       }`}
     >
-      <h4 className="font-semibold text-gray-900 truncate text-sm">{deal.name}</h4>
-      <p className="text-xs text-gray-600 truncate">{deal.company}</p>
+      <h4 className="font-semibold text-white truncate text-sm">{deal.name}</h4>
+      <p className="text-xs text-white/70 truncate">{deal.company}</p>
       <div className="mt-2 flex justify-between items-baseline">
-        <span className="text-sm font-bold text-blue-600">${(deal.amount / 1000).toFixed(0)}K</span>
-        <span className="text-xs text-gray-500">{deal.probability}% prob</span>
+        <span className="text-sm font-bold text-sky-400">${(deal.amount / 1000).toFixed(0)}K</span>
+        <span className="text-xs text-white/60">{deal.probability}% prob</span>
       </div>
-      <p className="text-xs text-gray-500 mt-1">
+      <p className="text-xs text-white/60 mt-1">
         Close: {new Date(deal.close_date).toLocaleDateString()}
       </p>
       {deal.ai_insight && (
-        <div className="mt-2 pt-2 border-t border-gray-200">
-          <p className="text-xs text-gray-600 italic">💡 {deal.ai_insight}</p>
+        <div className="mt-2 pt-2 border-t border-white/10">
+          <p className="text-xs text-white/70 italic">💡 {deal.ai_insight}</p>
         </div>
       )}
       {deal.risk_level && deal.risk_level !== 'low' && (
         <div className="mt-2">
-          <span className="inline-block px-2 py-1 bg-red-200 text-red-800 text-xs rounded font-semibold">
+          <span className="inline-block px-2 py-1 bg-red-600/20 text-red-300 text-xs rounded font-semibold border border-red-600/30">
             ⚠️ {deal.risk_level.toUpperCase()} RISK
           </span>
         </div>
@@ -92,11 +92,11 @@ const DealCard: React.FC<DealCardProps> = ({ deal, onClick, onMove, readOnly }) 
               const val = e.target.value;
               if (val) onMove(val);
             }}
-            className="w-full text-xs border border-gray-300 rounded px-2 py-1"
+            className="w-full text-xs bg-white/5 border border-white/10 text-white rounded px-2 py-1"
           >
             <option value="" disabled>Move to stage...</option>
-            <option value="lead">Lead</option>
-            <option value="demo">Demo</option>
+            <option value="prospecting">Prospecting</option>
+            <option value="qualification">Qualification</option>
             <option value="proposal">Proposal</option>
             <option value="negotiation">Negotiation</option>
             <option value="closed_won">Closed Won</option>
@@ -113,23 +113,31 @@ const StageColumn: React.FC<StageColumnProps> = ({ stage, deals, onDealClick, on
   const avgProbability = deals.length > 0
     ? Math.round(deals.reduce((sum, deal) => sum + deal.probability, 0) / deals.length)
     : 0;
+  const stageBg: Record<string, string> = {
+    prospecting: 'bg-gradient-to-br from-[#121a3a]/60 to-[#0e132b]/60',
+    qualification: 'bg-gradient-to-br from-[#1a123a]/60 to-[#0e0b2b]/60',
+    proposal: 'bg-gradient-to-br from-[#123a1a]/60 to-[#0b2b16]/60',
+    negotiation: 'bg-gradient-to-br from-[#3a2a12]/60 to-[#2b1e0b]/60',
+    closed_won: 'bg-gradient-to-br from-emerald-900/40 to-emerald-800/20',
+    closed_lost: 'bg-gradient-to-br from-red-900/40 to-red-800/20',
+  };
   return (
-    <div className="bg-gray-50 rounded-lg p-4 flex flex-col min-w-[280px]">
-      <div className="mb-4 pb-4 border-b border-gray-200">
-        <h3 className="font-bold text-gray-900">{stage.name}</h3>
-        <p className="text-sm text-gray-600 mt-1">{deals.length} deals</p>
+    <div className={`${stageBg[stage.id] || 'bg-white/5'} rounded-lg p-4 flex flex-col min-w-[280px] border border-white/10`}>
+      <div className="mb-4 pb-4 border-b border-white/10">
+        <h3 className="font-bold text-white">{stage.name}</h3>
+        <p className="text-sm text-white/70 mt-1">{deals.length} deals</p>
         <div className="mt-3 space-y-1">
-          <p className="text-xs text-gray-700">
+          <p className="text-xs text-white/80">
             <strong>Total:</strong> ${(totalAmount / 1000).toFixed(0)}K
           </p>
-          <p className="text-xs text-gray-700">
+          <p className="text-xs text-white/80">
             <strong>Avg Prob:</strong> {avgProbability}%
           </p>
         </div>
       </div>
-      <div className="space-y-3 flex-1">
+      <div className={`space-y-3 flex-1 ${stage.id === 'prospecting' ? 'h-[960px]' : 'h-auto'} overflow-y-scroll overscroll-contain pr-1`}>
         {deals.length === 0 ? (
-          <div className="text-center text-gray-400 py-8">
+          <div className="text-center text-white/50 py-8">
             <p className="text-sm">No deals in this stage</p>
           </div>
         ) : (
@@ -156,8 +164,8 @@ export const PipelineKanban: React.FC<PipelineKanbanProps> = ({
   const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "http://127.0.0.1:8000";
   const token = useAuthStore((s) => s.token);
   const [stages, setStages] = useState<Stage[]>([
-    { id: 'lead', name: '📌 Lead', order: 1 },
-    { id: 'demo', name: '🎥 Demo', order: 2 },
+    { id: 'prospecting', name: '📌 Prospecting', order: 1 },
+    { id: 'qualification', name: '🎥 Qualification', order: 2 },
     { id: 'proposal', name: '📄 Proposal', order: 3 },
     { id: 'negotiation', name: '🤝 Negotiation', order: 4 },
     { id: 'closed_won', name: '✅ Closed Won', order: 5 },
@@ -168,7 +176,7 @@ export const PipelineKanban: React.FC<PipelineKanbanProps> = ({
   const [newDeal, setNewDeal] = useState<{ title: string; company: string; stage: string; value: number; owner_name: string; due_date: string }>({
     title: "",
     company: "",
-    stage: "lead",
+    stage: "prospecting",
     value: 0,
     owner_name: "",
     due_date: ""
@@ -254,9 +262,17 @@ export const PipelineKanban: React.FC<PipelineKanbanProps> = ({
   const forecast = insights?.metrics?.weighted_forecast ?? calculateForecast();
   const totalPipeline = insights?.metrics?.total_pipeline ?? filteredDeals.reduce((sum, deal) => sum + deal.amount, 0);
   const stageData = useMemo(() => {
-    const counts = insights?.metrics?.stage_counts || {};
+    const counts: Record<string, number> = {};
+    filteredDeals.forEach((d) => {
+      counts[d.stage] = (counts[d.stage] || 0) + 1;
+    });
+    // fallback to insights if available and no local data
+    if (Object.keys(counts).length === 0) {
+      const insCounts = insights?.metrics?.stage_counts || {};
+      return Object.entries(insCounts).map(([stage, count]) => ({ stage, count: Number(count) || 0 }));
+    }
     return Object.entries(counts).map(([stage, count]) => ({ stage, count }));
-  }, [insights]);
+  }, [filteredDeals, insights]);
   return (
     <div className="p-6 bg-gradient-to-br from-[#0b1026] via-[#0e1430] to-[#0b1026] rounded-2xl border border-white/10 text-white">
       <div className="mb-6">
@@ -306,7 +322,7 @@ export const PipelineKanban: React.FC<PipelineKanbanProps> = ({
           </button>
         </div>
       </div>
-      <div className="grid grid-flow-col auto-cols-[280px] gap-4 overflow-x-auto">
+      <div className="grid grid-flow-col auto-cols-[280px] gap-4 overflow-x-scroll pb-1">
         {stages.map((stage) => (
           <StageColumn
             key={stage.id}
@@ -409,8 +425,8 @@ export const PipelineKanban: React.FC<PipelineKanbanProps> = ({
               <input className="w-full bg-white/5 border border-white/10 rounded px-3 py-2 text-white placeholder-white/50" placeholder="Due Date (YYYY-MM-DD)" value={newDeal.due_date} onChange={e=>setNewDeal({...newDeal,due_date:e.target.value})}/>
               <div className="flex gap-2">
                 <select className="flex-1 bg-white/5 border border-white/10 rounded px-3 py-2 text-white" value={newDeal.stage} onChange={e=>setNewDeal({...newDeal,stage:e.target.value})}>
-                  <option value="lead">Lead</option>
-                  <option value="demo">Demo</option>
+                  <option value="prospecting">Prospecting</option>
+                  <option value="qualification">Qualification</option>
                   <option value="proposal">Proposal</option>
                   <option value="negotiation">Negotiation</option>
                   <option value="closed_won">Closed Won</option>

@@ -201,6 +201,13 @@ export default function RootLayout({ children }: { children: ReactNode }) {
 
           {/* Right: Desktop Navigation */}
           <div className="hidden lg:flex items-center gap-6">
+            <button 
+              onClick={() => router.back()} 
+              className="px-4 py-1.5 text-sm font-medium text-white/70 hover:text-white transition-all hover:bg-white/10 rounded-full"
+              title="Back"
+            >
+              ← Back
+            </button>
             {/* Active Integrations Badges (only when authenticated) */}
             {isAuthenticated && integrations && integrations.length > 0 && (
               <div className="hidden lg:flex items-center gap-2 px-3 py-1.5 bg-white/5 rounded-full border border-white/5 hover:border-white/10 transition-colors">
@@ -297,6 +304,13 @@ export default function RootLayout({ children }: { children: ReactNode }) {
 
           {/* Mobile Menu */}
           <div className="lg:hidden flex items-center gap-2">
+            <button 
+              onClick={() => router.back()} 
+              className="px-3 py-1.5 text-sm text-white/70 hover:text-white rounded-md bg-white/5 border border-white/10"
+              title="Back"
+            >
+              ←
+            </button>
             {isAuthenticated && <HeaderSearch />}
             <MobileMenu isAuthenticated={isAuthenticated} onLogout={handleLogout} />
           </div>

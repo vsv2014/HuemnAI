@@ -35,6 +35,14 @@ export default function Header() {
           </h1>
         </div>
 
+        <button 
+          onClick={() => router.back()} 
+          className="px-4 py-2 rounded-full text-sm text-white/80 hover:text-white hover:bg-white/10 border border-white/10 transition-colors"
+          title="Back"
+        >
+          ← Back
+        </button>
+
         <nav className="hidden md:flex gap-8 text-sm font-medium text-white/80">
           {["Products", "Platform", "Docs"].map((item) => (
             <a key={item} className="hover:text-white transition-colors relative group cursor-pointer">

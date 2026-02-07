@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Boolean, DateTime, Float, ForeignKey, JSON, Text
+from sqlalchemy import Column, Integer, String, Boolean, DateTime, Float, ForeignKey, JSON, Text, Index
 from sqlalchemy.orm import relationship
 from datetime import datetime, timedelta
 from app.db.base import Base
@@ -114,6 +114,9 @@ class UserToolSubscription(Base):
     
     user = relationship("UserAccount", back_populates="tool_subscriptions")
     sessions = relationship("UserToolSession", back_populates="tool_subscription")
+    __table_args__ = (
+        Index("ix_user_tool_subscriptions_user_tool_active", "user_id", "tool_name", "is_active"),
+    )
 
 class UserToolSession(Base):
     """Track active sessions for a tool"""
@@ -132,6 +135,9 @@ class UserToolSession(Base):
     is_active = Column(Boolean, default=True)
     
     tool_subscription = relationship("UserToolSubscription", back_populates="sessions")
+    __table_args__ = (
+        Index("ix_user_tool_sessions_user_tool", "user_id", "tool_name"),
+    )
 
 class EmailVerification(Base):
     """Store OTPs for email verification"""

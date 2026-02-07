@@ -41,28 +41,28 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ message, onSourceClick })
   return (
     <div className={`flex ${isUser ? 'justify-end' : 'justify-start'} mb-4`}>
       <div
-        className={`max-w-xs lg:max-w-md px-4 py-3 rounded-lg ${
-          isUser ? 'bg-blue-600 text-white rounded-br-none' : 'bg-gray-100 text-gray-900 rounded-bl-none'
+        className={`max-w-xs lg:max-w-sm px-3 py-2 rounded-lg ${
+          isUser ? 'bg-cyan-600 text-white rounded-br-none' : 'bg-[#121530]/80 text-white rounded-bl-none border border-white/10'
         }`}
       >
         {!isUser && message.thinking && (
           <details className="mb-2 cursor-pointer">
-            <summary className="text-xs text-gray-600 hover:text-gray-800">Show thinking...</summary>
-            <p className="mt-2 text-xs text-gray-700 bg-gray-50 p-2 rounded border border-gray-200 font-mono">
+            <summary className="text-xs text-white/70 hover:text-white">Show thinking...</summary>
+            <p className="mt-2 text-[11px] text-white/80 bg-white/10 p-2 rounded border border-white/10 font-mono">
               {message.thinking}
             </p>
           </details>
         )}
         <p className="text-sm">{message.content}</p>
         {!isUser && message.sources && message.sources.length > 0 && (
-          <div className="mt-3 pt-3 border-t border-gray-300">
-            <p className="text-xs text-gray-600 font-semibold mb-2">Sources:</p>
+          <div className="mt-3 pt-3 border-t border-white/10">
+            <p className="text-[11px] text-white/70 font-semibold mb-2">Sources:</p>
             <div className="space-y-1">
               {message.sources.map((source, idx) => (
                 <button
                   key={idx}
                   onClick={() => onSourceClick(source)}
-                  className="block text-xs text-blue-600 hover:text-blue-800 underline text-left"
+                  className="block text-[11px] text-cyan-300 hover:text-cyan-200 underline text-left"
                 >
                   📎 {source.type}: {source.title}
                 </button>
@@ -70,7 +70,7 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ message, onSourceClick })
             </div>
           </div>
         )}
-        <p className={`text-xs mt-2 ${isUser ? 'text-blue-100' : 'text-gray-500'}`}>
+        <p className={`text-[11px] mt-2 ${isUser ? 'text-cyan-100' : 'text-white/60'}`}>
           {message.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
         </p>
       </div>
@@ -103,9 +103,9 @@ const ChatInput: React.FC<ChatInputProps> = ({ onSend, isLoading }) => {
     { emoji: '⚠️', text: 'Show at-risk deals' },
   ];
   return (
-    <form onSubmit={handleSubmit} className="border-t border-gray-200 pt-4">
+    <form onSubmit={handleSubmit} className="border-t border-white/10 pt-3">
       {!input && (
-        <div className="mb-4 grid grid-cols-2 gap-2">
+        <div className="mb-3 grid grid-cols-2 gap-2">
           {suggestedPrompts.map((prompt, idx) => (
             <button
               key={idx}
@@ -114,7 +114,7 @@ const ChatInput: React.FC<ChatInputProps> = ({ onSend, isLoading }) => {
                 setInput(prompt.text);
                 inputRef.current?.focus();
               }}
-              className="text-left p-3 bg-gray-50 hover:bg-gray-100 rounded-lg border border-gray-200 transition text-sm"
+              className="text-left p-2 bg-white/5 hover:bg-white/10 rounded-lg border border-white/10 transition text-sm text-white"
             >
               <span className="text-lg">{prompt.emoji}</span> {prompt.text}
             </button>
@@ -133,19 +133,19 @@ const ChatInput: React.FC<ChatInputProps> = ({ onSend, isLoading }) => {
             }
           }}
           placeholder="Ask me anything... (Shift+Enter for new line)"
-          className="flex-1 border border-gray-300 rounded-lg px-4 py-2 resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-50"
+          className="flex-1 bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 resize-none focus:outline-none focus:ring-2 focus:ring-cyan-500 text-white placeholder-white/60 text-sm"
           disabled={isLoading}
           rows={1}
         />
         <button
           type="submit"
           disabled={!input.trim() || isLoading}
-          className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition disabled:bg-gray-300 disabled:cursor-not-allowed h-fit"
+          className="px-3 py-1.5 bg-cyan-600 text-white rounded-lg hover:bg-cyan-700 transition disabled:bg-white/20 disabled:text-white/50 disabled:cursor-not-allowed h-fit text-sm"
         >
           {isLoading ? '⏳' : '➤'}
         </button>
       </div>
-      <p className="text-xs text-gray-500 mt-2">💡 Try: "Score John Smith", "Analyze ACME deal", "What's at risk?"</p>
+      <p className="text-[11px] text-white/60 mt-2">💡 Try: "Score John Smith", "Analyze ACME deal", "What's at risk?"</p>
     </form>
   );
 };
@@ -230,31 +230,31 @@ export const CopilotChat: React.FC<CopilotChatProps> = ({
     console.log('Opening source:', source);
   };
   return (
-    <div className="copilot-chat flex flex-col h-full bg-white rounded-lg shadow-lg">
-      <div className="bg-gradient-to-r from-blue-600 to-purple-600 text-white p-4 rounded-t-lg">
-        <h2 className="text-lg font-bold flex items-center gap-2">
+    <div className="copilot-chat flex flex-col h-full bg-[#0f142e] rounded-lg shadow-lg border border-white/10 max-h-[360px]">
+      <div className="bg-gradient-to-r from-cyan-600 to-fuchsia-600 text-white p-3 rounded-t-lg">
+        <h2 className="text-md font-bold flex items-center gap-2">
           🤖 AI Copilot
-          <span className="ml-auto text-sm font-normal bg-blue-500 px-2 py-1 rounded">Always on</span>
+          <span className="ml-auto text-xs font-normal bg-black/20 px-2 py-1 rounded border border-white/20">Always on</span>
         </h2>
-        <p className="text-sm text-blue-100">Your personal AI sales assistant</p>
+        <p className="text-xs text-white/80">Your personal AI sales assistant</p>
       </div>
-      <div className="flex-1 overflow-y-auto p-4 space-y-2">
+      <div className="flex-1 overflow-y-auto p-3 space-y-2">
         {messages.map((message) => (
           <MessageBubble key={message.id} message={message} onSourceClick={handleSourceClick} />
         ))}
         {isLoading && (
           <div className="flex gap-2 items-center">
-            <div className="bg-gray-100 rounded-lg px-4 py-3 flex gap-1">
-              <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"></div>
-              <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></div>
-              <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
+            <div className="bg-white/10 rounded-lg px-3 py-2 flex gap-1 border border-white/10">
+              <div className="w-2 h-2 bg-white/60 rounded-full animate-bounce"></div>
+              <div className="w-2 h-2 bg-white/60 rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></div>
+              <div className="w-2 h-2 bg-white/60 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
             </div>
-            <p className="text-xs text-gray-500">Analyzing...</p>
+            <p className="text-[11px] text-white/70">Analyzing...</p>
           </div>
         )}
         <div ref={messagesEndRef} />
       </div>
-      <div className="p-4 border-t border-gray-200 bg-gray-50">
+      <div className="p-3 border-t border-white/10 bg-white/5">
         <ChatInput onSend={handleSendMessage} isLoading={isLoading} />
       </div>
     </div>
