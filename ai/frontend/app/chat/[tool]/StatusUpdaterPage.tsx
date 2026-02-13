@@ -4,9 +4,11 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import ToolSwitcher from "@/components/ToolSwitcher";
-import { getSubscribedTools } from "@/services/api";
+import { getSubscribedTools, getConnectorConfigs, startToolSession } from "@/services/api";
 import { useAuthStore } from "@/store/authStore";
 import { useStatusStore } from "@/store/statusStore";
+import ConnectorConfig from "@/components/ConnectorConfig";
+import ConnectorStatusDropdown from "@/components/ConnectorStatusDropdown";
 
 const STATUS_OPTIONS = [
   { value: "online", label: "Online", icon: "🟢", color: "green" },
@@ -20,19 +22,38 @@ const STATUS_OPTIONS = [
   { value: "offline", label: "Offline", icon: "⚫", color: "gray" },
 ];
 
+const STATUS_CONNECTORS = [
+  { key: "slack", label: "Slack" },
+  { key: "microsoft_teams", label: "Microsoft Teams" },
+  { key: "notion", label: "Notion" },
+];
+
 export default function StatusUpdaterPage() {
   const router = useRouter();
   const { token, user, isAuthenticated } = useAuthStore();
   const { status: currentStatus, setStatus, fetchStatus, loading } = useStatusStore();
   const [subscribedTools, setSubscribedTools] = useState<any[]>([]);
   const [updatingStatus, setUpdatingStatus] = useState<string | null>(null);
+  const [showConnectorConfig, setShowConnectorConfig] = useState(false);
+  const [connectorConfigs, setConnectorConfigs] = useState<any[]>([]);
+  const [connectorLoading, setConnectorLoading] = useState(false);
 
   useEffect(() => {
     if (isAuthenticated && token) {
       loadUserData();
       fetchStatus();
+      loadConnectorStatus();
     }
   }, [isAuthenticated, token, fetchStatus]);
+
+  useEffect(() => {
+    if (!token) return;
+    startToolSession("status_updater", token).catch(() => {});
+    const interval = setInterval(() => {
+      startToolSession("status_updater", token).catch(() => {});
+    }, 5 * 60 * 1000);
+    return () => clearInterval(interval);
+  }, [token]);
 
   const loadUserData = async () => {
     if (!token) return;
@@ -46,6 +67,24 @@ export default function StatusUpdaterPage() {
       // Silently fail - page will still work without subscribed tools
     }
   };
+
+  const loadConnectorStatus = async () => {
+    if (!token) return;
+    setConnectorLoading(true);
+    const response = await getConnectorConfigs(token);
+    if (response && Array.isArray(response.configs)) {
+      setConnectorConfigs(response.configs);
+    }
+    setConnectorLoading(false);
+  };
+
+  const configuredMap = connectorConfigs.reduce((acc: Record<string, boolean>, cfg: any) => {
+    const hasValue =
+      cfg.is_active &&
+      (cfg.api_key || cfg.secret || cfg.password || (cfg.config_data && Object.keys(cfg.config_data).length > 0));
+    acc[cfg.provider] = Boolean(hasValue);
+    return acc;
+  }, {});
 
   const handleStatusChange = async (newStatus: string) => {
     if (!token || !user) {
@@ -133,8 +172,33 @@ export default function StatusUpdaterPage() {
             Update your status to track work time and availability. Your status widget is also available in the header.
           </p>
         </div>
-        <ToolSwitcher />
+        <div className="flex items-center gap-2">
+          <ToolSwitcher />
+          <button
+            onClick={loadConnectorStatus}
+            className="text-sm px-3 py-1.5 rounded-md bg-white/10 hover:bg-white/20 border border-white/20"
+          >
+            {connectorLoading ? "Refreshing..." : "Refresh"}
+          </button>
+          <ConnectorStatusDropdown items={STATUS_CONNECTORS.map((connector) => ({
+            key: connector.key,
+            label: connector.label,
+            configured: configuredMap[connector.key],
+          }))} />
+          <button
+            onClick={() => setShowConnectorConfig(true)}
+            className="text-sm px-3 py-1.5 rounded-md bg-white/10 hover:bg-white/20 border border-white/20"
+          >
+            ⚙️ Configure Tools
+          </button>
+        </div>
       </div>
+
+      {showConnectorConfig && (
+        <div className="mb-6">
+          <ConnectorConfig currentTool="status_updater" onClose={() => setShowConnectorConfig(false)} />
+        </div>
+      )}
 
       <div className="bg-white/5 backdrop-blur-xl rounded-xl p-8 border border-white/10">
         {/* Subscribed Tools Section */}
@@ -229,4 +293,3 @@ export default function StatusUpdaterPage() {
     </div>
   );
 }
-

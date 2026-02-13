@@ -10,8 +10,10 @@ import {
   getPendingTickets,
   assignTicket,
   autoAssignTicket,
+  getConnectorConfigs,
 } from "@/services/api";
 import ConnectorConfig from "@/components/ConnectorConfig";
+import ConnectorStatusDropdown from "@/components/ConnectorStatusDropdown";
 
 interface Employee {
   id: string;
@@ -77,6 +79,19 @@ const PRIORITY_COLORS: Record<string, string> = {
   low: "bg-blue-500/20 text-blue-400 border-blue-500/50",
 };
 
+const TICKET_ASSIGNER_CONNECTORS = [
+  { key: "jira", label: "Jira" },
+  { key: "servicenow", label: "ServiceNow" },
+  { key: "zendesk", label: "Zendesk" },
+  { key: "linear", label: "Linear" },
+  { key: "github", label: "GitHub" },
+  { key: "gitlab", label: "GitLab" },
+  { key: "asana", label: "Asana" },
+  { key: "monday", label: "Monday.com" },
+  { key: "trello", label: "Trello" },
+  { key: "clickup", label: "ClickUp" },
+];
+
 export default function TicketAssignerPage({ toolName, toolId }: TicketAssignerPageProps) {
   const router = useRouter();
   const { token, user, isAuthenticated } = useAuthStore();
@@ -88,6 +103,8 @@ export default function TicketAssignerPage({ toolName, toolId }: TicketAssignerP
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const [filter, setFilter] = useState<"all" | "available" | "eligible">("all");
   const [ticketFilter, setTicketFilter] = useState<"all" | "unassigned">("unassigned");
+  const [connectorConfigs, setConnectorConfigs] = useState<any[]>([]);
+  const [connectorLoading, setConnectorLoading] = useState(false);
 
   useEffect(() => {
     if (isAuthenticated && token) {
@@ -97,6 +114,30 @@ export default function TicketAssignerPage({ toolName, toolId }: TicketAssignerP
       return () => clearInterval(interval);
     }
   }, [isAuthenticated, token, filter, ticketFilter]);
+
+  useEffect(() => {
+    if (token) {
+      loadConnectorStatus();
+    }
+  }, [token]);
+
+  const loadConnectorStatus = async () => {
+    if (!token) return;
+    setConnectorLoading(true);
+    const response = await getConnectorConfigs(token);
+    if (response && Array.isArray(response.configs)) {
+      setConnectorConfigs(response.configs);
+    }
+    setConnectorLoading(false);
+  };
+
+  const configuredMap = connectorConfigs.reduce((acc: Record<string, boolean>, cfg: any) => {
+    const hasValue =
+      cfg.is_active &&
+      (cfg.api_key || cfg.secret || cfg.password || (cfg.config_data && Object.keys(cfg.config_data).length > 0));
+    acc[cfg.provider] = Boolean(hasValue);
+    return acc;
+  }, {});
 
   const loadData = async () => {
     if (!token) return;
@@ -218,6 +259,17 @@ export default function TicketAssignerPage({ toolName, toolId }: TicketAssignerP
         <div className="flex items-center gap-2">
           <ToolSwitcher />
           <button
+            onClick={loadConnectorStatus}
+            className="px-3 py-2 bg-white/10 hover:bg-white/20 border border-white/20 rounded-lg text-sm text-white/80 transition-all"
+          >
+            {connectorLoading ? "Refreshing..." : "Refresh"}
+          </button>
+          <ConnectorStatusDropdown items={TICKET_ASSIGNER_CONNECTORS.map((connector) => ({
+            key: connector.key,
+            label: connector.label,
+            configured: configuredMap[connector.key],
+          }))} />
+          <button
             onClick={() => setShowConnectorConfig(!showConnectorConfig)}
             className="px-4 py-2 bg-blue-500/20 hover:bg-blue-500/30 border border-blue-500/50 rounded-lg text-sm text-blue-300 transition-all"
           >
@@ -230,7 +282,7 @@ export default function TicketAssignerPage({ toolName, toolId }: TicketAssignerP
       {showConnectorConfig && (
         <div className="mb-6">
           <ConnectorConfig
-            toolId={toolId}
+            currentTool={toolId}
             onClose={() => setShowConnectorConfig(false)}
           />
         </div>
@@ -464,4 +516,3 @@ export default function TicketAssignerPage({ toolName, toolId }: TicketAssignerP
     </div>
   );
 }
-

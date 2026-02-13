@@ -25,7 +25,7 @@ PROVIDER_DEFINITIONS = {
             "fields": {
                 "api_key": {"type": "password", "required": True, "label": "API Key"},
                 "model": {"type": "select", "required": True, "label": "Model", 
-                         "options": ["gpt-4", "gpt-4-turbo", "gpt-3.5-turbo", "gpt-4o", "gpt-4o-mini", "o1-preview", "o1-mini"],
+                         "options": ["gpt-4o", "gpt-4o-mini", "gpt-3.5-turbo", "gpt-4.1", "gpt-4.1-mini"],
                          "default": "gpt-4o"},
                 "fallback_models": {"type": "text", "required": False, "label": "Fallback Models (comma-separated)",
                                    "default": "gpt-4o-mini, gpt-3.5-turbo"},
@@ -95,8 +95,32 @@ PROVIDER_DEFINITIONS = {
             "fields": {
                 "api_key": {"type": "password", "required": True, "label": "API Key"},
                 "model": {"type": "select", "required": True, "label": "Model",
-                         "options": ["llama3-70b-8192", "llama3-8b-8192", "mixtral-8x7b-32768"],
+                         "options": [
+                             "llama3-70b-8192", "llama3-8b-8192", "llama-3.1-70b-versatile", "llama-3.1-8b-instant",
+                             "mixtral-8x7b-32768", "gemma-7b-it", "gemma2-9b-it"
+                         ],
                          "default": "llama3-70b-8192"}
+            }
+        },
+        "together": {
+            "name": "Together AI",
+            "fields": {
+                "api_key": {"type": "password", "required": True, "label": "API Key"},
+                "model": {"type": "select", "required": True, "label": "Model",
+                         "options": [
+                             "meta-llama/Llama-3-70b-chat-hf", "meta-llama/Llama-3-8b-chat-hf",
+                             "codellama/CodeLlama-34b-Instruct-hf", "mistralai/Mistral-7B-Instruct-v0.2",
+                             "mistralai/Mixtral-8x7B-Instruct-v0.1", "microsoft/Phi-3-mini-4k-instruct",
+                             "google/gemma-7b-it", "Qwen/Qwen2-72B-Instruct", "deepseek-ai/deepseek-coder-33b-instruct"
+                         ],
+                         "default": "meta-llama/Llama-3-70b-chat-hf"}
+            }
+        },
+        "ollama": {
+            "name": "Ollama (Local)",
+            "fields": {
+                "endpoint": {"type": "text", "required": True, "label": "Ollama URL", "default": "http://localhost:11434"},
+                "model": {"type": "text", "required": True, "label": "Model Name", "default": "llama3"}
             }
         }
     },
@@ -172,9 +196,7 @@ PROVIDER_DEFINITIONS = {
         "linkedin": {
             "name": "LinkedIn",
             "fields": {
-                "client_id": {"type": "text", "required": True, "label": "Client ID"},
-                "client_secret": {"type": "password", "required": True, "label": "Client Secret"},
-                "access_token": {"type": "password", "required": False, "label": "Access Token"}
+                "api_token": {"type": "password", "required": True, "label": "API Token"}
             }
         },
         "notion": {
@@ -186,8 +208,7 @@ PROVIDER_DEFINITIONS = {
         "slack": {
             "name": "Slack",
             "fields": {
-                "bot_token": {"type": "password", "required": True, "label": "Bot User OAuth Token"},
-                "signing_secret": {"type": "password", "required": True, "label": "Signing Secret"}
+                "api_token": {"type": "password", "required": True, "label": "API Token"}
             }
         },
         "github": {
@@ -200,6 +221,72 @@ PROVIDER_DEFINITIONS = {
             "name": "Linear",
             "fields": {
                 "api_key": {"type": "password", "required": True, "label": "API Key"}
+            }
+        },
+        "servicenow": {
+            "name": "ServiceNow",
+            "fields": {
+                "api_token": {"type": "password", "required": True, "label": "API Token"}
+            }
+        },
+        "microsoft_teams": {
+            "name": "Microsoft Teams",
+            "fields": {
+                "api_token": {"type": "password", "required": True, "label": "API Token"}
+            }
+        },
+        "gitlab": {
+            "name": "GitLab",
+            "fields": {
+                "api_token": {"type": "password", "required": True, "label": "API Token"}
+            }
+        },
+        "asana": {
+            "name": "Asana",
+            "fields": {
+                "api_token": {"type": "password", "required": True, "label": "API Token"}
+            }
+        },
+        "monday": {
+            "name": "Monday.com",
+            "fields": {
+                "api_token": {"type": "password", "required": True, "label": "API Token"}
+            }
+        },
+        "trello": {
+            "name": "Trello",
+            "fields": {
+                "api_token": {"type": "password", "required": True, "label": "API Token"}
+            }
+        },
+        "clickup": {
+            "name": "ClickUp",
+            "fields": {
+                "api_token": {"type": "password", "required": True, "label": "API Token"}
+            }
+        },
+        "freshdesk": {
+            "name": "Freshdesk",
+            "fields": {
+                "api_token": {"type": "password", "required": True, "label": "API Token"}
+            }
+        },
+        "intercom": {
+            "name": "Intercom",
+            "fields": {
+                "api_token": {"type": "password", "required": True, "label": "API Token"}
+            }
+        },
+        "pipedrive": {
+            "name": "Pipedrive",
+            "fields": {
+                "api_token": {"type": "password", "required": True, "label": "API Token"}
+            }
+        },
+        "airtable": {
+            "name": "Airtable",
+            "fields": {
+                "api_token": {"type": "password", "required": True, "label": "API Token"}
             }
         }
     },
@@ -529,9 +616,22 @@ async def test_config(config_id: int, db: Session = Depends(get_db)):
             if config.provider == "openai":
                 from openai import OpenAI
                 client = OpenAI(api_key=config.get_api_key())
+                # Normalize deprecated model names to current equivalents
+                def normalize_model_name(name: str) -> str:
+                    if not name:
+                        return name
+                    n = name.strip().lower()
+                    mapping = {
+                        "gpt-4-turbo": "gpt-4o",
+                        "gpt-4": "gpt-4o",
+                        "chatgpt-4": "gpt-4o",
+                        "gpt4": "gpt-4o",
+                        "gpt-35-turbo": "gpt-3.5-turbo",
+                    }
+                    return mapping.get(n, name)
                 # Test with a simple completion
                 response = client.chat.completions.create(
-                    model=config.config_data.get("model", "gpt-3.5-turbo"),
+                    model=normalize_model_name(config.config_data.get("model", "gpt-3.5-turbo")),
                     messages=[{"role": "user", "content": "test"}],
                     max_tokens=5
                 )

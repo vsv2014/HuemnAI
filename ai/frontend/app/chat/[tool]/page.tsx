@@ -4,9 +4,10 @@ import { useEffect, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import RichMessage from "@/components/RichMessage";
 import CustomerServiceChat from "@/components/CustomerServiceChat";
-import { recordActivity } from "@/services/api";
+import { recordActivity, getConnectorConfigs } from "@/services/api";
 import { useChatStore } from "@/store/chatStore";
 import ConnectorConfig from "@/components/ConnectorConfig";
+import ConnectorStatusDropdown from "@/components/ConnectorStatusDropdown";
 import StatusUpdaterPage from "./StatusUpdaterPage";
 import TicketAssignerPage from "./TicketAssignerPage";
 import TicketSolverPage from "./TicketSolverPage";
@@ -51,6 +52,56 @@ const TOOL_SLUG_TO_NAME: Record<string, string> = {
   "analytics-dashboard": "analytics_dashboard",
 };
 
+const ALL_CONNECTORS = [
+  { value: "jira", label: "Jira" },
+  { value: "zendesk", label: "Zendesk" },
+  { value: "salesforce", label: "Salesforce" },
+  { value: "servicenow", label: "ServiceNow" },
+  { value: "slack", label: "Slack" },
+  { value: "microsoft_teams", label: "Microsoft Teams" },
+  { value: "github", label: "GitHub" },
+  { value: "gitlab", label: "GitLab" },
+  { value: "linear", label: "Linear" },
+  { value: "asana", label: "Asana" },
+  { value: "monday", label: "Monday.com" },
+  { value: "trello", label: "Trello" },
+  { value: "notion", label: "Notion" },
+  { value: "clickup", label: "ClickUp" },
+  { value: "freshdesk", label: "Freshdesk" },
+  { value: "intercom", label: "Intercom" },
+  { value: "hubspot", label: "HubSpot" },
+  { value: "pipedrive", label: "Pipedrive" },
+  { value: "airtable", label: "Airtable" },
+  { value: "linkedin", label: "LinkedIn" },
+  { value: "greenhouse", label: "Greenhouse" },
+];
+
+const TOOL_CONNECTORS: Record<string, string[]> = {
+  [TOOLS.CUSTOMER_SERVICE]: [
+    "zendesk", "freshdesk", "intercom", "servicenow", "hubspot",
+    "salesforce", "pipedrive", "jira", "linear", "github", "gitlab",
+    "asana", "monday", "trello", "clickup"
+  ],
+  [TOOLS.TICKET_ASSIGNER]: [
+    "jira", "servicenow", "zendesk", "linear", "github", "gitlab",
+    "asana", "monday", "trello", "clickup"
+  ],
+  [TOOLS.TICKET_SOLVER]: [
+    "jira", "servicenow", "zendesk", "linear", "github", "gitlab",
+    "asana", "monday", "trello", "clickup"
+  ],
+  [TOOLS.KNOWLEDGE_AI]: [
+    "zendesk", "jira", "salesforce", "servicenow", "freshdesk",
+    "intercom", "github", "gitlab"
+  ],
+  [TOOLS.HR_SERVICES]: [
+    "linkedin", "greenhouse", "asana", "monday", "notion"
+  ],
+  [TOOLS.STATUS_UPDATER]: [
+    "slack", "microsoft_teams", "notion"
+  ],
+};
+
 export default function ToolPage() {
   const params = useParams();
   const router = useRouter();
@@ -66,6 +117,8 @@ export default function ToolPage() {
   const [showConnectorConfig, setShowConnectorConfig] = useState(false);
   const [sessionStarted, setSessionStarted] = useState(false);
   const [debugMode, setDebugMode] = useState<'auto' | 'agent' | 'customer'>('auto');
+  const [connectorConfigs, setConnectorConfigs] = useState<any[]>([]);
+  const [connectorLoading, setConnectorLoading] = useState(false);
 
   // Set the tool when page loads
   useEffect(() => {
@@ -74,42 +127,53 @@ export default function ToolPage() {
     }
   }, [toolId, setTool]);
 
-  // Start tool session on page load (for trial users)
+  // Start tool session on page load
   useEffect(() => {
-    if (token && subscriptionStatus === "trial" && apiToolName && !sessionStarted) {
-      startToolSession(apiToolName, token).then(() => {
+    if (token && apiToolName && !sessionStarted) {
+      startToolSession(apiToolName, token).then((res: any) => {
+        if (res?.error) {
+          router.push("/pricing");
+          return;
+        }
         setSessionStarted(true);
-      }).catch(err => {
-        console.error("Error starting session:", err);
+      }).catch(() => {
+        router.push("/pricing");
       });
     }
-  }, [token, subscriptionStatus, apiToolName, sessionStarted]);
+  }, [token, apiToolName, sessionStarted, router]);
 
-  // Auto-renew session every 15 minutes (without interrupting)
+  // Auto-renew session every 5 minutes (without interrupting)
   useEffect(() => {
-    if (token && subscriptionStatus === "trial" && apiToolName && sessionStarted) {
+    if (token && apiToolName && sessionStarted) {
       const interval = setInterval(() => {
         startToolSession(apiToolName, token).catch(err => {
           console.error("Error renewing session:", err);
         });
-      }, 15 * 60 * 1000); // 15 minutes
+      }, 5 * 60 * 1000); // 5 minutes
 
       return () => clearInterval(interval);
     }
-  }, [token, subscriptionStatus, apiToolName, sessionStarted]);
+  }, [token, apiToolName, sessionStarted]);
 
   // Track activity
   useEffect(() => {
-    recordActivity("user1").catch(() => {});
+    const userId = user?.id?.toString() || user?.email || "user1";
+    if (token) {
+      recordActivity(userId, token).catch(() => {});
+    }
     const interval = setInterval(() => {
-      recordActivity("user1").catch(() => {});
+      if (token) {
+        recordActivity(userId, token).catch(() => {});
+      }
     }, 30000);
 
     let activityTimeout: NodeJS.Timeout | null = null;
     const handleActivity = () => {
       if (activityTimeout) return;
       activityTimeout = setTimeout(() => {
-        recordActivity("user1").catch(() => {});
+        if (token) {
+          recordActivity(userId, token).catch(() => {});
+        }
         activityTimeout = null;
       }, 5000);
     };
@@ -123,7 +187,36 @@ export default function ToolPage() {
       window.removeEventListener("mousemove", handleActivity);
       window.removeEventListener("keydown", handleActivity);
     };
-  }, []);
+  }, [token, user]);
+
+  const loadConnectorStatus = async () => {
+    if (!token) return;
+    setConnectorLoading(true);
+    const response = await getConnectorConfigs(token);
+    if (response && Array.isArray(response.configs)) {
+      setConnectorConfigs(response.configs);
+    }
+    setConnectorLoading(false);
+  };
+
+  useEffect(() => {
+    if (token) {
+      loadConnectorStatus();
+    }
+  }, [token, toolId]);
+
+  const configuredMap = connectorConfigs.reduce((acc: Record<string, boolean>, cfg: any) => {
+    const hasValue =
+      cfg.is_active &&
+      (cfg.api_key || cfg.secret || cfg.password || (cfg.config_data && Object.keys(cfg.config_data).length > 0));
+    acc[cfg.provider] = Boolean(hasValue);
+    return acc;
+  }, {});
+
+  const relevantConnectors = (TOOL_CONNECTORS[toolId] || []).map((key) => {
+    const meta = ALL_CONNECTORS.find((c) => c.value === key);
+    return { key, label: meta?.label || key, configured: configuredMap[key] || false };
+  });
 
   // Auto-scroll when messages update
   useEffect(() => {
@@ -139,13 +232,12 @@ export default function ToolPage() {
     if (!message) return;
     setInput("");
     
-    // Consume tokens for trial users (1 token per message)
-    if (token && subscriptionStatus === "trial" && apiToolName) {
-      try {
-        await consumeToken(apiToolName, 1, token);
-      } catch (err) {
-        console.error("Error consuming token:", err);
-        // Continue anyway - don't block user
+    // Consume tokens per message
+    if (token && apiToolName) {
+      const res: any = await consumeToken(apiToolName, 1, token);
+      if (res?.error || res?.success === false) {
+        router.push("/pricing");
+        return;
       }
     }
     
@@ -198,6 +290,14 @@ export default function ToolPage() {
           </div>
           <div className="flex items-center gap-2">
             <ToolSwitcher />
+            <button
+              onClick={loadConnectorStatus}
+              className="text-sm px-3 py-1.5 rounded-md bg-white/10 hover:bg-white/20 border border-white/20"
+              title="Refresh connector status"
+            >
+              {connectorLoading ? "Refreshing..." : "Refresh"}
+            </button>
+            <ConnectorStatusDropdown items={relevantConnectors} />
             <button
               onClick={() => setShowConnectorConfig(true)}
               className="text-sm px-3 py-1.5 rounded-md bg-white/10 hover:bg-white/20 border border-white/20"
@@ -278,6 +378,14 @@ export default function ToolPage() {
             </button>
             <ToolSwitcher />
             <button
+              onClick={loadConnectorStatus}
+              className="text-sm px-3 py-1.5 rounded-md bg-white/10 hover:bg-white/20 border border-white/20"
+              title="Refresh connector status"
+            >
+              {connectorLoading ? "Refreshing..." : "Refresh"}
+            </button>
+            <ConnectorStatusDropdown items={relevantConnectors} />
+            <button
               onClick={() => setShowConnectorConfig(true)}
               className="text-sm px-3 py-1.5 rounded-md bg-white/10 hover:bg-white/20 border border-white/20"
               title="Configure external tool integrations"
@@ -335,6 +443,14 @@ export default function ToolPage() {
         <div className="flex items-center gap-2">
           <ToolSwitcher />
           <button
+            onClick={loadConnectorStatus}
+            className="text-sm px-3 py-1.5 rounded-md bg-white/10 hover:bg-white/20 border border-white/20"
+            title="Refresh connector status"
+          >
+            {connectorLoading ? "Refreshing..." : "Refresh"}
+          </button>
+          <ConnectorStatusDropdown items={relevantConnectors} />
+          <button
             onClick={() => setShowConnectorConfig(true)}
             className="text-sm px-3 py-1.5 rounded-md bg-white/10 hover:bg-white/20 border border-white/20"
             title="Configure external tool integrations"
@@ -387,4 +503,3 @@ export default function ToolPage() {
     </div>
   );
 }
-

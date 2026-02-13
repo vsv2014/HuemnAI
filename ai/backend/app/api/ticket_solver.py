@@ -11,10 +11,17 @@ from app.db.session import get_db
 from app.db.models.ticket import Ticket
 from app.db.models.subscription import UserAccount
 from app.api.auth import get_current_user
+from app.utils.subscription import consume_tool_tokens
 import logging
 
 logger = logging.getLogger(__name__)
-router = APIRouter()
+def require_ticket_solver_access(
+    user: UserAccount = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    consume_tool_tokens(db, user, "ticket_solver", 1)
+
+router = APIRouter(dependencies=[Depends(require_ticket_solver_access)])
 
 
 class ReplyRequest(BaseModel):
@@ -278,4 +285,3 @@ async def update_ticket_status(
         logger.error(f"Error updating ticket status: {e}", exc_info=True)
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Failed to update status: {str(e)}")
-

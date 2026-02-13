@@ -1093,7 +1093,9 @@ class AgentExecutor:
         
         # If there's a next node, continue execution (chaining)
         # We continue even if there is a response, to allow "Think -> Act" or "Message -> Logic" chains
-        if next_node_id:
+        # CRITICAL: Do not auto-chain if the next node is the same as the current node (retry/self-loop)
+        # This prevents immediate re-execution with the same user message, which causes duplicate prompts.
+        if next_node_id and next_node_id != node_id:
             # Improved Chaining Logic:
             next_result = await self._execute_node(
                 agent_id=agent_id,
@@ -1109,11 +1111,21 @@ class AgentExecutor:
             
             if current_response and next_response:
                 # Check for duplicates to avoid repeating the same message
-                if current_response.strip() == next_response.strip():
-                    next_result["response"] = current_response
+                # Use a more robust check: if one is a sub-part or identical (case-insensitive)
+                curr_strip = current_response.strip()
+                next_strip = next_response.strip()
+                
+                if curr_strip.lower() == next_strip.lower():
+                    next_result["response"] = curr_strip
+                elif curr_strip.lower() in next_strip.lower():
+                    # Current is already in next, just use next
+                    next_result["response"] = next_strip
+                elif next_strip.lower() in curr_strip.lower():
+                    # Next is already in current, just use current
+                    next_result["response"] = curr_strip
                 else:
                     # Add a newline separator if merging two text responses
-                    next_result["response"] = f"{current_response}\n\n{next_result['response']}"
+                    next_result["response"] = f"{curr_strip}\n\n{next_strip}"
             elif current_response:
                 # If next node didn't produce response (e.g. logic node), keep current response
                 next_result["response"] = current_response
@@ -1547,6 +1559,8 @@ Do not include any markdown formatting, just the raw JSON."""
         
         # Pick Prompt
         prompt_text = ""
+        last_prompt_key = f"last_prompt_{node.id}"
+        last_prompt = context.get(last_prompt_key)
         
         # Check for timeout event
         is_timeout = user_message.strip().upper() == "TIMEOUT"
@@ -1556,7 +1570,10 @@ Do not include any markdown formatting, just the raw JSON."""
             prompts = ivr_props.get("initial_prompts", [])
             if not prompts:
                 prompts = [config.get("prompt", f"Please provide {target_variable or entities_to_extract[0]}")]
-            prompt_text = random.choice(prompts) if prompts else "Please provide input."
+            
+            # Try to pick a different prompt if possible
+            available_prompts = [p for p in prompts if p != last_prompt] if len(prompts) > 1 else prompts
+            prompt_text = random.choice(available_prompts) if available_prompts else (prompts[0] if prompts else "Please provide input.")
         else:
             # Subsequent failures -> No Match / Error / Timeout
             prompts = []
@@ -1570,7 +1587,12 @@ Do not include any markdown formatting, just the raw JSON."""
                 prompts = ivr_props.get("initial_prompts", [])
                 if not prompts:
                     prompts = [config.get("prompt", "Please try again.")]
-            prompt_text = random.choice(prompts) if prompts else "Invalid input."
+            
+            # Try to pick a different prompt if possible
+            available_prompts = [p for p in prompts if p != last_prompt] if len(prompts) > 1 else prompts
+            prompt_text = random.choice(available_prompts) if available_prompts else (prompts[0] if prompts else "Invalid input.")
+            
+        context[last_prompt_key] = prompt_text
             
         return {
             "response": prompt_text,
@@ -3528,100 +3550,148 @@ Return only the intent name that best matches."""
     async def _execute_ai_multi_agent_node(self, node: AgentNode, context: Dict[str, Any]) -> Dict[str, Any]:
         """Execute Multi-Agent node - coordinates multiple agents"""
         config = node.config or {}
-        agent_role = config.get("agent_role")
+        agent_ids_str = config.get("agent_ids", "")
+        agent_ids_list = config.get("agents", [])
+        strategy = config.get("strategy", "round_robin")
+        max_iterations = config.get("max_iterations", 3)
         goal = self._replace_variables(config.get("goal", ""), context)
         
-        # In a real system, this would look up an agent with the specific role
-        # For now, we'll try to find an agent by name matching the role, or use OpenAI to simulate
+        # Combine and normalize agent IDs
+        target_agent_ids = []
+        if agent_ids_list:
+            target_agent_ids = [int(aid) for aid in agent_ids_list]
+        elif agent_ids_str:
+            target_agent_ids = [int(aid.strip()) for aid in agent_ids_str.split(",") if aid.strip().isdigit()]
+            
+        if not target_agent_ids:
+            # Fallback to legacy role-based search if no IDs provided
+            agent_role = config.get("agent_role")
+            if agent_role:
+                sub_agent = self.db.query(Agent).filter(Agent.name.ilike(f"%{agent_role}%")).first()
+                if sub_agent:
+                    target_agent_ids = [sub_agent.id]
+
+        if not target_agent_ids:
+            logger.warning(f"Multi-agent node {node.id}: No target agents found.")
+            # Fallback to LLM simulation if allowed or configured
+            return await self._simulate_multi_agent_execution(node, context, goal)
+
+        logger.info(f"Multi-agent execution starting with agents: {target_agent_ids}, strategy: {strategy}")
         
-        result_text = ""
-        
+        results = []
         try:
-            # 1. Try to find an existing agent with this role/name
-            sub_agent = self.db.query(Agent).filter(Agent.name.ilike(f"%{agent_role}%")).first()
+            if strategy == "parallel":
+                # Execute all agents in parallel
+                tasks = []
+                for aid in target_agent_ids:
+                    tasks.append(self._execute_single_sub_agent(aid, goal, context))
+                results = await asyncio.gather(*tasks)
             
-            if sub_agent:
-                # Execute the sub-agent
-                import uuid
+            elif strategy == "sequential" or strategy == "round_robin":
+                # Execute one after another, potentially multiple times for round_robin
+                iterations = max_iterations if strategy == "round_robin" else 1
+                current_context = context.copy()
                 
-                # Create a sub-conversation
-                # We reuse the same user_id but create a new session ID linked to the parent
-                sub_session_id = f"{context.get('session_id', 'sys')}_sub_{uuid.uuid4().hex[:8]}"
-                
-                sub_conversation = AgentConversation(
-                    agent_id=sub_agent.id,
-                    session_id=sub_session_id,
-                    user_id=context.get("user_id"),
-                    channel="internal_delegation",
-                    context=context.copy(),  # Pass full context
-                    is_active=True
-                )
-                self.db.add(sub_conversation)
-                self.db.commit()
-                self.db.refresh(sub_conversation)
-                
-                # Recursive execution
-                # Create a new executor for the sub-agent to preserve debug trace of parent
-                sub_executor = AgentExecutor(self.db)
-                # We use the goal as the user message
-                sub_result = await sub_executor.execute(sub_agent, sub_conversation, user_message=goal)
-                
-                # Merge debug trace from sub-agent
-                sub_debug_trace = sub_result.get("debug_trace", [])
-                for entry in sub_debug_trace:
-                    entry["sub_agent_id"] = sub_agent.id
-                    entry["sub_agent_name"] = sub_agent.name
-                    self.debug_trace.append(entry)
-                
-                result_text = sub_result.get("response", "")
-                
-                # Capture results
-                context[f"{agent_role}_result"] = result_text
-                context[f"{agent_role}_details"] = sub_result
-                
-                return {
-                    "response": "",  # No direct response to user, just context update
-                    "next_node_id": None,
-                    "context": context,
-                    "metadata": {
-                        "agent_role": agent_role, 
-                        "sub_agent_id": sub_agent.id,
-                        "sub_session_id": sub_session_id,
-                        "result_summary": result_text[:100] + "..." if len(result_text) > 100 else result_text
-                    }
-                } 
+                for i in range(iterations):
+                    for aid in target_agent_ids:
+                        res = await self._execute_single_sub_agent(aid, goal, current_context)
+                        results.append(res)
+                        # Update context with latest result for next agent in sequence
+                        if res.get("context"):
+                            current_context.update(res["context"])
             
-            # 2. Fallback: Use LLM to simulate the agent
-            llm = get_llm("openai")
-            system_prompt = f"You are an AI assistant acting as a {agent_role}. Your goal is: {goal}."
+            elif strategy == "hierarchical":
+                # First agent acts as leader, coordinates others
+                leader_id = target_agent_ids[0]
+                others_ids = target_agent_ids[1:]
+                
+                # Leader plans
+                leader_goal = f"Coordinate the following agents: {others_ids} to achieve: {goal}"
+                leader_res = await self._execute_single_sub_agent(leader_id, leader_goal, context)
+                results.append(leader_res)
+                
+                # Then execute others based on leader's output (simplified hierarchical)
+                for aid in others_ids:
+                    res = await self._execute_single_sub_agent(aid, goal, leader_res.get("context", context))
+                    results.append(res)
             
-            # Get relevant context
-            task_context = f"Context: {json.dumps({k:v for k,v in context.items() if isinstance(v, (str, int, float, bool))}, default=str)}"
+            # Aggregate results
+            aggregated_response = "\n\n".join([r.get("response", "") for r in results if r.get("response")])
             
-            prompt = f"{task_context}\n\nPlease perform the task."
-            
-            response = await llm.generate(prompt, system_prompt=system_prompt)
-            result_text = response
-            
-            # Store result
-            context[f"{agent_role}_result"] = result_text
+            # Update context with final merged state
+            for r in results:
+                if r.get("context"):
+                    context.update(r["context"])
             
             return {
-                "response": "",
+                "response": aggregated_response,
                 "next_node_id": None,
                 "context": context,
-                "metadata": {"agent_role": agent_role, "simulated": True}
+                "metadata": {
+                    "strategy": strategy,
+                    "agents_executed": target_agent_ids,
+                    "iterations": max_iterations if strategy == "round_robin" else 1
+                }
             }
-            
+
         except Exception as e:
             logger.error(f"Multi-agent node error: {str(e)}")
-            
             return {
                 "response": f"Error in multi-agent execution: {str(e)}",
                 "next_node_id": None,
                 "context": context,
                 "metadata": {"error": str(e)}
             }
+
+    async def _execute_single_sub_agent(self, agent_id: int, goal: str, context: Dict[str, Any]) -> Dict[str, Any]:
+        """Helper to execute a single sub-agent in a multi-agent flow"""
+        import uuid
+        sub_agent = self.db.query(Agent).filter(Agent.id == agent_id).first()
+        if not sub_agent:
+            return {"response": f"Error: Agent {agent_id} not found", "context": context}
+
+        sub_session_id = f"{context.get('session_id', 'sys')}_sub_{uuid.uuid4().hex[:8]}"
+        sub_conversation = AgentConversation(
+            agent_id=sub_agent.id,
+            session_id=sub_session_id,
+            user_id=context.get("user_id"),
+            channel="internal_delegation",
+            context=context.copy(),
+            is_active=True
+        )
+        self.db.add(sub_conversation)
+        self.db.commit()
+        self.db.refresh(sub_conversation)
+
+        sub_executor = AgentExecutor(self.db)
+        sub_result = await sub_executor.execute(sub_agent, sub_conversation, user_message=goal)
+
+        # Merge debug trace
+        for entry in sub_result.get("debug_trace", []):
+            entry["sub_agent_id"] = sub_agent.id
+            entry["sub_agent_name"] = sub_agent.name
+            self.debug_trace.append(entry)
+
+        return sub_result
+
+    async def _simulate_multi_agent_execution(self, node: AgentNode, context: Dict[str, Any], goal: str) -> Dict[str, Any]:
+        """Simulate multi-agent execution using LLM fallback"""
+        config = node.config or {}
+        agent_role = config.get("agent_role", "Coordinator")
+        llm = get_llm("openai")
+        system_prompt = f"You are an AI assistant acting as a {agent_role}. Your goal is: {goal}."
+        task_context = f"Context: {json.dumps({k:v for k,v in context.items() if isinstance(v, (str, int, float, bool))}, default=str)}"
+        prompt = f"{task_context}\n\nPlease perform the task."
+        
+        response = await llm.generate(prompt, system_prompt=system_prompt)
+        context[f"{agent_role}_result"] = response
+        
+        return {
+            "response": response,
+            "next_node_id": None,
+            "context": context,
+            "metadata": {"simulated": True, "agent_role": agent_role}
+        }
 
     
     # ============================================================================

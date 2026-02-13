@@ -1,21 +1,35 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { hrService, recordActivity } from "../../services/api";
+import { hrService, recordActivity, startToolSession } from "../../services/api";
+import { useAuthStore } from "@/store/authStore";
 
 export default function HRPage() {
   const [message, setMessage] = useState("");
   const [result, setResult] = useState<any>(null);
   const [loading, setLoading] = useState(false);
+  const token = useAuthStore((s) => s.token);
 
   // Track activity
   useEffect(() => {
+    const userId = "user1";
     const interval = setInterval(() => {
-      recordActivity("user1").catch(() => {}); // Silently fail - non-critical
+      if (token) {
+        recordActivity(userId, token).catch(() => {});
+      }
     }, 30000);
 
     return () => clearInterval(interval);
-  }, []);
+  }, [token]);
+
+  useEffect(() => {
+    if (!token) return;
+    startToolSession("hr_services", token).catch(() => {});
+    const interval = setInterval(() => {
+      startToolSession("hr_services", token).catch(() => {});
+    }, 5 * 60 * 1000);
+    return () => clearInterval(interval);
+  }, [token]);
 
   async function handleSend(e?: any) {
     if (e) e.preventDefault();
@@ -23,7 +37,7 @@ export default function HRPage() {
     
     setLoading(true);
     try {
-      const res = await hrService(message);
+      const res = await hrService(message, token);
       setResult(res);
     } catch (error) {
       console.error("Error with HR service:", error);

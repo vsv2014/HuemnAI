@@ -4,7 +4,10 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useAuthStore } from "@/store/authStore";
+import ConnectorConfig from "@/components/ConnectorConfig";
+import ConnectorStatusDropdown from "@/components/ConnectorStatusDropdown";
 import { getJobs, logSearch, getLiveSearches, postJob, applyForJob, getEmails, postEmail } from "@/services/hrApi";
+import { getConnectorConfigs } from "@/services/api";
 import ToolSwitcher from "@/components/ToolSwitcher";
 import { X, Upload, CheckCircle, Search, Briefcase, MapPin, Clock, Mail, Plus, Star, ArrowRight } from "lucide-react";
 
@@ -13,10 +16,21 @@ interface HRServicesPageProps {
   toolId: string;
 }
 
+const HR_CONNECTORS = [
+  { key: "linkedin", label: "LinkedIn" },
+  { key: "greenhouse", label: "Greenhouse" },
+  { key: "asana", label: "Asana" },
+  { key: "monday", label: "Monday.com" },
+  { key: "notion", label: "Notion" },
+];
+
 export default function HRServicesPage({ toolName, toolId }: HRServicesPageProps) {
   const router = useRouter();
   const { token, user } = useAuthStore();
   const [mode, setMode] = useState<"candidate" | "recruiter">("candidate");
+  const [showConnectorConfig, setShowConnectorConfig] = useState(false);
+  const [connectorConfigs, setConnectorConfigs] = useState<any[]>([]);
+  const [connectorLoading, setConnectorLoading] = useState(false);
   
   // Candidate State
   const [searchQuery, setSearchQuery] = useState("");
@@ -40,6 +54,7 @@ export default function HRServicesPage({ toolName, toolId }: HRServicesPageProps
   useEffect(() => {
     if (token) {
       fetchEmails(); // Fetch emails in both modes
+      loadConnectorStatus();
       if (mode === "candidate") {
         fetchJobs();
       } else {
@@ -49,6 +64,24 @@ export default function HRServicesPage({ toolName, toolId }: HRServicesPageProps
       }
     }
   }, [mode, token]);
+
+  const loadConnectorStatus = async () => {
+    if (!token) return;
+    setConnectorLoading(true);
+    const response = await getConnectorConfigs(token);
+    if (response && Array.isArray(response.configs)) {
+      setConnectorConfigs(response.configs);
+    }
+    setConnectorLoading(false);
+  };
+
+  const configuredMap = connectorConfigs.reduce((acc: Record<string, boolean>, cfg: any) => {
+    const hasValue =
+      cfg.is_active &&
+      (cfg.api_key || cfg.secret || cfg.password || (cfg.config_data && Object.keys(cfg.config_data).length > 0));
+    acc[cfg.provider] = Boolean(hasValue);
+    return acc;
+  }, {});
 
   const fetchEmails = async () => {
     const data = await getEmails(token || "");
@@ -168,7 +201,24 @@ export default function HRServicesPage({ toolName, toolId }: HRServicesPageProps
                  Recruiter View
                </button>
              </div>
-             <ToolSwitcher />
+            <ToolSwitcher />
+            <button
+              onClick={loadConnectorStatus}
+              className="text-sm px-3 py-1.5 rounded-md bg-white/10 hover:bg-white/20 border border-white/20"
+            >
+              {connectorLoading ? "Refreshing..." : "Refresh"}
+            </button>
+            <ConnectorStatusDropdown items={HR_CONNECTORS.map((connector) => ({
+              key: connector.key,
+              label: connector.label,
+              configured: configuredMap[connector.key],
+            }))} />
+            <button
+              onClick={() => setShowConnectorConfig(true)}
+              className="text-sm px-3 py-1.5 rounded-md bg-white/10 hover:bg-white/20 border border-white/20"
+            >
+              ⚙️ Configure Tools
+            </button>
           </div>
         </div>
       </header>
@@ -176,6 +226,11 @@ export default function HRServicesPage({ toolName, toolId }: HRServicesPageProps
       {/* Main Content */}
       <main className="flex-1 overflow-y-auto p-6 scrollbar-thin scrollbar-thumb-white/10 scrollbar-track-transparent">
         <div className="max-w-7xl mx-auto">
+          {showConnectorConfig && (
+            <div className="mb-6">
+              <ConnectorConfig currentTool="hr_services" onClose={() => setShowConnectorConfig(false)} />
+            </div>
+          )}
           
           {mode === "candidate" ? (
             <div className="space-y-8 animate-in fade-in duration-500">

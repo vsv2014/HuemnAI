@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { configureConnector, setToolOperationMode, getToolOperationMode } from "@/services/api";
 import { TOOLS } from "@/config/tools";
+import { useAuthStore } from "@/store/authStore";
 
 interface ConnectorConfigProps {
   onClose: () => void;
@@ -62,6 +63,7 @@ const TOOL_NAMES: Record<string, string> = {
 };
 
 export default function ConnectorConfig({ onClose, currentTool }: ConnectorConfigProps) {
+  const { token } = useAuthStore();
   const [operationMode, setOperationMode] = useState<"independent" | "integrated">("integrated");
   const [connectorType, setConnectorType] = useState<string>("");
   const [credentials, setCredentials] = useState({
@@ -100,8 +102,8 @@ export default function ConnectorConfig({ onClose, currentTool }: ConnectorConfi
 
   // Load current operation mode on mount
   useEffect(() => {
-    if (currentTool) {
-      getToolOperationMode(currentTool)
+    if (currentTool && token) {
+      getToolOperationMode(currentTool, token)
         .then((response) => {
           if (response && response.operation_mode) {
             setOperationMode(response.operation_mode);
@@ -111,7 +113,46 @@ export default function ConnectorConfig({ onClose, currentTool }: ConnectorConfi
           console.error("Error loading operation mode:", error);
         });
     }
-  }, [currentTool]);
+  }, [currentTool, token]);
+
+  const buildConnectorFields = () => {
+    switch (connectorType) {
+      case "jira":
+        return { url: credentials.url, email: credentials.email, api_token: credentials.apiToken };
+      case "zendesk":
+        return { subdomain: credentials.subdomain || credentials.url, email: credentials.email, api_token: credentials.apiToken };
+      case "salesforce":
+        return { username: credentials.username, password: credentials.password, security_token: credentials.apiToken };
+      case "hubspot":
+        return { access_token: credentials.apiToken };
+      case "greenhouse":
+        return { api_key: credentials.apiToken };
+      case "linkedin":
+        return { api_token: credentials.apiToken };
+      case "notion":
+        return { integration_token: credentials.apiToken };
+      case "slack":
+        return { api_token: credentials.apiToken };
+      case "github":
+        return { personal_access_token: credentials.apiToken };
+      case "linear":
+        return { api_key: credentials.apiToken };
+      case "servicenow":
+      case "microsoft_teams":
+      case "gitlab":
+      case "asana":
+      case "monday":
+      case "trello":
+      case "clickup":
+      case "freshdesk":
+      case "intercom":
+      case "pipedrive":
+      case "airtable":
+        return { api_token: credentials.apiToken };
+      default:
+        return { api_token: credentials.apiToken };
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -120,13 +161,14 @@ export default function ConnectorConfig({ onClose, currentTool }: ConnectorConfi
 
     try {
       // First, set the operation mode if tool is specified
-      if (currentTool) {
-        await setToolOperationMode(currentTool, operationMode);
+      if (currentTool && token) {
+        await setToolOperationMode(currentTool, operationMode, token);
       }
       
       // If integrated mode and connector selected, configure connector
-      if (operationMode === "integrated" && connectorType) {
-        await configureConnector(connectorType, credentials, operationMode);
+      if (operationMode === "integrated" && connectorType && token) {
+        const fields = buildConnectorFields();
+        await configureConnector(connectorType, fields, token);
       }
       
       setSuccess(true);

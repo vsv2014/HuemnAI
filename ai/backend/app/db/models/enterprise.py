@@ -60,6 +60,12 @@ class ModelProvider(str, enum.Enum):
     ANTHROPIC = "anthropic"
     AZURE_OPENAI = "azure_openai"
     AMAZON_BEDROCK = "amazon_bedrock"
+    GOOGLE = "google"
+    MISTRAL = "mistral"
+    COHERE = "cohere"
+    GROQ = "groq"
+    TOGETHER = "together"
+    OLLAMA = "ollama"
     KORE_XO_GPT = "kore_xo_gpt"
     CUSTOM_LLM = "custom_llm"
 

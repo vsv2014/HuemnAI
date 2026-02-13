@@ -21,6 +21,19 @@ class OpenAILLM(BaseLLM):
             messages: Full conversation history (preferred)
             model: Specific model to use (overrides config)
         """
+        # Map deprecated or alias model names to current equivalents
+        def normalize_model_name(name: str) -> str:
+            if not name:
+                return name
+            n = name.strip().lower()
+            mapping = {
+                "gpt-4-turbo": "gpt-4o",
+                "gpt-4": "gpt-4o",
+                "chatgpt-4": "gpt-4o",
+                "gpt4": "gpt-4o",
+                "gpt-35-turbo": "gpt-3.5-turbo",
+            }
+            return mapping.get(n, name)
         # Try to get from user configuration first (UI Settings only)
         from app.services.config_service import get_llm_config
         config = get_llm_config("openai")
@@ -41,9 +54,15 @@ class OpenAILLM(BaseLLM):
             # If explicit model provided, try that first (or only that?)
             # For shadow mode, we want to try ONLY the specific model usually, but fallbacks are okay.
             if model:
-                models_to_try = [model]
+                models_to_try = [normalize_model_name(model)]
             else:
-                models_to_try = [config_model] + [m for m in fallback_models if m != config_model]
+                primary = normalize_model_name(config_model)
+                fallbacks = [normalize_model_name(m) for m in fallback_models if m != config_model]
+                # Always include safe fallbacks at the end
+                for safe in ["gpt-4o", "gpt-3.5-turbo"]:
+                    if safe not in fallbacks:
+                        fallbacks.append(safe)
+                models_to_try = [primary] + fallbacks
         
         # Fallback to environment variable in development if DB config missing
         if not api_key:
@@ -51,7 +70,7 @@ class OpenAILLM(BaseLLM):
             if env_key:
                 api_key = env_key
                 # Use provided model or sensible default
-                models_to_try = [model] if model else ["gpt-4o", "gpt-3.5-turbo"]
+                models_to_try = [normalize_model_name(model)] if model else ["gpt-4o", "gpt-3.5-turbo"]
             else:
                 import logging
                 logger = logging.getLogger(__name__)

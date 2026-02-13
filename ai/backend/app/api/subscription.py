@@ -28,6 +28,10 @@ class SubscribeRequest(BaseModel):
     organization_name: Optional[str] = None  # For enterprise/company accounts
     organization_size: Optional[str] = None  # "small", "medium", "large", "enterprise"
 
+class ChangePlanRequest(BaseModel):
+    plan_id: int
+    billing_period: str  # "monthly" or "yearly"
+
 class SubscriptionResponse(BaseModel):
     success: bool
     message: str
@@ -102,6 +106,83 @@ PRICING = {
         "max_users": 999999  # Unlimited for enterprise
     }
 }
+
+def normalize_tool_name(tool_name: Optional[str]) -> Optional[str]:
+    if not tool_name:
+        return tool_name
+    return tool_name.replace("-", "_").lower()
+
+def ensure_subscription_active(user: UserAccount, db: Session) -> None:
+    if settings.BYPASS_SUBSCRIPTION:
+        return
+    if user.subscription_status == "trial":
+        if user.trial_ends_at and datetime.utcnow() > user.trial_ends_at:
+            user.subscription_status = "expired"
+            db.commit()
+            raise HTTPException(
+                status_code=403,
+                detail="Your free trial has expired. Please subscribe to continue using the service."
+            )
+        return
+    if user.subscription_status == "active":
+        return
+    if user.subscription_status == "expired":
+        raise HTTPException(
+            status_code=403,
+            detail="Your subscription has expired. Please renew to continue using the service."
+        )
+    raise HTTPException(
+        status_code=403,
+        detail="Subscription required. Please subscribe to access this feature."
+    )
+
+def get_or_create_tool_subscription(
+    db: Session,
+    user: UserAccount,
+    tool_name: str,
+    tool_display_name: Optional[str] = None,
+    create_if_missing: bool = False
+):
+    normalized_name = normalize_tool_name(tool_name)
+    legacy_name = tool_name.replace("_", "-") if tool_name else tool_name
+    tool_sub = db.query(UserToolSubscription).filter(
+        UserToolSubscription.user_id == user.id,
+        UserToolSubscription.tool_name.in_([normalized_name, legacy_name])
+    ).first()
+    changed = False
+    if tool_sub:
+        if tool_sub.tool_name != normalized_name:
+            tool_sub.tool_name = normalized_name
+            changed = True
+        if tool_sub.tokens_remaining is None:
+            tool_sub.tokens_remaining = 50000
+            tool_sub.tokens_total = tool_sub.tokens_total or 50000
+            changed = True
+        if tool_sub.tokens_total is None:
+            tool_sub.tokens_total = 50000
+            changed = True
+        if tool_display_name and not tool_sub.tool_display_name:
+            tool_sub.tool_display_name = tool_display_name
+            changed = True
+        if changed:
+            db.commit()
+        return tool_sub, normalized_name
+    if not create_if_missing:
+        return None, normalized_name
+    tool_sub = UserToolSubscription(
+        user_id=user.id,
+        tool_name=normalized_name,
+        tool_display_name=tool_display_name or normalized_name.replace("_", " ").title(),
+        subscription_status="active",
+        is_active=True,
+        subscribed_at=datetime.utcnow(),
+        tokens_remaining=50000,
+        tokens_total=50000
+    )
+    db.add(tool_sub)
+    db.commit()
+    db.refresh(tool_sub)
+    return tool_sub, normalized_name
 
 @router.get("/plans")
 async def get_subscription_plans(db: Session = Depends(get_db)):
@@ -211,6 +292,8 @@ async def subscribe(
     plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.id == request.plan_id).first()
     if not plan:
         raise HTTPException(status_code=404, detail="Plan not found")
+    if plan.name == "enterprise" or not plan.price_monthly or not plan.price_yearly:
+        raise HTTPException(status_code=400, detail="Enterprise plans require a custom quote. Please contact sales.")
     
     # Check if user already has an active subscription
     existing_subscription = db.query(Subscription).filter(
@@ -226,10 +309,12 @@ async def subscribe(
         original_price = plan.price_monthly
         price = plan.price_monthly * (1 - discount)
         ends_at = datetime.utcnow() + timedelta(days=30)
+        interval = "month"
     else:
         original_price = plan.price_yearly
         price = plan.price_yearly * (1 - discount)
         ends_at = datetime.utcnow() + timedelta(days=365)
+        interval = "year"
     
     # Stripe Integration
     checkout_url = None
@@ -281,11 +366,24 @@ async def subscribe(
         
         customer_id = user.stripe_customer_id
         
-        # 2. Create Checkout Session
-        checkout_session = stripe.checkout.Session.create(
-            customer=customer_id,
-            payment_method_types=["card"],
-            line_items=[
+        # 2. Create Coupon for first subscription discount if needed
+        coupon_id = None
+        if is_first_subscription:
+            try:
+                coupon = stripe.Coupon.create(
+                    percent_off=50,
+                    duration="once",
+                    name=f"first_subscription_50_{user.id}_{int(datetime.utcnow().timestamp())}"
+                )
+                coupon_id = coupon.id
+            except Exception as e:
+                logger.warning(f"Failed to create Stripe coupon: {e}")
+
+        # 3. Create Checkout Session
+        checkout_params = {
+            "customer": customer_id,
+            "payment_method_types": ["card"],
+            "line_items": [
                 {
                     "price_data": {
                         "currency": "usd",
@@ -293,20 +391,31 @@ async def subscribe(
                             "name": plan.display_name,
                             "description": f"{plan.display_name} ({request.billing_period})",
                         },
-                        "unit_amount": int(price * 100),  # Amount in cents
+                        "unit_amount": int(original_price * 100),
+                        "recurring": {"interval": interval},
                     },
                     "quantity": 1,
                 },
             ],
-            mode="payment",  # Use 'subscription' for recurring, 'payment' for one-time (simplified for now)
-            success_url=f"{FRONTEND_URL}/payment/success?session_id={{CHECKOUT_SESSION_ID}}",
-            cancel_url=f"{FRONTEND_URL}/pricing",
-            metadata={
+            "mode": "subscription",
+            "success_url": f"{FRONTEND_URL}/payment/success?session_id={{CHECKOUT_SESSION_ID}}",
+            "cancel_url": f"{FRONTEND_URL}/pricing",
+            "subscription_data": {
+                "metadata": {
+                    "user_id": user.id,
+                    "plan_id": plan.id,
+                    "billing_period": request.billing_period
+                }
+            },
+            "metadata": {
                 "user_id": user.id,
                 "plan_id": plan.id,
                 "billing_period": request.billing_period
             }
-        )
+        }
+        if coupon_id:
+            checkout_params["discounts"] = [{"coupon": coupon_id}]
+        checkout_session = stripe.checkout.Session.create(**checkout_params)
         
         checkout_url = checkout_session.url
         session_id = checkout_session.id
@@ -434,6 +543,149 @@ async def get_subscription_status(
     }
 
 
+@router.get("/stripe-health")
+async def stripe_health(
+    user: UserAccount = Depends(get_current_user)
+):
+    key = settings.STRIPE_SECRET_KEY or ""
+    configured = bool(key) and "placeholder" not in key and "CHANGE_ME" not in key
+    if key.startswith("sk_live_"):
+        mode = "live"
+    elif key.startswith("sk_test_"):
+        mode = "test"
+    else:
+        mode = "unknown"
+    return {
+        "configured": configured,
+        "mode": mode,
+        "webhook_configured": bool(settings.STRIPE_WEBHOOK_SECRET),
+        "bypass_subscription": settings.BYPASS_SUBSCRIPTION
+    }
+
+
+@router.post("/change-plan")
+async def change_plan(
+    request: ChangePlanRequest,
+    user: UserAccount = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.id == request.plan_id).first()
+    if not plan:
+        raise HTTPException(status_code=404, detail="Plan not found")
+    if plan.name == "enterprise" or not plan.price_monthly or not plan.price_yearly:
+        raise HTTPException(status_code=400, detail="Enterprise plans require a custom quote. Please contact sales.")
+
+    active_subscription = db.query(Subscription).filter(
+        Subscription.user_id == user.id,
+        Subscription.status == "active"
+    ).first()
+    if not active_subscription:
+        raise HTTPException(status_code=404, detail="No active subscription found")
+
+    if request.billing_period not in ["monthly", "yearly"]:
+        raise HTTPException(status_code=400, detail="Invalid billing period")
+
+    if request.billing_period == "monthly":
+        new_price = plan.price_monthly
+        new_ends_at = datetime.utcnow() + timedelta(days=30)
+        interval = "month"
+    else:
+        new_price = plan.price_yearly
+        new_ends_at = datetime.utcnow() + timedelta(days=365)
+        interval = "year"
+
+    is_stripe_configured = stripe.api_key and "placeholder" not in stripe.api_key and "CHANGE_ME" not in stripe.api_key
+    if is_stripe_configured and active_subscription.stripe_subscription_id:
+        try:
+            stripe_sub = stripe.Subscription.retrieve(active_subscription.stripe_subscription_id)
+            items = stripe_sub.get("items", {}).get("data", [])
+            if not items:
+                raise HTTPException(status_code=400, detail="Stripe subscription has no items to update")
+            price = stripe.Price.create(
+                currency="usd",
+                unit_amount=int(new_price * 100),
+                recurring={"interval": interval},
+                product_data={"name": plan.display_name}
+            )
+            stripe.Subscription.modify(
+                active_subscription.stripe_subscription_id,
+                cancel_at_period_end=False,
+                proration_behavior="create_prorations",
+                items=[{"id": items[0]["id"], "price": price.id}],
+                metadata={
+                    "user_id": user.id,
+                    "plan_id": plan.id,
+                    "billing_period": request.billing_period
+                }
+            )
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"Stripe plan change error: {e}")
+            raise HTTPException(status_code=400, detail=f"Plan change failed: {str(e)}")
+
+    active_subscription.plan_id = plan.id
+    active_subscription.billing_period = request.billing_period
+    active_subscription.amount_paid = new_price
+    active_subscription.discount_applied = 0.0
+    active_subscription.ends_at = new_ends_at
+    active_subscription.status = "active"
+    user.current_plan_id = plan.id
+    user.subscription_status = "active"
+    user.subscription_started_at = datetime.utcnow()
+    user.subscription_ends_at = new_ends_at
+    db.commit()
+
+    return {
+        "success": True,
+        "message": f"Subscription updated to {plan.display_name}",
+        "subscription_status": user.subscription_status,
+        "current_plan": {
+            "id": plan.id,
+            "name": plan.name,
+            "display_name": plan.display_name
+        },
+        "active_subscription": {
+            "id": active_subscription.id,
+            "amount_paid": active_subscription.amount_paid,
+            "billing_period": active_subscription.billing_period,
+            "ends_at": active_subscription.ends_at.isoformat() if active_subscription.ends_at else None
+        }
+    }
+
+
+@router.post("/portal")
+async def create_billing_portal(
+    user: UserAccount = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    is_stripe_configured = stripe.api_key and "placeholder" not in stripe.api_key and "CHANGE_ME" not in stripe.api_key
+    if not is_stripe_configured:
+        return {
+            "success": True,
+            "portal_url": f"{FRONTEND_URL}/pricing?portal=mock"
+        }
+
+    if not user.stripe_customer_id:
+        customer = stripe.Customer.create(
+            email=user.email,
+            name=user.name,
+            metadata={"user_id": user.id}
+        )
+        user.stripe_customer_id = customer.id
+        db.commit()
+
+    portal_session = stripe.billing_portal.Session.create(
+        customer=user.stripe_customer_id,
+        return_url=f"{FRONTEND_URL}/pricing"
+    )
+
+    return {
+        "success": True,
+        "portal_url": portal_session.url
+    }
+
+
 @router.post("/subscribe-tool")
 async def subscribe_to_tool(
     tool_name: str,
@@ -442,17 +694,20 @@ async def subscribe_to_tool(
     db: Session = Depends(get_db)
 ):
     """Subscribe to a specific tool"""
+    normalized_tool_name = normalize_tool_name(tool_name)
     # Check if user already has active subscription for this tool
-    existing = db.query(UserToolSubscription).filter(
-        UserToolSubscription.user_id == user.id,
-        UserToolSubscription.tool_name == tool_name,
-        UserToolSubscription.is_active == True
-    ).first()
+    existing, normalized_tool_name = get_or_create_tool_subscription(
+        db,
+        user,
+        normalized_tool_name,
+        tool_display_name=tool_display_name,
+        create_if_missing=False
+    )
     
     if existing:
         return {
             "success": True,
-            "message": f"Already subscribed to {tool_display_name or tool_name}",
+            "message": f"Already subscribed to {existing.tool_display_name or tool_display_name or normalized_tool_name}",
             "tool_subscription": {
                 "tool_name": existing.tool_name,
                 "tool_display_name": existing.tool_display_name,
@@ -463,8 +718,8 @@ async def subscribe_to_tool(
     # Create tool subscription with 50,000 tokens
     tool_subscription = UserToolSubscription(
         user_id=user.id,
-        tool_name=tool_name,
-        tool_display_name=tool_display_name or tool_name.replace("_", " ").title(),
+        tool_name=normalized_tool_name,
+        tool_display_name=tool_display_name or normalized_tool_name.replace("_", " ").title(),
         subscription_status="active",
         is_active=True,
         subscribed_at=datetime.utcnow(),
@@ -478,7 +733,7 @@ async def subscribe_to_tool(
     
     return {
         "success": True,
-        "message": f"Successfully subscribed to {tool_display_name or tool_name}",
+        "message": f"Successfully subscribed to {tool_display_name or normalized_tool_name}",
         "tool_subscription": {
             "tool_name": tool_subscription.tool_name,
             "tool_display_name": tool_subscription.tool_display_name,
@@ -508,25 +763,13 @@ async def get_subscribed_tools(
         # Get or create tool subscriptions with tokens
         tools_with_tokens = []
         for tool_data in all_tools_data:
-            tool_sub = db.query(UserToolSubscription).filter(
-                UserToolSubscription.user_id == user.id,
-                UserToolSubscription.tool_name == tool_data["tool_name"]
-            ).first()
-            
-            if not tool_sub:
-                # Create tool subscription with 50,000 tokens
-                tool_sub = UserToolSubscription(
-                    user_id=user.id,
-                    tool_name=tool_data["tool_name"],
-                    tool_display_name=tool_data["tool_display_name"],
-                    tokens_remaining=50000,
-                    tokens_total=50000,
-                    subscription_status="active",
-                    is_active=True
-                )
-                db.add(tool_sub)
-                db.commit()
-                db.refresh(tool_sub)
+            tool_sub, _ = get_or_create_tool_subscription(
+                db,
+                user,
+                tool_data["tool_name"],
+                tool_display_name=tool_data["tool_display_name"],
+                create_if_missing=True
+            )
             
             tools_with_tokens.append({
                 "tool_name": tool_sub.tool_name,
@@ -549,6 +792,13 @@ async def get_subscribed_tools(
         UserToolSubscription.is_active == True,
         UserToolSubscription.subscription_status == "active"
     ).all()
+    normalized_tools = []
+    for sub in tool_subscriptions:
+        normalized_name = normalize_tool_name(sub.tool_name)
+        if sub.tool_name != normalized_name:
+            sub.tool_name = normalized_name
+            db.commit()
+        normalized_tools.append(sub)
     
     return {
         "success": True,
@@ -561,7 +811,7 @@ async def get_subscribed_tools(
                 "subscribed_at": sub.subscribed_at.isoformat() if sub.subscribed_at else None,
                 "status": sub.subscription_status
             }
-            for sub in tool_subscriptions
+            for sub in normalized_tools
         ],
         "is_trial": False
     }
@@ -573,30 +823,18 @@ async def get_token_status(
     db: Session = Depends(get_db)
 ):
     """Get user's token status for a specific tool"""
-    tool_sub = db.query(UserToolSubscription).filter(
-        UserToolSubscription.user_id == user.id,
-        UserToolSubscription.tool_name == tool_name
-    ).first()
-    
-    if not tool_sub:
-        # Create tool subscription with 50,000 tokens if it doesn't exist
-        tool_sub = UserToolSubscription(
-            user_id=user.id,
-            tool_name=tool_name,
-            tool_display_name=tool_name.replace("_", " ").title(),
-            tokens_remaining=50000,
-            tokens_total=50000,
-            subscription_status="active",
-            is_active=True
-        )
-        db.add(tool_sub)
-        db.commit()
-        db.refresh(tool_sub)
+    tool_sub, normalized_tool_name = get_or_create_tool_subscription(
+        db,
+        user,
+        tool_name,
+        tool_display_name=tool_name.replace("_", " ").title(),
+        create_if_missing=True
+    )
     
     # Get active session for this tool
     active_session = db.query(UserToolSession).filter(
         UserToolSession.user_id == user.id,
-        UserToolSession.tool_name == tool_name,
+        UserToolSession.tool_name == normalized_tool_name,
         UserToolSession.is_active == True
     ).first()
     
@@ -617,30 +855,24 @@ async def start_tool_session(
     db: Session = Depends(get_db)
 ):
     """Start or resume a tool session (15-minute timeout)"""
-    # Get or create tool subscription
-    tool_sub = db.query(UserToolSubscription).filter(
-        UserToolSubscription.user_id == user.id,
-        UserToolSubscription.tool_name == tool_name
-    ).first()
-    
-    if not tool_sub:
-        tool_sub = UserToolSubscription(
-            user_id=user.id,
-            tool_name=tool_name,
-            tool_display_name=tool_name.replace("_", " ").title(),
-            tokens_remaining=50000,
-            tokens_total=50000,
-            subscription_status="active",
-            is_active=True
+    ensure_subscription_active(user, db)
+    tool_sub, normalized_tool_name = get_or_create_tool_subscription(
+        db,
+        user,
+        tool_name,
+        tool_display_name=tool_name.replace("_", " ").title(),
+        create_if_missing=True
+    )
+    if tool_sub.tokens_remaining is not None and tool_sub.tokens_remaining <= 0:
+        raise HTTPException(
+            status_code=403,
+            detail="Insufficient tokens. Please subscribe to continue using this tool."
         )
-        db.add(tool_sub)
-        db.commit()
-        db.refresh(tool_sub)
     
     # Check for existing active session
     active_session = db.query(UserToolSession).filter(
         UserToolSession.user_id == user.id,
-        UserToolSession.tool_name == tool_name,
+        UserToolSession.tool_name == normalized_tool_name,
         UserToolSession.is_active == True
     ).first()
     
@@ -658,7 +890,7 @@ async def start_tool_session(
             # Create new session
             new_session = UserToolSession(
                 user_id=user.id,
-                tool_name=tool_name,
+                tool_name=normalized_tool_name,
                 session_started_at=now,
                 last_activity_at=now,
                 tokens_consumed=0,
@@ -692,7 +924,7 @@ async def start_tool_session(
         # No active session, create new one
         new_session = UserToolSession(
             user_id=user.id,
-            tool_name=tool_name,
+            tool_name=normalized_tool_name,
             session_started_at=now,
             last_activity_at=now,
             tokens_consumed=0,
@@ -718,36 +950,27 @@ async def consume_token(
     db: Session = Depends(get_db)
 ):
     """Consume tokens for tool usage in current session"""
-    # Get tool subscription
-    tool_sub = db.query(UserToolSubscription).filter(
-        UserToolSubscription.user_id == user.id,
-        UserToolSubscription.tool_name == tool_name
-    ).first()
-    
-    if not tool_sub:
-        return {
-            "success": False,
-            "message": "Tool subscription not found"
-        }
-    
-    # Initialize tokens if not set
+    ensure_subscription_active(user, db)
+    tool_sub, normalized_tool_name = get_or_create_tool_subscription(
+        db,
+        user,
+        tool_name,
+        tool_display_name=tool_name.replace("_", " ").title(),
+        create_if_missing=True
+    )
     if tool_sub.tokens_remaining is None:
         tool_sub.tokens_remaining = 50000
-        tool_sub.tokens_total = 50000
-    
-    # Check if user has tokens
+        tool_sub.tokens_total = tool_sub.tokens_total or 50000
     if tool_sub.tokens_remaining < tokens:
-        return {
-            "success": False,
-            "message": "Insufficient tokens. Please subscribe to continue using this tool.",
-            "tokens_remaining": tool_sub.tokens_remaining,
-            "tokens_total": tool_sub.tokens_total
-        }
+        raise HTTPException(
+            status_code=403,
+            detail="Insufficient tokens. Please subscribe to continue using this tool."
+        )
     
     # Get or create active session
     active_session = db.query(UserToolSession).filter(
         UserToolSession.user_id == user.id,
-        UserToolSession.tool_name == tool_name,
+        UserToolSession.tool_name == normalized_tool_name,
         UserToolSession.is_active == True
     ).first()
     
@@ -761,7 +984,7 @@ async def consume_token(
         
         active_session = UserToolSession(
             user_id=user.id,
-            tool_name=tool_name,
+            tool_name=normalized_tool_name,
             session_started_at=now,
             last_activity_at=now,
             tokens_consumed=0,
@@ -771,8 +994,10 @@ async def consume_token(
     
     # Consume tokens
     tool_sub.tokens_remaining -= tokens
+    tool_sub.tokens_used = (tool_sub.tokens_used or 0) + tokens
     active_session.tokens_consumed += tokens
     active_session.last_activity_at = now
+    active_session.last_consumption_at = now
     db.commit()
     
     return {
@@ -791,9 +1016,10 @@ async def unsubscribe_from_tool(
     db: Session = Depends(get_db)
 ):
     """Unsubscribe from a specific tool"""
+    normalized_tool_name = normalize_tool_name(tool_name)
     tool_subscription = db.query(UserToolSubscription).filter(
         UserToolSubscription.user_id == user.id,
-        UserToolSubscription.tool_name == tool_name,
+        UserToolSubscription.tool_name == normalized_tool_name,
         UserToolSubscription.is_active == True
     ).first()
     

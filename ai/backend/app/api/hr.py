@@ -2,6 +2,11 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from typing import List, Optional
 from app.services import hr_service
+from app.api.auth import get_current_user
+from app.db.models.subscription import UserAccount
+from app.db.session import get_db
+from app.utils.subscription import consume_tool_tokens
+from sqlalchemy.orm import Session
 
 router = APIRouter()
 
@@ -72,6 +77,11 @@ async def post_email(payload: PostEmailPayload):
     )
 
 @router.post("/")
-async def hr_chat(payload: dict):
+async def hr_chat(
+    payload: dict,
+    user: UserAccount = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
     """Legacy chat endpoint"""
+    consume_tool_tokens(db, user, "hr_services", 1)
     return hr_service.handle_hr_request(payload.get("message", ""))

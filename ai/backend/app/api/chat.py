@@ -30,7 +30,9 @@ from app.services.context_analyzer import (
     should_create_ticket,
     generate_contextual_response
 )
-from app.db.session import SessionLocal
+from app.db.session import SessionLocal, get_db
+from app.utils.subscription import consume_tool_tokens
+from sqlalchemy.orm import Session
 from app.db.models.ticket import Ticket
 import logging
 
@@ -69,7 +71,11 @@ async def chat_stream(message: str):
 
 
 @router.post("/issue")
-async def handle_issue_endpoint(payload: Dict[str, str], user: UserAccount = Depends(get_current_user)):
+async def handle_issue_endpoint(
+    payload: Dict[str, str],
+    user: UserAccount = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
     """
     Adapter endpoint for /api/chat/issue calls from frontend.
     Redirects to handle_chat logic.
@@ -78,6 +84,7 @@ async def handle_issue_endpoint(payload: Dict[str, str], user: UserAccount = Dep
     if not message:
          raise HTTPException(status_code=400, detail="Issue message is required")
          
+    consume_tool_tokens(db, user, "customer_service", 1)
     # Call handle_chat with constructed payload
     chat_payload = ChatPayload(
         user_id=str(user.id),

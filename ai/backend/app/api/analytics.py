@@ -1,20 +1,30 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 from typing import Optional, Any
 from sqlalchemy.orm import Session
 from sqlalchemy import func, and_, or_, case
 from datetime import datetime, timedelta
 from typing import Dict, List
-from app.db.session import SessionLocal
+from app.db.session import SessionLocal, get_db
 from app.db.models.ticket import Ticket
 from app.db.models.status_history import StatusHistory
 from app.db.models.user import User
 from app.db.models.agent import Agent, AgentAnalyticsEvent, AgentConversation, AgentFlow
+from app.api.auth import get_current_user
+from app.db.models.subscription import UserAccount
+from app.utils.subscription import consume_tool_tokens
+from sqlalchemy.orm import Session
 import logging
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter()
+def require_analytics_access(
+    user: UserAccount = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    consume_tool_tokens(db, user, "analytics_dashboard", 1)
+
+router = APIRouter(dependencies=[Depends(require_analytics_access)])
 
 # SLA thresholds (in hours)
 SLA_HIGH_PRIORITY = 4  # 4 hours for high priority
@@ -1896,4 +1906,3 @@ async def get_task_execution_logs(
         }
     finally:
         db.close()
-

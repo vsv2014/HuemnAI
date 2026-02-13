@@ -6,7 +6,9 @@ import AgentLayout from "@/components/AgentLayout";
 import LoadingSpinner from "@/components/LoadingSpinner";
 import ErrorBoundary from "@/components/ErrorBoundary";
 import { useAuthStore } from "@/store/authStore";
-import { getIntegrations } from "@/services/api";
+import { getIntegrations, getConnectorConfigs } from "@/services/api";
+import ConnectorConfig from "@/components/ConnectorConfig";
+import ConnectorStatusDropdown from "@/components/ConnectorStatusDropdown";
 
 const integrations = [
   { id: "acuity", name: "Acuity", logo: "🔵", category: "Scheduling" },
@@ -20,15 +22,42 @@ const integrations = [
   { id: "fresh-itsm", name: "Fresh ITSM Solution", logo: "🔵", category: "ITSM" },
 ];
 
+const CONNECTORS = [
+  { value: "jira", label: "Jira", category: "Issue Tracking" },
+  { value: "zendesk", label: "Zendesk", category: "Support" },
+  { value: "salesforce", label: "Salesforce", category: "CRM" },
+  { value: "servicenow", label: "ServiceNow", category: "ITSM" },
+  { value: "slack", label: "Slack", category: "Communication" },
+  { value: "microsoft_teams", label: "Microsoft Teams", category: "Communication" },
+  { value: "github", label: "GitHub", category: "Development" },
+  { value: "gitlab", label: "GitLab", category: "Development" },
+  { value: "linear", label: "Linear", category: "Issue Tracking" },
+  { value: "asana", label: "Asana", category: "Project Management" },
+  { value: "monday", label: "Monday.com", category: "Project Management" },
+  { value: "trello", label: "Trello", category: "Project Management" },
+  { value: "notion", label: "Notion", category: "Knowledge" },
+  { value: "clickup", label: "ClickUp", category: "Project Management" },
+  { value: "freshdesk", label: "Freshdesk", category: "Support" },
+  { value: "intercom", label: "Intercom", category: "Support" },
+  { value: "hubspot", label: "HubSpot", category: "CRM" },
+  { value: "pipedrive", label: "Pipedrive", category: "CRM" },
+  { value: "airtable", label: "Airtable", category: "Database" },
+  { value: "linkedin", label: "LinkedIn", category: "HR" },
+  { value: "greenhouse", label: "Greenhouse", category: "HR" },
+];
+
 export default function IntegrationsPage() {
   const params = useParams();
   const agentId = parseInt(params?.id as string);
   const { token } = useAuthStore();
   const [activeTab, setActiveTab] = useState<"integrations" | "actions" | "agent-transfer" | "external-nlu">("integrations");
   const [configured, setConfigured] = useState<any[]>([]);
+  const [connectorConfigs, setConnectorConfigs] = useState<any[]>([]);
+  const [connectorLoading, setConnectorLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [showConnectorConfig, setShowConnectorConfig] = useState(false);
 
   useEffect(() => {
     if (token) {
@@ -41,11 +70,17 @@ export default function IntegrationsPage() {
     setLoading(true);
     setError(null);
     try {
-      const response = await getIntegrations(agentId, token);
+      const [response, connectorResponse] = await Promise.all([
+        getIntegrations(agentId, token),
+        getConnectorConfigs(token)
+      ]);
       if (!response.error && Array.isArray(response)) {
         setConfigured(response.filter((int: any) => int.is_configured));
       } else {
         setError(response.error || "Failed to load integrations");
+      }
+      if (connectorResponse && Array.isArray(connectorResponse.configs)) {
+        setConnectorConfigs(connectorResponse.configs);
       }
     } catch (err) {
       console.error("Failed to load integrations:", err);
@@ -54,6 +89,24 @@ export default function IntegrationsPage() {
       setLoading(false);
     }
   }, [agentId, token]);
+
+  const refreshConnectorStatus = async () => {
+    if (!token) return;
+    setConnectorLoading(true);
+    const connectorResponse = await getConnectorConfigs(token);
+    if (connectorResponse && Array.isArray(connectorResponse.configs)) {
+      setConnectorConfigs(connectorResponse.configs);
+    }
+    setConnectorLoading(false);
+  };
+
+  const configuredMap = connectorConfigs.reduce((acc: Record<string, boolean>, cfg: any) => {
+    const hasValue =
+      cfg.is_active &&
+      (cfg.api_key || cfg.secret || cfg.password || (cfg.config_data && Object.keys(cfg.config_data).length > 0));
+    acc[cfg.provider] = Boolean(hasValue);
+    return acc;
+  }, {});
 
   const filteredIntegrations = useMemo(() => {
     return integrations.filter((int) =>
@@ -114,6 +167,40 @@ export default function IntegrationsPage() {
           </div>
 
           {/* Configured Section */}
+          <div className="mb-8">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-semibold text-white">Connector Configuration</h2>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={refreshConnectorStatus}
+                  className="px-3 py-1.5 bg-white/10 hover:bg-white/20 border border-white/20 rounded-lg text-xs text-white/80 transition-all"
+                >
+                  {connectorLoading ? "Refreshing..." : "Refresh"}
+                </button>
+                <button
+                  onClick={() => setShowConnectorConfig(true)}
+                  className="px-3 py-1.5 bg-blue-500/20 hover:bg-blue-500/30 border border-blue-500/40 rounded-lg text-xs text-blue-300 transition-all"
+                >
+                  Configure
+                </button>
+                <ConnectorStatusDropdown
+                  align="left"
+                  items={CONNECTORS.map((connector) => ({
+                    key: connector.value,
+                    label: `${connector.label} • ${connector.category}`,
+                    configured: configuredMap[connector.value],
+                  }))}
+                />
+              </div>
+            </div>
+          </div>
+
+          {showConnectorConfig && (
+            <div className="mb-8">
+              <ConnectorConfig onClose={() => setShowConnectorConfig(false)} />
+            </div>
+          )}
+
           <div className="mb-8">
             <h2 className="text-lg font-semibold mb-4 text-white">Configured</h2>
             {configured.length === 0 ? (

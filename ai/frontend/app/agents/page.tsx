@@ -35,10 +35,14 @@ export default function AgentsPage() {
   }, [isAuthenticated, token]);
 
   useEffect(() => {
-    if (isAuthenticated && token && subscriptionStatus === "trial") {
+    if (isAuthenticated && token) {
       startToolSession("agent_builder", token).catch(() => {});
+      const interval = setInterval(() => {
+        startToolSession("agent_builder", token).catch(() => {});
+      }, 5 * 60 * 1000);
+      return () => clearInterval(interval);
     }
-  }, [isAuthenticated, token, subscriptionStatus]);
+  }, [isAuthenticated, token]);
 
   const loadAgents = async () => {
     if (!token) return;
@@ -142,7 +146,12 @@ export default function AgentsPage() {
                 >
                   <div className="flex items-start justify-between mb-4">
                     <div>
-                      <h3 className="text-xl font-semibold mb-1 group-hover:text-blue-300 transition-colors">{agent.name}</h3>
+                      <div className="flex items-center gap-2 mb-1">
+                        <h3 className="text-xl font-semibold group-hover:text-blue-300 transition-colors">{agent.name}</h3>
+                        <span className="text-[10px] px-1.5 py-0.5 bg-white/10 text-white/50 rounded border border-white/10 font-mono" title="Agent ID">
+                          #{agent.id}
+                        </span>
+                      </div>
                       <span className="text-xs px-2 py-1 bg-blue-500/20 text-blue-300 rounded border border-blue-500/30">
                         {agent.agent_type}
                       </span>

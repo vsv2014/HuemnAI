@@ -6,7 +6,6 @@ import { usePathname } from "next/navigation";
 import { ChevronDown, Sparkles, LayoutGrid } from "lucide-react";
 
 const AVAILABLE_TOOLS = [
-  { id: 'ai-orchestrator', name: 'AI Orchestrator', icon: '👑', path: '/agent-builder' },
   { id: 'agent-builder', name: 'Agent Builder', icon: '🤖', path: '/agents' },
   { id: 'crm', name: 'CRM', icon: '📇', path: '/crm' },
   { id: 'customer-service', name: 'Customer Service', icon: '🎧', path: '/chat/customer-service' },

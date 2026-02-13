@@ -8,11 +8,18 @@ from app.db.session import get_db
 from app.api.auth import get_current_user
 from datetime import datetime
 from sqlalchemy.orm import Session
+from app.utils.subscription import consume_tool_tokens
 from app.db.models.crm import CRMContact, CRMDeal, CRMActivity
 from app.services.event_bus import publish, CHANNEL_CRM
 from sqlalchemy import func
 
-router = APIRouter()
+def require_crm_access(
+    user = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    consume_tool_tokens(db, user, "crm", 1)
+
+router = APIRouter(dependencies=[Depends(require_crm_access)])
 
 # ==================== Models ====================
 

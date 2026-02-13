@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { useRouter, useParams } from "next/navigation";
 import { useAuthStore } from "@/store/authStore";
-import { getAgent, updateAgent, createNode, updateNode, deleteNode, createConnection, deleteConnection, getVoiceProfiles } from "@/services/api";
+import { getAgent, updateAgent, getAgents, createNode, updateNode, deleteNode, createConnection, deleteConnection, getVoiceProfiles } from "@/services/api";
 import ReactFlow, {
   Node,
   Edge,
@@ -85,6 +85,8 @@ const nodeTypeColors: Record<string, string> = {
   adaptive_learner: "#10b981",
   // Voice System
   premium_voice_tts: "#ec4899",
+  // AI Coordination
+  ai_multi_agent: "#6366f1",
   // Native CRM/ERP
   salesforce: "#00a1e0",
   servicenow: "#81b5a1",
@@ -127,8 +129,12 @@ export default function EnhancedAgentBuilder() {
   const [selectedNode, setSelectedNode] = useState<Node | null>(null);
   const [connectorMetadata, setConnectorMetadata] = useState<any[]>([]);
   const [voiceProfiles, setVoiceProfiles] = useState<any[]>([]);
+  const [availableAgents, setAvailableAgents] = useState<any[]>([]);
   const [showLegend, setShowLegend] = useState(false);
   const [activeTab, setActiveTab] = useState<string>("Basic");
+  const [showCodePanel, setShowCodePanel] = useState(false);
+  const [generatedCode, setGeneratedCode] = useState("");
+  const [selectedNodeCode, setSelectedNodeCode] = useState("");
 
   const PremiumEdge = ({
     id,
@@ -217,12 +223,21 @@ export default function EnhancedAgentBuilder() {
           setVoiceProfiles(data);
         }
       }).catch(err => console.error("Failed to fetch voice profiles", err));
+
+      // Fetch all agents for multi-agent configuration
+      getAgents(token).then(data => {
+        if (Array.isArray(data)) {
+          setAvailableAgents(data);
+        }
+      }).catch(err => console.error("Failed to fetch agents", err));
     }
   }, [token]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const [minimapInteractive, setMinimapInteractive] = useState(false);
+  const [editorTheme, setEditorTheme] = useState("vs-dark");
 
   useEffect(() => {
     if (!isAuthenticated) {
@@ -252,6 +267,7 @@ export default function EnhancedAgentBuilder() {
             nodeType: node.node_type,
             config: node.config,
             backendId: node.id,
+            code: node.config?.generated_code || (node as any).generated_code || "", // Store code in node data
           },
           style: {
             background: nodeTypeColors[node.node_type] || "#6b7280",
@@ -373,10 +389,16 @@ export default function EnhancedAgentBuilder() {
     const node = nodes.find(n => n.id === nodeId);
     if (node?.data?.backendId && token) {
         try {
-            // We need to construct the full config since backend replaces it
             const currentConfig = node.data.config || {};
             const newConfig = { ...currentConfig, ...updates };
-            await updateNode(node.data.backendId, { config: newConfig }, token);
+            const response: any = await updateNode(node.data.backendId, { config: newConfig }, token);
+            if (response?.generated_code) {
+              setNodes(nds => nds.map(n => n.id === nodeId ? { ...n, data: { ...n.data, code: response.generated_code } } : n));
+              if (selectedNode && selectedNode.id === nodeId) {
+                setSelectedNode(prev => prev ? { ...prev, data: { ...prev.data, code: response.generated_code } } : prev);
+              }
+              setSelectedNodeCode((current) => (current ? response.generated_code : current));
+            }
         } catch (err) {
             console.error("Failed to update node config:", err);
         }
@@ -591,6 +613,7 @@ export default function EnhancedAgentBuilder() {
     { type: "ai_function", label: "AI Function", color: nodeTypeColors.ai_function },
     { type: "ai_memory", label: "AI Memory", color: nodeTypeColors.ai_memory },
     { type: "ai_decision", label: "AI Decision", color: nodeTypeColors.ai_decision },
+    { type: "ai_multi_agent", label: "Multi-Agent", color: nodeTypeColors.ai_multi_agent },
     { type: "database", label: "Database", color: nodeTypeColors.database },
     { type: "webhook", label: "Webhook", color: nodeTypeColors.webhook },
     { type: "agent_delegate", label: "Agent Delegate", color: nodeTypeColors.agent_delegate },
@@ -605,6 +628,8 @@ export default function EnhancedAgentBuilder() {
     { type: "ivr_call", label: "IVR Call", color: nodeTypeColors.ivr_call },
   ];
 
+  const codeToShow = selectedNodeCode || selectedNode?.data?.code || "";
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-[#05070f] via-[#0a1020] to-[#05070f] text-white">
       {/* Header */}
@@ -617,7 +642,18 @@ export default function EnhancedAgentBuilder() {
             <h1 className="text-2xl font-bold">{agent.name}</h1>
             <p className="text-white/60 text-sm">{agent.description || "No description"}</p>
           </div>
-          <div className="flex gap-2">
+          <div className="flex gap-2 items-center">
+            <button
+              onClick={() => setMinimapInteractive((v) => !v)}
+              className={`px-3 py-1.5 rounded-lg border transition-all duration-200 flex items-center gap-2 text-xs font-medium ${
+                minimapInteractive 
+                  ? 'bg-sky-500/20 border-sky-500/50 text-sky-400 shadow-[0_0_10px_rgba(14,165,233,0.1)]' 
+                  : 'bg-white/5 border-white/10 text-white/70 hover:bg-white/10'
+              }`}
+            >
+              <div className={`w-2 h-2 rounded-full ${minimapInteractive ? 'bg-sky-400 animate-pulse' : 'bg-white/30'}`} />
+              Interactive Minimap
+            </button>
             <button
               onClick={() => router.push(`/agents/${agentId}/test`)}
               className="px-4 py-2 bg-green-500/20 text-green-300 rounded-lg hover:bg-green-500/30 transition-colors"
@@ -749,7 +785,18 @@ export default function EnhancedAgentBuilder() {
           >
             <Background />
             <Controls />
-            <MiniMap />
+            <MiniMap 
+              maskColor="rgba(56, 189, 248, 0.1)"
+              className={`border-white/10 rounded-md overflow-hidden shadow transition-all duration-300 ${minimapInteractive ? 'advanced-minimap' : ''}`}
+              style={{ 
+                width: minimapInteractive ? 200 : 72, 
+                height: minimapInteractive ? 150 : 54, 
+                background: 'rgba(17, 24, 39, 0.8)',
+                cursor: minimapInteractive ? 'crosshair' : 'default'
+              }}
+              zoomable={minimapInteractive}
+              pannable={minimapInteractive}
+            />
           </ReactFlow>
         </div>
 
@@ -787,7 +834,13 @@ export default function EnhancedAgentBuilder() {
                 {["Basic","Error","Validation","Performance","Monitoring"].map((tab) => (
                   <button
                     key={tab}
-                    onClick={() => setActiveTab(tab)}
+                    onClick={() => {
+                      setActiveTab(tab);
+                      if (tab === "Error") {
+                        setSelectedNodeCode(selectedNode?.data?.code || "");
+                        setShowCodePanel(true);
+                      }
+                    }}
                     className={`flex-1 py-1 text-[10px] rounded ${activeTab===tab ? 'bg-white/10 text-white' : 'text-white/60 hover:text-white'}`}
                   >
                     {tab}
@@ -880,6 +933,42 @@ export default function EnhancedAgentBuilder() {
                       className="w-full px-2 py-1 bg-white/5 border border-white/10 rounded text-xs text-white"
                     />
                   </div>
+
+                  <div className="pt-2 border-t border-white/10">
+                    <button
+                      onClick={() => {
+                        setSelectedNodeCode(selectedNode.data.code || "");
+                        setShowCodePanel(true);
+                      }}
+                      className="w-full flex items-center justify-center space-x-2 px-3 py-2 rounded-lg text-xs font-bold bg-sky-500/10 hover:bg-sky-500/20 text-sky-400 border border-sky-500/20 transition-all"
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <polyline points="16 18 22 12 16 6"></polyline>
+                        <polyline points="8 6 2 12 8 18"></polyline>
+                      </svg>
+                      <span>Show Node Code</span>
+                    </button>
+                  </div>
+                  {showCodePanel && (
+                    <div className="rounded-lg border border-white/10 bg-black/30">
+                      <div className="flex items-center justify-between px-3 py-2 border-b border-white/10">
+                        <span className="text-xs font-semibold text-sky-300">Node Code</span>
+                        <button
+                          onClick={() => setShowCodePanel(false)}
+                          className="text-[10px] text-white/60 hover:text-white"
+                        >
+                          Hide
+                        </button>
+                      </div>
+                      {codeToShow ? (
+                        <pre className="max-h-64 overflow-y-auto p-3 text-[10px] text-sky-200 whitespace-pre-wrap font-mono">
+                          {codeToShow}
+                        </pre>
+                      ) : (
+                        <div className="p-3 text-[10px] text-white/50">No code available for this node.</div>
+                      )}
+                    </div>
+                  )}
                 </div>
               )}
               
@@ -1194,6 +1283,89 @@ export default function EnhancedAgentBuilder() {
                         <option value="4">4 - Max (Text Normalization disabled)</option>
                       </select>
                     </div>
+                  </div>
+                </div>
+              )}
+
+              {selectedNode.data.nodeType === "ai_multi_agent" && (
+                <div className="space-y-4">
+                  <div className="p-3 bg-indigo-500/10 border border-indigo-500/20 rounded-lg">
+                    <p className="text-xs text-indigo-300">
+                      💡 <strong>Multi-Agent:</strong> Orchestrate multiple specialized agents to work together on complex tasks.
+                    </p>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm text-white/70 mb-2">Select Agents to Include</label>
+                    <div className="max-h-60 overflow-y-auto space-y-1 p-2 bg-black/20 rounded-lg border border-white/10 custom-scrollbar">
+                      {availableAgents.length === 0 ? (
+                        <p className="text-xs text-white/40 italic p-2">No agents found.</p>
+                      ) : (
+                        availableAgents.map((agent: any) => {
+                          const agentIds = (selectedNode.data.config?.agent_ids || "")
+                            .split(",")
+                            .map((id: string) => id.trim())
+                            .filter(Boolean);
+                          const isSelected = agentIds.includes(agent.id.toString());
+                          
+                          return (
+                            <label key={agent.id} className="flex items-center gap-2 px-2 py-1.5 hover:bg-white/5 rounded cursor-pointer transition-colors group">
+                              <input
+                                type="checkbox"
+                                checked={isSelected}
+                                onChange={(e) => {
+                                  let newIds;
+                                  if (e.target.checked) {
+                                    newIds = [...agentIds, agent.id.toString()];
+                                  } else {
+                                    newIds = agentIds.filter((id: string) => id !== agent.id.toString());
+                                  }
+                                  const agent_ids = newIds.join(", ");
+                                  const updatedConfig = { 
+                                    ...selectedNode.data.config, 
+                                    agent_ids,
+                                    agents: newIds.map((id: string) => parseInt(id))
+                                  };
+                                  updateNodeConfiguration(selectedNode.id, updatedConfig);
+                                }}
+                                className="w-4 h-4 rounded border-white/20 bg-white/5 text-indigo-500 focus:ring-indigo-500 focus:ring-offset-0 transition-all"
+                              />
+                              <div className="flex flex-col min-w-0">
+                                <span className="text-xs font-medium text-white group-hover:text-indigo-300 transition-colors truncate">{agent.name}</span>
+                                <span className="text-[10px] text-white/40">ID: {agent.id} • {agent.agent_type}</span>
+                              </div>
+                            </label>
+                          );
+                        })
+                      )}
+                    </div>
+                    <p className="text-[10px] text-white/40 mt-2">
+                      Selected: {(selectedNode.data.config?.agent_ids || "").split(",").filter(Boolean).length} agents
+                    </p>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm text-white/70 mb-1">Coordination Strategy</label>
+                    <select
+                      value={selectedNode.data.config?.strategy || "round_robin"}
+                      onChange={(e) => updateNodeConfiguration(selectedNode.id, { strategy: e.target.value })}
+                      className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-xs"
+                    >
+                      <option value="round_robin">Round Robin</option>
+                      <option value="parallel">Parallel (All at once)</option>
+                      <option value="sequential">Sequential (One by one)</option>
+                      <option value="hierarchical">Hierarchical (Leader based)</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm text-white/70 mb-1">Max Iterations</label>
+                    <input
+                      type="number"
+                      value={selectedNode.data.config?.max_iterations || 3}
+                      onChange={(e) => updateNodeConfiguration(selectedNode.id, { max_iterations: parseInt(e.target.value) })}
+                      className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-xs"
+                    />
                   </div>
                 </div>
               )}

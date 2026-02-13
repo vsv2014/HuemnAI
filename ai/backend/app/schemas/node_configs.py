@@ -107,6 +107,13 @@ class HandoffNodeConfig(BaseNodeConfig):
     timeout_seconds: int = Field(300, description="Max time to wait in queue")
     timeout_action: str = Field("voicemail", description="Action on timeout: voicemail, callback, end_call")
 
+class AiMultiAgentConfig(BaseNodeConfig):
+    agent_ids: Optional[str] = Field(None, description="Comma-separated list of agent IDs")
+    agents: Optional[List[int]] = Field(default_factory=list, description="List of agent IDs to include")
+    strategy: str = Field("round_robin", description="Coordination strategy: round_robin, parallel, sequential, hierarchical")
+    max_iterations: int = Field(3, description="Maximum number of coordination iterations")
+    goal: Optional[str] = Field(None, description="Global goal for the multi-agent coordination")
+
 # Register configurations
 register_node_config("start", StartNodeConfig)
 register_node_config("entity", EntityNodeConfig)
@@ -120,3 +127,4 @@ register_node_config("calendar", CalendarConfig)
 register_node_config("streaming", StreamingConfig)
 register_node_config("event_trigger", EventTriggerNodeConfig)
 register_node_config("handoff", HandoffNodeConfig)
+register_node_config("ai_multi_agent", AiMultiAgentConfig)

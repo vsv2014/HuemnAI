@@ -10,12 +10,19 @@ from app.services.status_service import get_agent_status, get_all_agents_status,
 from app.services.agent_router import select_best_agent
 from app.api.auth import get_current_user
 from app.db.models.subscription import UserAccount
+from app.utils.subscription import consume_tool_tokens
 import logging
 import time
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter()
+def require_ticket_assigner_access(
+    user: UserAccount = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    consume_tool_tokens(db, user, "ticket_assigner", 1)
+
+router = APIRouter(dependencies=[Depends(require_ticket_assigner_access)])
 
 
 class AssignTicketPayload(BaseModel):

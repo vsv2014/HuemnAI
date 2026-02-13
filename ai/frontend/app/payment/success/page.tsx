@@ -9,6 +9,7 @@ export default function PaymentSuccessPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const sessionId = searchParams.get("session_id");
+  const isMock = searchParams.get("mock") === "true";
   const [countdown, setCountdown] = useState(5);
 
   useEffect(() => {

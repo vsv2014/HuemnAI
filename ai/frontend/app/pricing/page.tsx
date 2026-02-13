@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { getSubscriptionPlans, subscribe } from "@/services/api";
+import { getSubscriptionPlans, subscribe, changePlan, createBillingPortalSession, getStripeHealth } from "@/services/api";
 import { useAuthStore } from "@/store/authStore";
 
 interface Plan {
@@ -22,11 +22,13 @@ interface Plan {
 
 export default function PricingPage() {
   const router = useRouter();
-  const { token, isAuthenticated, subscriptionStatus, trialDaysRemaining, updateSubscriptionStatus, logout } = useAuthStore();
+  const { token, isAuthenticated, subscriptionStatus, trialDaysRemaining, updateSubscriptionStatus, logout, currentPlan } = useAuthStore();
   const [plans, setPlans] = useState<Plan[]>([]);
   const [loading, setLoading] = useState(true);
   const [subscribing, setSubscribing] = useState<number | null>(null);
   const [error, setError] = useState("");
+  const [managingBilling, setManagingBilling] = useState(false);
+  const [stripeHealth, setStripeHealth] = useState<{ configured: boolean; mode: string; webhook_configured: boolean; bypass_subscription: boolean } | null>(null);
 
   useEffect(() => {
     if (!isAuthenticated) {
@@ -49,6 +51,14 @@ export default function PricingPage() {
       } else {
         setError("Failed to load pricing plans. Please check if the backend is running.");
       }
+      if (token) {
+        const health = await getStripeHealth(token);
+        if (health && !health.error) {
+          setStripeHealth(health);
+        } else {
+          setStripeHealth(null);
+        }
+      }
     } catch (err: any) {
       console.error("Error loading plans:", err);
       setError("Failed to load pricing plans. Please ensure the backend is running on port 8000.");
@@ -70,7 +80,9 @@ export default function PricingPage() {
 
     try {
       console.log("Calling subscribe API...");
-      const response = await subscribe(planId, billingPeriod, token);
+      const response = subscriptionStatus === "active"
+        ? await changePlan(planId, billingPeriod, token)
+        : await subscribe(planId, billingPeriod, token);
       console.log("Subscribe API response:", response);
       
       if (response.error) {
@@ -104,12 +116,33 @@ export default function PricingPage() {
         );
       }
       
-      router.push("/payment/success");
+      if (subscriptionStatus === "active") {
+        router.push("/pricing");
+      } else {
+        router.push("/payment/success");
+      }
     } catch (err: any) {
       console.error("Subscription error:", err);
       alert("Subscription failed: " + (err.message || "Unknown error"));
       setError(err.message || "Subscription failed");
       setSubscribing(null);
+    }
+  };
+
+  const handleManageBilling = async () => {
+    if (!token) {
+      router.push("/auth/login");
+      return;
+    }
+    setManagingBilling(true);
+    const res: any = await createBillingPortalSession(token);
+    setManagingBilling(false);
+    if (res?.error) {
+      setError(res.error || "Failed to open billing portal");
+      return;
+    }
+    if (res?.portal_url) {
+      window.location.href = res.portal_url;
     }
   };
 
@@ -132,15 +165,41 @@ export default function PricingPage() {
           <p className="text-xl text-white/60 mb-6">
             Start with a 14-day free trial. 50% off your first subscription!
           </p>
-          <p className="text-sm text-white/40 mb-4">
-            💡 <strong>Note:</strong> Subscription checks are currently disabled for development/testing.
-          </p>
+          {subscriptionStatus === "active" && (
+            <div className="mt-4 flex items-center justify-center gap-3">
+              <button
+                onClick={handleManageBilling}
+                disabled={managingBilling}
+                className="px-4 py-2 rounded-lg text-sm font-semibold bg-white/10 text-white hover:bg-white/20 transition-all disabled:opacity-50"
+              >
+                {managingBilling ? "Opening Billing..." : "Manage Billing"}
+              </button>
+            </div>
+          )}
           
           {subscriptionStatus === "trial" && trialDaysRemaining !== null && (
             <div className="inline-block px-6 py-3 bg-blue-500/10 border border-blue-500/30 rounded-lg">
               <p className="text-blue-300 font-semibold">
                 🎉 Free Trial Active: {trialDaysRemaining} days remaining
               </p>
+            </div>
+          )}
+          {stripeHealth && (
+            <div className={`mt-4 inline-flex items-center gap-3 px-5 py-2 rounded-lg border ${
+              stripeHealth.configured ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-300" : "bg-red-500/10 border-red-500/30 text-red-300"
+            }`}>
+              <span className="text-sm font-semibold">
+                Stripe {stripeHealth.configured ? "Connected" : "Not Configured"}
+              </span>
+              <span className="text-xs text-white/60">
+                {stripeHealth.configured ? `${stripeHealth.mode.toUpperCase()} mode` : "Using mock checkout flow"}
+              </span>
+              {!stripeHealth.webhook_configured && stripeHealth.configured && (
+                <span className="text-xs text-amber-300">Webhook missing</span>
+              )}
+              {stripeHealth.bypass_subscription && (
+                <span className="text-xs text-purple-300">Subscription bypass ON</span>
+              )}
             </div>
           )}
         </div>
@@ -153,7 +212,14 @@ export default function PricingPage() {
 
         {/* Pricing Cards */}
         <div className="grid md:grid-cols-3 gap-8 max-w-6xl mx-auto">
-          {plans.map((plan) => (
+          {plans.map((plan) => {
+            const isCurrentPlan = subscriptionStatus === "active" && currentPlan?.id === plan.id;
+            const currentPlanData = plans.find((p) => p.id === currentPlan?.id);
+            const currentPlanPrice = currentPlanData?.price_monthly || 0;
+            const planPrice = plan.price_monthly || 0;
+            const changeLabel = planPrice > currentPlanPrice ? "Upgrade" : "Downgrade";
+            const ctaLabel = isCurrentPlan ? "Switch Billing" : changeLabel;
+            return (
             <div
               key={plan.id}
               className={`bg-white/5 backdrop-blur-xl rounded-2xl p-8 border relative z-10 ${
@@ -273,7 +339,9 @@ export default function PricingPage() {
                     >
                       {subscribing === plan.id
                         ? "Processing..."
-                        : `Subscribe Monthly - $${plan.price_monthly?.toFixed(2) || "0.00"}/mo`}
+                        : subscriptionStatus === "active"
+                          ? `${ctaLabel} Monthly - $${plan.price_monthly?.toFixed(2) || "0.00"}/mo`
+                          : `Subscribe Monthly - $${plan.price_monthly?.toFixed(2) || "0.00"}/mo`}
                     </button>
                     <button
                       onClick={(e) => {
@@ -285,13 +353,15 @@ export default function PricingPage() {
                     >
                       {subscribing === plan.id
                         ? "Processing..."
-                        : `Subscribe Yearly - Save ${plan.discount}%`}
+                        : subscriptionStatus === "active"
+                          ? `${ctaLabel} Yearly`
+                          : `Subscribe Yearly - Save ${plan.discount}%`}
                     </button>
                   </>
                 )}
               </div>
             </div>
-          ))}
+          )})}
         </div>
 
         {/* FAQ Section */}
@@ -322,4 +392,3 @@ export default function PricingPage() {
     </div>
   );
 }
-

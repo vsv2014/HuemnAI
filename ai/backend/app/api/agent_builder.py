@@ -1,7 +1,12 @@
-from fastapi import APIRouter, HTTPException, BackgroundTasks
+from fastapi import APIRouter, HTTPException, BackgroundTasks, Depends
 from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
 from app.llm.registry import get_available_llm
+from app.api.auth import get_current_user
+from app.db.models.subscription import UserAccount
+from app.db.session import get_db
+from app.utils.subscription import consume_tool_tokens
+from sqlalchemy.orm import Session
 import logging
 import sys
 import io
@@ -30,11 +35,16 @@ class ExecuteResponse(BaseModel):
     error: Optional[str] = None
 
 @router.post("/generate", response_model=GenerateResponse)
-async def generate_agent_code(request: GenerateRequest):
+async def generate_agent_code(
+    request: GenerateRequest,
+    user: UserAccount = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
     """
     Generate agent code based on a natural language prompt using the configured LLM.
     """
     try:
+        consume_tool_tokens(db, user, "agent_builder", 1)
         llm = get_available_llm()
         if not llm:
             raise HTTPException(status_code=500, detail="No LLM provider configured")
@@ -178,7 +188,11 @@ def run_agent(input_text: str) -> str:
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/execute", response_model=ExecuteResponse)
-async def execute_agent_code(request: ExecuteRequest):
+async def execute_code(
+    request: ExecuteRequest,
+    user: UserAccount = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
     """
     Execute the generated agent code with the provided input.
     """
@@ -190,6 +204,7 @@ async def execute_agent_code(request: ExecuteRequest):
     error = None
     
     try:
+        consume_tool_tokens(db, user, "agent_builder", 1)
         # Create a restricted global namespace
         # We allow standard builtins but could restrict further if needed
         global_scope = {

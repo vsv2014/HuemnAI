@@ -28,14 +28,6 @@ export default function AppSidebar({ agentId }: { agentId: number }) {
 
   const sections: SidebarSection[] = [
     {
-      id: "main-tool",
-      label: "Main Tool",
-      icon: "🏗️",
-      items: [
-        { id: "builder", label: "Agent Builder", icon: "💻", path: `/agent-builder` },
-      ],
-    },
-    {
       id: "virtual-assistant",
       label: "Virtual Assistant",
       icon: "🤖",
@@ -215,13 +207,13 @@ export default function AppSidebar({ agentId }: { agentId: number }) {
       <div className="h-full overflow-y-auto pb-20 scrollbar-thin scrollbar-thumb-white/10 scrollbar-track-transparent">
         {/* Logo/Header */}
         {!collapsed && (
-          <div className="p-4 border-b border-white/10 bg-gradient-to-r from-blue-500/10 to-purple-500/10">
+          <Link href="/" className="block p-4 border-b border-white/10 bg-gradient-to-r from-blue-500/10 to-purple-500/10 hover:from-blue-500/20 hover:to-purple-500/20 transition-all duration-300 group">
             <div className="flex items-center gap-2">
-              <div className="w-8 h-8 bg-gradient-to-br from-blue-500 to-purple-500 rounded-lg flex items-center justify-center">
+              <div className="w-8 h-8 bg-gradient-to-br from-blue-500 to-purple-500 rounded-lg flex items-center justify-center group-hover:scale-110 transition-transform">
                 <span className="text-white text-sm font-bold">AI</span>
               </div>
               <h2 className="text-lg font-bold flex items-center">
-                <span className="bg-gradient-to-r from-white to-white/70 bg-clip-text text-transparent">HUEMN</span>
+                <span className="bg-gradient-to-r from-white to-white/70 bg-clip-text text-transparent group-hover:text-white transition-colors">HUEMN</span>
                 <span className="inline-flex items-baseline ml-0.5">
                   <span className="animate-rainbow-text">.A</span>
                   <span className="relative animate-rainbow-text">
@@ -233,7 +225,7 @@ export default function AppSidebar({ agentId }: { agentId: number }) {
                 </span>
               </h2>
             </div>
-          </div>
+          </Link>
         )}
 
         {/* Navigation Sections */}
@@ -299,4 +291,3 @@ export default function AppSidebar({ agentId }: { agentId: number }) {
     </div>
   );
 }
-

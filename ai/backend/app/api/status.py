@@ -1,5 +1,5 @@
 # app/api/status.py
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 from typing import List, Dict, Any
 from app.services.status_service import (
@@ -9,7 +9,11 @@ from app.services.status_service import (
     record_activity,
     get_all_agents_status
 )
-from app.db.session import ping_database
+from app.db.session import ping_database, get_db
+from app.api.auth import get_current_user
+from app.db.models.subscription import UserAccount
+from app.utils.subscription import consume_tool_tokens
+from sqlalchemy.orm import Session
 
 router = APIRouter()
 
@@ -24,11 +28,16 @@ class ActivityPayload(BaseModel):
 
 
 @router.post("/")
-async def set_status(payload: StatusPayload):
+async def set_status(
+    payload: StatusPayload,
+    user: UserAccount = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
     """
     Update agent status (online, busy, away, offline).
     Part of the Status Updater tool.
     """
+    consume_tool_tokens(db, user, "status_updater", 1)
     update_status(payload.user_id, payload.status)
     return {
         "updated": True,

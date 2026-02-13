@@ -304,6 +304,14 @@ export default function VoiceStudio() {
   }, [isAuthenticated, token]);
 
   useEffect(() => {
+    if (!token) return;
+    const interval = setInterval(() => {
+      startToolSession("voice_studio", token).catch(() => {});
+    }, 5 * 60 * 1000);
+    return () => clearInterval(interval);
+  }, [token]);
+
+  useEffect(() => {
     if (toast) {
       const timer = setTimeout(() => setToast(null), 3000);
       return () => clearTimeout(timer);

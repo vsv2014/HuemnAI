@@ -1,8 +1,10 @@
-from fastapi import APIRouter, WebSocket, HTTPException, UploadFile, File
+from fastapi import APIRouter, WebSocket, HTTPException, UploadFile, File, Form, Depends
 from pydantic import BaseModel
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 import asyncio
+import json
 from app.orchestrator.planner.planner import build_plan
+from app.orchestrator.planner.planner import generate_followups, generate_tailored_followups, extract_initial_answers
 from app.orchestrator.executor.executor import StepExecutor
 from app.orchestrator.bot_engine.engine import FlowCompiler, RuntimeEngine
 from app.orchestrator.sandbox.runner import SandboxRunner
@@ -10,6 +12,24 @@ from app.orchestrator.memory.store import MemoryStore
 from app.services.socket_manager import manager
 from app.gateway import sync_router as sync_mod
 from app.llm.registry import get_available_llm
+import re
+import urllib.request
+import urllib.parse
+import time
+from datetime import datetime
+from sqlalchemy.orm import Session
+from app.db.session import SessionLocal, get_db
+from app.db.models.scheduled_task import ScheduledTask, TaskStatus
+from app.db.models.agent import Agent
+from app.api.auth import get_current_user
+from app.db.models.subscription import UserAccount
+from app.utils.subscription import consume_tool_tokens
+
+def require_agent_builder_access(
+    user: UserAccount = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    consume_tool_tokens(db, user, "agent_builder", 1)
 
 router = APIRouter()
 
@@ -22,6 +42,7 @@ class PlanResponse(BaseModel):
     plan: Dict[str, Any]
     flow: Dict[str, Any]
     code: Optional[str] = None
+    questions: Optional[list] = None
 
 class ExecuteRequest(BaseModel):
     session_id: str
@@ -38,8 +59,67 @@ class CodeResponse(BaseModel):
     status: str
     returncode: Optional[int] = None
 
+class ClarifyRequest(BaseModel):
+    session_id: str
+    answers: Dict[str, Any]
 
-@router.post("/prompt", response_model=PlanResponse)
+class ClarifyResponse(BaseModel):
+    session_id: str
+    plan: Dict[str, Any]
+    flow: Dict[str, Any]
+    code: Optional[str] = None
+
+class ChargeRequest(BaseModel):
+    session_id: Optional[str] = None
+    amount: float
+    currency: str = "USD"
+    method: str = "card"
+    customer_name: Optional[str] = None
+    phone_number: Optional[str] = None
+
+class ChargeResponse(BaseModel):
+    status: str
+    transaction_id: str
+    amount: float
+    currency: str
+    method: str
+    customer_name: Optional[str] = None
+    phone_number: Optional[str] = None
+ 
+class ChatRequest(BaseModel):
+    session_id: str
+    message: str
+
+class MediaItem(BaseModel):
+    name: str
+    content_type: str
+    size: int
+    url: str
+
+class MediaListResponse(BaseModel):
+    session_id: str
+    assets: List[MediaItem]
+
+class ScheduleItem(BaseModel):
+    id: str
+    title: str
+    due_ts: int
+    notes: Optional[str] = None
+    metadata: Optional[Dict[str, Any]] = None
+
+class ScheduleAddRequest(BaseModel):
+    session_id: str
+    title: str
+    due_ts: int
+    notes: Optional[str] = None
+    metadata: Optional[Dict[str, Any]] = None
+
+class ScheduleListResponse(BaseModel):
+    session_id: str
+    tasks: List[ScheduleItem]
+
+
+@router.post("/prompt", response_model=PlanResponse, dependencies=[Depends(require_agent_builder_access)])
 async def prompt(req: PromptRequest):
     session_id = MemoryStore.new_session()
     plan = await build_plan(req.prompt)
@@ -55,28 +135,33 @@ async def prompt(req: PromptRequest):
         code_lines.append("    return ctx")
         code_lines.append("")
     code_lines.append("def run(ctx):")
-    code_lines.append("    ctx = analyze(ctx)")
-    code_lines.append("    ctx = plan(ctx)")
-    if any(s.get("id") == "codegen" for s in plan.get("steps", [])):
-        code_lines.append("    ctx = codegen(ctx)")
-    code_lines.append("    ctx = execute(ctx)")
-    code_lines.append("    ctx = validate(ctx)")
-    code_lines.append("    ctx = respond(ctx)")
+    for s in plan.get("steps", []):
+        code_lines.append(f"    ctx = {s['id']}(ctx)")
     code_lines.append("    return ctx")
     code = "\n".join(code_lines)
 
     # Enrich flow nodes with data and code_ref
     enriched_nodes = []
     for n in flow.get("nodes", []):
-        data = {"label": n.get("label"), "id": n.get("id")}
+        data = {**(n.get("data") or {}), "label": n.get("label"), "id": n.get("id")}
         if n.get("id") in [s["id"] for s in plan.get("steps", [])]:
             data["code_ref"] = {"file": "system_core.py", "symbols": [n.get("id")]}
         enriched_nodes.append({**n, "data": data})
     flow = {"nodes": enriched_nodes, "edges": flow.get("edges", [])}
-
+    flow = {"nodes": enriched_nodes, "edges": flow.get("edges", [])}
     # Persist session
-    await MemoryStore.save_session(session_id, {"prompt": req.prompt, "plan": plan, "flow": flow, "code": code})
-    MemoryStore.audit("prompt_plan", {"session_id": session_id, "plan": plan})
+    # Prefill answers from freeform prompt to avoid re-asking already provided details
+    prefilled = extract_initial_answers(req.prompt)
+    await MemoryStore.save_session(session_id, {"prompt": req.prompt, "plan": plan, "flow": flow, "code": code, "answers": prefilled})
+    # If the user started with a greeting or very short message, do not ask business questions yet
+    p = (req.prompt or "").strip().lower()
+    greet_terms = ["hi", "hello", "hey", "yo", "sup", "good morning", "good afternoon", "good evening", "namaste", "hola"]
+    is_greeting = (p in greet_terms) or (len(p.split()) < 4 and any(t in p for t in greet_terms))
+    followups = [] if is_greeting else await generate_followups(req.prompt)
+    # Filter out questions that are already answered
+    if followups and prefilled:
+        followups = [q for q in followups if q.get("key") not in prefilled]
+    await MemoryStore.save_session(session_id, {"prompt": req.prompt, "plan": plan, "flow": flow, "code": code, "questions": followups})
 
     async def stream_build():
         try:
@@ -121,31 +206,64 @@ async def prompt(req: PromptRequest):
                 g = sync_mod._graphs[session_id]
             llm = get_available_llm()
             has_codegen = any(s.get("id") == "codegen" for s in plan.get("steps", []))
-            sys = "Write a Python module with functions analyze(ctx), plan(ctx), " + ("codegen(ctx), " if has_codegen else "") + "execute(ctx), validate(ctx), respond(ctx). Use the user's prompt to implement useful logic and update ctx. Output only code, no explanations."
+            sys = (
+                "Write a Python module that implements an Autonomous Task Orchestrator. "
+                "Functions: goal_detection(ctx), task_decomposition(ctx), workflow_generation(ctx), execution_engine(ctx), adaptive_reasoning(ctx), integration(ctx), memory_context(ctx), quality_control(ctx), goal_completion(ctx)"
+                + (", codegen(ctx)" if has_codegen else "")
+                + ". Each function must collect inputs, validate, execute, verify, log, and update ctx. "
+                "Avoid placeholders; implement minimal real logic in pure Python using ctx dict. "
+                "Output only code with these functions and a run(ctx) chaining them. No explanations."
+            )
             msgs = [{"role": "system", "content": sys}, {"role": "user", "content": req.prompt}]
             buf = ""
             i = 0
             async for t in llm.stream(message=req.prompt, messages=msgs, model=None):
                 buf += t
                 i += 1
+                try:
+                    await manager.send_json({"event": "llm_token", "data": {"t": t}}, client_id=session_id)
+                except Exception:
+                    pass
                 if i % 8 == 0:
                     await g.set_code("system_core.py", buf)
                     await asyncio.sleep(0.01)
+            try:
+                await manager.send_json({"event": "console", "data": {"line": "LLM code generation complete"}}, client_id=session_id)
+            except Exception:
+                pass
             # Finalize: ensure required functions exist even if LLM returned partial code
-            required = ["analyze", "plan"]
+            required = ["goal_detection", "task_decomposition", "workflow_generation", "execution_engine", "adaptive_reasoning", "integration", "memory_context", "quality_control", "goal_completion"]
             if has_codegen:
                 required.append("codegen")
-            required += ["execute", "validate", "respond"]
             final_buf = buf
             for fn in required:
                 if f"def {fn}(" not in final_buf:
-                    final_buf += f"\n\ndef {fn}(ctx):\n    print('Step {fn} running')\n    return ctx\n"
+                    final_buf += (
+                        f"\n\ndef {fn}(ctx):\n"
+                        f"    ctx = ctx or {{}}\n"
+                        f"    logs = ctx.setdefault('logs', [])\n"
+                        f"    state = ctx.setdefault('state', {{}})\n"
+                        f"    step = '{fn}'\n"
+                        f"    inputs = (ctx.get('inputs') or {{}}).get(step, {{}})\n"
+                        f"    state.setdefault(step, {{}})['inputs'] = inputs\n"
+                        f"    validated = True\n"
+                        f"    if isinstance(inputs, dict):\n"
+                        f"        validated = all(v is not None for v in inputs.values())\n"
+                        f"    state[step]['validated'] = validated\n"
+                        f"    import time\n"
+                        f"    state[step]['executed_at'] = time.time()\n"
+                        f"    verified = bool(validated)\n"
+                        f"    state[step]['verified'] = verified\n"
+                        f"    status = 'done' if verified else 'needs_input'\n"
+                        f"    state[step]['status'] = status\n"
+                        f"    logs.append(f\"{{step}}: status={{status}}, validated={{validated}}, verified={{verified}}\")\n"
+                        f"    return ctx\n"
+                    )
             if "def run(" not in final_buf:
-                chain = "    ctx = analyze(ctx)\n    ctx = plan(ctx)\n"
+                chain = "    ctx = goal_detection(ctx)\n    ctx = task_decomposition(ctx)\n    ctx = workflow_generation(ctx)\n    ctx = execution_engine(ctx)\n    ctx = adaptive_reasoning(ctx)\n    ctx = integration(ctx)\n    ctx = memory_context(ctx)\n    ctx = quality_control(ctx)\n    ctx = goal_completion(ctx)\n"
                 if has_codegen:
                     chain += "    ctx = codegen(ctx)\n"
-                chain += "    ctx = execute(ctx)\n    ctx = validate(ctx)\n    ctx = respond(ctx)\n    return ctx\n"
-                final_buf += "\n\ndef run(ctx):\n" + chain
+                final_buf += "\n\ndef run(ctx):\n" + chain + "    return ctx\n"
             await g.set_code("system_core.py", final_buf)
         except Exception:
             try:
@@ -158,16 +276,20 @@ async def prompt(req: PromptRequest):
                     buf += line + "\n"
                     await g.set_code("system_core.py", buf)
                     await asyncio.sleep(0.02)
+                try:
+                    await manager.send_json({"event": "console", "data": {"line": "LLM unavailable, seeded starter code"}}, client_id=session_id)
+                except Exception:
+                    pass
             except Exception:
                 return
     asyncio.create_task(stream_llm_code())
-    return {"session_id": session_id, "plan": plan, "flow": flow, "code": code}
+    return {"session_id": session_id, "plan": plan, "flow": flow, "code": code, "questions": followups}
 
 
 
 
 
-@router.post("/execute", response_model=ExecuteResponse)
+@router.post("/execute", response_model=ExecuteResponse, dependencies=[Depends(require_agent_builder_access)])
 async def execute(req: ExecuteRequest):
     session = await MemoryStore.get_session(req.session_id)
     if not session:
@@ -178,7 +300,7 @@ async def execute(req: ExecuteRequest):
     return result
 
 
-@router.post("/run-code", response_model=CodeResponse)
+@router.post("/run-code", response_model=CodeResponse, dependencies=[Depends(require_agent_builder_access)])
 async def run_code(req: CodeRequest):
     runner = SandboxRunner(req.session_id)
     result = await runner.run_python(req.code)
@@ -195,7 +317,474 @@ async def console_ws(ws: WebSocket, session_id: str):
     except Exception:
         manager.disconnect(ws, client_id=session_id)
 
-@router.post("/export")
+@router.post("/clarify", response_model=ClarifyResponse, dependencies=[Depends(require_agent_builder_access)])
+async def clarify(req: ClarifyRequest):
+    session = await MemoryStore.get_session(req.session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    prompt = session.get("prompt") or ""
+    answers_text = json.dumps(req.answers, ensure_ascii=False)
+    refined_input = f"{prompt}\nAnswers:{answers_text}"
+    plan = await build_plan(refined_input)
+    flow = FlowCompiler().compile(plan)
+    code_lines = []
+    code_lines.append("# Auto-generated by Orchestrator")
+    code_lines.append("")
+    for s in plan.get("steps", []):
+        fn = s["id"]
+        code_lines.append(f"def {fn}(ctx):")
+        code_lines.append(f"    print('Step {fn} running')")
+        code_lines.append("    return ctx")
+        code_lines.append("")
+    code_lines.append("def run(ctx):")
+    for s in plan.get("steps", []):
+        code_lines.append(f"    ctx = {s['id']}(ctx)")
+    code_lines.append("    return ctx")
+    code = "\n".join(code_lines)
+    enriched_nodes = []
+    for n in flow.get("nodes", []):
+        data = {**(n.get("data") or {}), "label": n.get("label"), "id": n.get("id")}
+        if n.get("id") in [s["id"] for s in plan.get("steps", [])]:
+            data["code_ref"] = {"file": "system_core.py", "symbols": [n.get("id")]}
+        enriched_nodes.append({**n, "data": data})
+    flow = {"nodes": enriched_nodes, "edges": flow.get("edges", [])}
+    next_questions = await generate_tailored_followups(prompt, req.answers)
+    plan_summary = await generate_plan_summary(prompt, req.answers)
+    await MemoryStore.save_session(req.session_id, {"prompt": prompt, "plan": plan, "flow": flow, "code": code, "answers": req.answers, "questions": next_questions, "plan_summary": plan_summary})
+    try:
+        g = sync_mod._graphs.get(req.session_id)
+        if not g:
+            sync_mod._graphs[req.session_id] = sync_mod.UnifiedGraph(req.session_id)
+            g = sync_mod._graphs[req.session_id]
+        init_nodes = [
+            {
+                "id": n["id"],
+                "type": n["type"],
+                "position": {"x": n["x"], "y": n["y"]},
+                "data": n.get("data", {}),
+            }
+            for n in flow["nodes"]
+        ]
+        init_edges = [
+            {"id": e["id"], "source": e["source"], "target": e["target"]}
+            for e in flow.get("edges", [])
+        ]
+        await g.set_nodes(init_nodes)
+        await g.set_edges(init_edges)
+        for n in flow["nodes"]:
+            await g.patch_node(n["id"], {"id": n["id"], "type": n["type"], "position": {"x": n["x"], "y": n["y"]}, "data": n.get("data", {})})
+        for e in flow.get("edges", []):
+            await g.patch_edge({"id": e["id"], "source": e["source"], "target": e["target"]})
+    except Exception:
+        pass
+    try:
+        s = await MemoryStore.get_session(req.session_id) or {}
+        chat = s.get("chat", [])
+        chat.append({"role": "assistant", "text": plan_summary})
+        await MemoryStore.save_session(req.session_id, {**s, "chat": chat})
+        await manager.send_json({"event": "console", "data": {"line": "Plan generated"}}, client_id=req.session_id)
+    except Exception:
+        pass
+    return {"session_id": req.session_id, "plan": plan, "flow": flow, "code": code, "questions": next_questions}
+
+
+@router.post("/payment/charge", response_model=ChargeResponse, dependencies=[Depends(require_agent_builder_access)])
+async def charge(req: ChargeRequest):
+    # Development-mode lightweight payment simulation
+    txid = f"tx_{int(asyncio.get_event_loop().time() * 100000)}"
+    MemoryStore.audit("payment_charge", {
+        "session_id": req.session_id,
+        "amount": req.amount,
+        "currency": req.currency,
+        "method": req.method,
+        "customer_name": req.customer_name,
+        "phone_number": req.phone_number,
+        "transaction_id": txid
+    })
+    return {
+        "status": "success",
+        "transaction_id": txid,
+        "amount": req.amount,
+        "currency": req.currency,
+        "method": req.method,
+        "customer_name": req.customer_name,
+        "phone_number": req.phone_number
+    }
+
+@router.post("/chat", dependencies=[Depends(require_agent_builder_access)])
+async def chat(req: ChatRequest):
+    # Append user message to session chat history
+    session = await MemoryStore.get_session(req.session_id) or {}
+    chat = session.get("chat", [])
+    chat.append({"role": "user", "text": req.message})
+    await MemoryStore.save_session(req.session_id, {**session, "chat": chat})
+    async def stream_chat():
+        try:
+            llm = get_available_llm()
+            # Build messages from history
+            msgs = [{"role": m["role"], "content": m["text"]} for m in chat]
+            # Constrain replies to the current bot flow/usecase
+            plan = session.get("plan") or {}
+            flow = session.get("flow") or {}
+            answers = session.get("answers") or {}
+            steps = [s.get("id") for s in (plan.get("steps") or [])]
+            node_labels = [n.get("label") for n in (flow.get("nodes") or [])]
+            edges = [{"source": e.get("source"), "target": e.get("target")} for e in (flow.get("edges") or [])]
+            sys = (
+                "You are an Autonomous Universal Task Orchestrator and Execution Agent. "
+                "Detect goals, decompose tasks, generate dynamic workflows, execute, verify, and adapt. "
+                "Do not act like a chatbot; communicate proactively and strategically. "
+                f"Steps: {steps}. Nodes: {node_labels}. Edges: {edges}. Answers: {json.dumps(answers, ensure_ascii=False)}. "
+                "If core inputs (usecase_description, business_type, country) exist, produce a concrete researched plan now with providers, steps, timeline, and costs. "
+                "If information is missing, ask targeted questions only for critical blockers. "
+                "Proceed only with validated steps and real actions; avoid hallucinations. "
+                "Do not suggest visiting external websites or third-party tools; build and integrate capabilities directly."
+            )
+            msgs.insert(0, {"role": "system", "content": sys})
+            assistant_buf = ""
+            async for t in llm.stream(message=req.message, messages=msgs, model=None):
+                assistant_buf += t
+                try:
+                    await manager.send_json({"event": "llm_token", "data": {"t": t}}, client_id=req.session_id)
+                except Exception:
+                    pass
+            # Deterministic fallback if the reply is empty or too generic
+            if not assistant_buf or len(assistant_buf.strip()) < 10:
+                missing = []
+                required_keys = ["usecase_description", "business_type", "country"]
+                for k in required_keys:
+                    if not answers.get(k):
+                        missing.append(k)
+                summary = "Agent plan prepared."
+                if steps:
+                    summary += f" Steps: {', '.join(steps)}."
+                if missing:
+                    ask = []
+                    if "usecase_description" in missing:
+                        ask.append("describe your usecase briefly")
+                    if "business_type" in missing:
+                        ask.append("tell me your business (restaurant/retail/ecommerce/healthcare/finance/travel/education/logistics)")
+                    if "country" in missing:
+                        ask.append("your operating country")
+                    assistant_buf = "To proceed, please " + ", ".join(ask) + "."
+                else:
+                    assistant_buf = summary + " I will now tailor questions for the next configuration steps."
+            # Save assistant reply
+            session2 = await MemoryStore.get_session(req.session_id) or {}
+            chat2 = session2.get("chat", chat)
+            assistant_buf = f"Building the automation bot end-to-end here. No external websites required.\n\n{assistant_buf}"
+            chat2.append({"role": "assistant", "text": assistant_buf})
+            await MemoryStore.save_session(req.session_id, {**session2, "chat": chat2})
+            try:
+                await manager.send_json({"event": "console", "data": {"line": "Assistant replied"}}, client_id=req.session_id)
+                city = _extract_city(req.message)
+                if city:
+                    topic = f"{city} picnic spots parks gardens lakes"
+                    imgs = await _wiki_thumbnails(topic)
+                    for it in imgs:
+                        try:
+                            await manager.send_json({"event": "image", "data": {"title": it["title"], "url": it["thumbnail"]}}, client_id=req.session_id)
+                        except Exception:
+                            pass
+                # Auto-schedule daily run if user asked for it (e.g., "daily at 7am")
+                try:
+                    m_low = (req.message or "").lower()
+                    wants_daily = any(k in m_low for k in ["daily", "every day", "each day"])
+                    time_pat = re.search(r"\b(?:at\s*)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\b", m_low)
+                    if wants_daily and time_pat:
+                        hh = int(time_pat.group(1))
+                        mm = int(time_pat.group(2) or "0")
+                        ampm = (time_pat.group(3) or "").lower()
+                        if ampm == "pm" and hh < 12:
+                            hh += 12
+                        if ampm == "am" and hh == 12:
+                            hh = 0
+                        hhmm = f"{hh:02d}:{mm:02d}"
+                        db: Session = SessionLocal()
+                        try:
+                            agent = db.query(Agent).filter(Agent.name == "Daily Orchestrator").first()
+                            if not agent:
+                                agent = Agent(name="Daily Orchestrator", description="System Orchestrator for daily runs", is_active=True)
+                                db.add(agent)
+                                db.commit()
+                                db.refresh(agent)
+                            st = ScheduledTask(
+                                agent_id=agent.id,
+                                task_type="orchestrator_run",
+                                name="Daily Orchestrator Run",
+                                description="Auto-run orchestrator plan daily",
+                                scheduled_time=datetime.utcnow(),
+                                recurrence=f"at {hhmm}",
+                                status=TaskStatus.PENDING,
+                                payload={"session_id": req.session_id}
+                            )
+                            db.add(st)
+                            db.commit()
+                            # mirror into session-local tasks for UI
+                            s = await MemoryStore.get_session(req.session_id) or {}
+                            tasks = s.get("scheduled_tasks", [])
+                            tasks.append({"id": f"db_{st.id}", "title": f"Daily at {hhmm}", "due_ts": int(time.time()), "notes": "Daily run scheduled", "metadata": {"recurrence": f"at {hhmm}"}})
+                            await MemoryStore.save_session(req.session_id, {**s, "scheduled_tasks": tasks})
+                            await manager.send_json({"event": "console", "data": {"line": f"Daily run scheduled at {hhmm}"}}, client_id=req.session_id)
+                        finally:
+                            db.close()
+                except Exception:
+                    pass
+                
+            except Exception:
+                pass
+        except Exception:
+            try:
+                # Fallback assistant reply based on current session context
+                answers = session.get("answers") or {}
+                steps = [s.get("id") for s in (plan.get("steps") or [])]
+                missing = []
+                for k in ["usecase_description","business_type","country"]:
+                    if not answers.get(k):
+                        missing.append(k)
+                if missing:
+                    msg = "To proceed, please provide: " + ", ".join(missing) + "."
+                else:
+                    msg = "Agent plan prepared. " + (f"Steps: {', '.join(steps)}." if steps else "")
+                session2 = await MemoryStore.get_session(req.session_id) or {}
+                chat2 = session2.get("chat", chat)
+                chat2.append({"role": "assistant", "text": msg})
+                await MemoryStore.save_session(req.session_id, {**session2, "chat": chat2})
+                await manager.send_json({"event": "console", "data": {"line": "Assistant replied (fallback)"}}, client_id=req.session_id)
+            except Exception:
+                pass
+    asyncio.create_task(stream_chat())
+    return {"status": "ok"}
+
+def _extract_city(q: str) -> Optional[str]:
+    try:
+        p = (q or "").lower()
+        m = re.search(r"\bin\s+([a-zA-Z][a-zA-Z\s]+)\b", p)
+        if m:
+            return m.group(1).strip().title()
+        # common Indian cities heuristic
+        for city in ["Hyderabad","Mumbai","Delhi","Bengaluru","Chennai","Pune","Kolkata","Ahmedabad"]:
+            if city.lower() in p:
+                return city
+    except Exception:
+        pass
+    return None
+
+async def _wiki_thumbnails(topic: str) -> List[Dict[str, Any]]:
+    try:
+        q = urllib.parse.quote(topic)
+        url = f"https://en.wikipedia.org/w/api.php?action=query&generator=search&gsrsearch={q}&prop=pageimages|extracts&piprop=thumbnail&pithumbsize=400&exintro&explaintext&format=json"
+        def _fetch():
+            with urllib.request.urlopen(url, timeout=8) as r:
+                return r.read().decode("utf-8")
+        txt = await asyncio.to_thread(_fetch)
+        data = json.loads(txt)
+        pages = list((data.get("query", {}).get("pages", {}) or {}).values())
+        items = []
+        for p in pages[:6]:
+            thumb = (p.get("thumbnail") or {}).get("source")
+            title = p.get("title")
+            if not title or not thumb:
+                continue
+            items.append({
+                "title": title,
+                "thumbnail": thumb,
+                "url": f"https://en.wikipedia.org/?curid={p.get('pageid')}"
+            })
+        return items
+    except Exception:
+        return []
+
+def _build_links(message: str, assistant: str, answers: Dict[str, Any]) -> List[Dict[str, Any]]:
+    links: List[Dict[str, Any]] = []
+    text = (message or "") + " " + (assistant or "")
+    t = text.lower()
+    city = _extract_city(text) or ""
+    country = (answers.get("country") or "").strip().title()
+    if not country and "egypt" in t:
+        country = "Egypt"
+    # Flights
+    links.append({"label": "Skyscanner", "url": "https://www.skyscanner.net/travel-apps/flights"})
+    links.append({"label": "Google Flights", "url": "https://www.google.com/travel/flights"})
+    links.append({"label": "Emirates", "url": "https://www.emirates.com/"})
+    links.append({"label": "Qatar Airways", "url": "https://www.qatarairways.com/"})
+    links.append({"label": "Etihad Airways", "url": "https://www.etihad.com/"})
+    # Visa
+    if country == "Egypt" or "egypt" in t:
+        links.append({"label": "Egypt eVisa (Official)", "url": "https://visa2egypt.gov.eg/"})
+    # Hotels (Google Maps or Booking.com searches)
+    hotel_map = {
+        "marriott mena house": "https://www.google.com/maps/search/Marriott+Mena+House+Cairo",
+        "steigenberger hotel el tahrir": "https://www.google.com/maps/search/Steigenberger+Hotel+El+Tahrir+Cairo",
+        "tahrir square hostel": "https://www.google.com/maps/search/Tahrir+Square+Hostel+Cairo",
+        "hilton luxor resort & spa": "https://www.google.com/maps/search/Hilton+Luxor+Resort+%26+Spa",
+        "pavillon winter luxor": "https://www.google.com/maps/search/Pavillon+Winter+Luxor",
+        "nefertiti hotel": "https://www.google.com/maps/search/Nefertiti+Hotel+Luxor",
+        "sofitel legend old cataract aswan": "https://www.google.com/maps/search/Sofitel+Legend+Old+Cataract+Aswan",
+    }
+    for k, u in hotel_map.items():
+        if k in t:
+            links.append({"label": k.title(), "url": u})
+    if city:
+        links.append({"label": f"Booking.com – {city}", "url": f"https://www.booking.com/searchresults.html?ss={urllib.parse.quote(city)}"})
+        links.append({"label": f"Google Maps – Hotels in {city}", "url": f"https://www.google.com/maps/search/Hotels+in+{urllib.parse.quote(city)}"})
+    return links
+
+def _hotel_price_baselines(city: str) -> Dict[str, Any]:
+    c = (city or "").lower()
+    if "cairo" in c:
+        return {"currency": "USD", "low": 50, "mid": 120}
+    if "luxor" in c:
+        return {"currency": "USD", "low": 30, "mid": 90}
+    if "aswan" in c:
+        return {"currency": "USD", "low": 60, "mid": 150}
+    return {"currency": "USD", "low": 40, "mid": 110}
+
+async def _fetch_hotel_prices(city: str) -> List[Dict[str, Any]]:
+    items: List[Dict[str, Any]] = []
+    if not city:
+        return items
+    urls = [
+        f"https://www.booking.com/searchresults.html?ss={urllib.parse.quote(city)}",
+        f"https://www.google.com/search?q={urllib.parse.quote('hotels in ' + city)}",
+    ]
+    pat = re.compile(r"(EGP|USD|\\$|€|£)\\s?([0-9]{2,5})")
+    def _fetch(u: str) -> str:
+        req = urllib.request.Request(u, headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, timeout=6) as r:
+            return r.read().decode("utf-8", errors="ignore")
+    for u in urls:
+        try:
+            txt = await asyncio.to_thread(_fetch, u)
+            found = pat.findall(txt)
+            for cur, amt in found[:6]:
+                currency = "USD" if cur in ("USD", "$") else ("EGP" if cur == "EGP" else cur)
+                price = int(amt)
+                items.append({"source": u, "currency": currency, "price": price})
+            if items:
+                break
+        except Exception:
+            continue
+    return items
+
+@router.get("/chat/history", response_model=Dict[str, Any], dependencies=[Depends(require_agent_builder_access)])
+async def chat_history(session_id: str):
+    session = await MemoryStore.get_session(session_id) or {}
+    return {"session_id": session_id, "chat": session.get("chat", [])}
+
+@router.post("/media/upload", response_model=MediaListResponse, dependencies=[Depends(require_agent_builder_access)])
+async def upload_media(session_id: str = Form(...), files: List[UploadFile] = File(...)):
+    session = await MemoryStore.get_session(session_id)
+    assets = (session or {}).get("assets", [])
+    # Persist files to uploads/orchestrator/{session_id}/ and return URLs
+    from pathlib import Path
+    import os
+    base_dir = Path("uploads") / "orchestrator" / session_id
+    base_dir.mkdir(parents=True, exist_ok=True)
+    for f in files:
+        try:
+            original = f.filename or "file"
+            name = "".join([c for c in original if c.isalnum() or c in (" ", ".", "_", "-")]).strip() or "file"
+            # Avoid collisions
+            target = base_dir / name
+            if target.exists():
+                stem = target.stem
+                suffix = target.suffix
+                i = 1
+                while target.exists():
+                    target = base_dir / f"{stem}_{i}{suffix}"
+                    i += 1
+            content = await f.read()
+            with open(target, "wb") as out:
+                out.write(content)
+            url = f"/uploads/orchestrator/{session_id}/{target.name}"
+            assets.append({
+                "name": target.name,
+                "content_type": f.content_type or "application/octet-stream",
+                "size": len(content),
+                "url": url
+            })
+        except Exception:
+            # Failed upload — skip or record minimal info
+            assets.append({
+                "name": original if 'original' in locals() else "file",
+                "content_type": f.content_type or "application/octet-stream",
+                "size": 0,
+                "url": ""
+            })
+    await MemoryStore.save_session(session_id, {**(session or {}), "assets": assets})
+    MemoryStore.audit("media_upload", {"session_id": session_id, "count": len(files)})
+    return {"session_id": session_id, "assets": assets}
+
+@router.get("/media/list", response_model=MediaListResponse, dependencies=[Depends(require_agent_builder_access)])
+async def list_media(session_id: str):
+    session = await MemoryStore.get_session(session_id)
+    assets = (session or {}).get("assets", [])
+    return {"session_id": session_id, "assets": assets}
+
+@router.post("/schedule/add", response_model=Dict[str, Any], dependencies=[Depends(require_agent_builder_access)])
+async def schedule_add(req: ScheduleAddRequest):
+    s = await MemoryStore.get_session(req.session_id) or {}
+    tasks = s.get("scheduled_tasks", [])
+    tid = f"tsk_{int(asyncio.get_event_loop().time() * 100000)}"
+    item = {"id": tid, "title": req.title, "due_ts": req.due_ts, "notes": req.notes, "metadata": req.metadata}
+    tasks.append(item)
+    await MemoryStore.save_session(req.session_id, {**s, "scheduled_tasks": tasks})
+    try:
+        await manager.send_json({"event": "console", "data": {"line": "Task scheduled"}}, client_id=req.session_id)
+    except Exception:
+        pass
+    return {"status": "ok", "task_id": tid}
+
+@router.get("/schedule/list", response_model=ScheduleListResponse, dependencies=[Depends(require_agent_builder_access)])
+async def schedule_list(session_id: str):
+    s = await MemoryStore.get_session(session_id) or {}
+    tasks = s.get("scheduled_tasks", [])
+    return {"session_id": session_id, "tasks": tasks}
+
+class ScheduleDailyRequest(BaseModel):
+    session_id: str
+    time_hhmm: str
+    name: Optional[str] = "Daily Orchestrator Run"
+    description: Optional[str] = "Auto-run orchestrator plan daily"
+
+@router.post("/schedule/daily", response_model=Dict[str, Any], dependencies=[Depends(require_agent_builder_access)])
+async def schedule_daily(req: ScheduleDailyRequest):
+    hhmm = req.time_hhmm.strip()
+    db: Session = SessionLocal()
+    try:
+        agent = db.query(Agent).filter(Agent.name == "Daily Orchestrator").first()
+        if not agent:
+            agent = Agent(name="Daily Orchestrator", description="System Orchestrator for daily runs", is_active=True)
+            db.add(agent)
+            db.commit()
+            db.refresh(agent)
+        st = ScheduledTask(
+            agent_id=agent.id,
+            task_type="orchestrator_run",
+            name=req.name or "Daily Orchestrator Run",
+            description=req.description or "Auto-run orchestrator plan daily",
+            scheduled_time=datetime.utcnow(),
+            recurrence=f"at {hhmm}",
+            status=TaskStatus.PENDING,
+            payload={"session_id": req.session_id}
+        )
+        db.add(st)
+        db.commit()
+        # mirror into session-local tasks for UI
+        s = await MemoryStore.get_session(req.session_id) or {}
+        tasks = s.get("scheduled_tasks", [])
+        tasks.append({"id": f"db_{st.id}", "title": f"Daily at {hhmm}", "due_ts": int(time.time()), "notes": "Daily run scheduled", "metadata": {"recurrence": f"at {hhmm}"}})
+        await MemoryStore.save_session(req.session_id, {**s, "scheduled_tasks": tasks})
+        try:
+            await manager.send_json({"event": "console", "data": {"line": f"Daily run scheduled at {hhmm}"}}, client_id=req.session_id)
+        except Exception:
+            pass
+        return {"status": "ok", "id": st.id}
+    finally:
+        db.close()
+
+@router.post("/export", dependencies=[Depends(require_agent_builder_access)])
 async def export_session(session_id: str):
     session = await MemoryStore.get_session(session_id)
     if not session:
@@ -212,7 +801,7 @@ async def export_session(session_id: str):
     headers = {"Content-Disposition": f'attachment; filename="orchestrator_{session_id}.zip"'}
     return StreamingResponse(buf, media_type="application/zip", headers=headers)
 
-@router.post("/import")
+@router.post("/import", dependencies=[Depends(require_agent_builder_access)])
 async def import_session(file: UploadFile = File(...)):
     import io, zipfile, json
     data = await file.read()

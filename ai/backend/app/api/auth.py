@@ -282,11 +282,11 @@ async def signup(
 
     # Initialize default tool subscriptions with free tokens
     default_tools = [
-        ("agent-builder", "Agent Builder"),
-        ("customer-service", "Customer Service"),
-        ("hr-services", "HR Services"),
-        ("knowledge-ai", "Knowledge AI"),
-        ("analytics-dashboard", "Analytics Dashboard")
+        ("agent_builder", "Agent Builder"),
+        ("customer_service", "Customer Service"),
+        ("hr_services", "HR Services"),
+        ("knowledge_ai", "Knowledge AI"),
+        ("analytics_dashboard", "Analytics Dashboard")
     ]
     
     for tool_name, tool_display_name in default_tools:
@@ -559,11 +559,11 @@ async def google_login(
         
         # Initialize default tool subscriptions
         default_tools = [
-            ("agent-builder", "Agent Builder"),
-            ("customer-service", "Customer Service"),
-            ("hr-services", "HR Services"),
-            ("knowledge-ai", "Knowledge AI"),
-            ("analytics-dashboard", "Analytics Dashboard")
+            ("agent_builder", "Agent Builder"),
+            ("customer_service", "Customer Service"),
+            ("hr_services", "HR Services"),
+            ("knowledge_ai", "Knowledge AI"),
+            ("analytics_dashboard", "Analytics Dashboard")
         ]
         
         for tool_name, tool_display_name in default_tools:
@@ -767,4 +767,3 @@ async def reset_password(request: ResetPasswordRequest, db: Session = Depends(ge
     except Exception as e:
         logger.error(f"Password reset error: {str(e)}")
         raise HTTPException(status_code=400, detail="Failed to reset password")
-

@@ -155,13 +155,13 @@ export default function LoginPage() {
           <div className="absolute inset-0 bg-gradient-to-br from-white/10 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none"></div>
 
           <div className="text-center mb-8 relative">
-            <div className="-mb-12 -mt-10">
+            <Link href="/" className="block -mb-12 -mt-10 group/logo">
               <img 
                 src="/images/logo-head.png" 
                 alt="HUEMN Logo" 
-                className="w-48 h-48 object-contain mx-auto drop-shadow-xl"
+                className="w-48 h-48 object-contain mx-auto drop-shadow-xl group-hover/logo:scale-110 transition-transform duration-300"
               />
-            </div>
+            </Link>
             <h1 className="text-4xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-white via-blue-100 to-white mb-2 drop-shadow-sm">Welcome Back</h1>
             <p className="text-blue-200/60 font-medium">Sign in to your intelligent workspace</p>
           </div>

@@ -16,6 +16,9 @@ from app.db.models.agent import Agent, AgentConversation, AgentMessage, AgentTyp
 from app.services.telephony_service import telephony_service
 from app.services.agent_executor import AgentExecutor
 from app.core.config import settings
+from app.api.auth import get_current_user
+from app.db.models.subscription import UserAccount
+from app.utils.subscription import consume_tool_tokens
 
 logger = logging.getLogger(__name__)
 
@@ -292,7 +295,8 @@ async def handle_incoming_call(
 @router.post("/redirect-to-call")
 async def redirect_chat_to_call(
     request: Request,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    user: UserAccount = Depends(get_current_user)
 ):
     """
     Initiate a call to the user (Outbound) or provide instructions for Inbound
@@ -307,6 +311,7 @@ async def redirect_chat_to_call(
         if not phone_number or not agent_id:
             raise HTTPException(status_code=400, detail="Missing phone_number or agent_id")
             
+        consume_tool_tokens(db, user, "voice_studio", 1)
         # Check if telephony service is available
         if not telephony_service.is_available():
              return {"success": False, "error": "Telephony service not configured"}
@@ -359,8 +364,13 @@ async def handle_status_callback(
         return Response(status_code=500)
 
 @router.get("/call-status/{call_sid}")
-async def get_call_status(call_sid: str, db: Session = Depends(get_db)):
+async def get_call_status(
+    call_sid: str,
+    db: Session = Depends(get_db),
+    user: UserAccount = Depends(get_current_user)
+):
     """Get the status of a specific call"""
+    consume_tool_tokens(db, user, "voice_studio", 1)
     # Check if telephony service is available
     if not telephony_service.is_available():
          return {"success": False, "error": "Telephony service not configured"}
@@ -370,11 +380,13 @@ async def get_call_status(call_sid: str, db: Session = Depends(get_db)):
 @router.post("/calls/{call_sid}/return-to-bot")
 async def return_call_to_bot(
     call_sid: str,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    user: UserAccount = Depends(get_current_user)
 ):
     """
     Return an active call (currently with an agent) back to the Bot/IVR flow.
     """
+    consume_tool_tokens(db, user, "voice_studio", 1)
     if not telephony_service.is_available():
          return {"success": False, "error": "Telephony service not configured"}
     
@@ -397,4 +409,3 @@ async def return_call_to_bot(
 
     result = telephony_service.redirect_call(call_sid, url)
     return result
-

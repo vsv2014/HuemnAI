@@ -22,7 +22,8 @@ import {
   RadialBarChart,
   RadialBar,
 } from "recharts";
-import { getAnalyticsOverview, getAnalyticsTrends } from "@/services/api";
+import { getAnalyticsOverview, getAnalyticsTrends, startToolSession } from "@/services/api";
+import { useAuthStore } from "@/store/authStore";
 import TrialBanner from "@/components/TrialBanner";
 import ToolSwitcher from "@/components/ToolSwitcher";
 
@@ -126,6 +127,7 @@ const CHART_COLORS = ["#3b82f6", "#9333ea", "#10b981", "#f59e0b", "#ef4444", "#0
 
 export default function AnalyticsDashboardPage() {
   const router = useRouter();
+  const token = useAuthStore((s) => s.token);
   const [data, setData] = useState<AnalyticsData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -133,13 +135,22 @@ export default function AnalyticsDashboardPage() {
 
   useEffect(() => {
     loadAnalytics();
-  }, [timeRange]);
+  }, [timeRange, token]);
+
+  useEffect(() => {
+    if (!token) return;
+    startToolSession("analytics_dashboard", token).catch(() => {});
+    const interval = setInterval(() => {
+      startToolSession("analytics_dashboard", token).catch(() => {});
+    }, 5 * 60 * 1000);
+    return () => clearInterval(interval);
+  }, [token]);
 
   const loadAnalytics = async () => {
     try {
       setLoading(true);
       setError("");
-      const overview = await getAnalyticsOverview();
+      const overview = await getAnalyticsOverview(token || undefined);
       
       // Check if response has error property
       if (overview && typeof overview === 'object' && 'error' in overview) {
@@ -284,6 +295,12 @@ export default function AnalyticsDashboardPage() {
           </div>
           <div className="flex items-center gap-4">
             <ToolSwitcher />
+            <button
+              onClick={loadAnalytics}
+              className="px-4 py-2 rounded-lg bg-white/5 text-white/80 hover:bg-white/10 transition-all"
+            >
+              Refresh
+            </button>
             <div className="flex gap-2">
               <button
                 onClick={() => setTimeRange("7d")}
@@ -1010,4 +1027,3 @@ function ChartCard({
     </div>
   );
 }
-

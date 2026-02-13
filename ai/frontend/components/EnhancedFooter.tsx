@@ -14,9 +14,9 @@ export default function EnhancedFooter() {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-8 sm:gap-10 mb-12">
           {/* Logo and Tagline */}
           <div className="lg:col-span-2">
-            <div className="flex items-center gap-2 mb-4">
+            <Link href="/" className="flex items-center gap-2 mb-4 group cursor-pointer">
               <h2 className="text-xl sm:text-2xl font-bold tracking-tight flex items-center">
-                <span className="text-white">HUEMN</span>
+                <span className="text-white group-hover:text-white/80 transition-colors">HUEMN</span>
                 <span className="inline-flex items-baseline ml-0.5">
                   <span className="animate-rainbow-text">.A</span>
                   <span className="relative animate-rainbow-text">
@@ -27,7 +27,7 @@ export default function EnhancedFooter() {
                   </span>
                 </span>
               </h2>
-            </div>
+            </Link>
             <p className="text-white/60 text-sm sm:text-base mb-6 font-light leading-relaxed">
               Reimagine AI for Human with HUEMN.Ai. Empowering enterprises with intelligent, scalable, and secure AI solutions.
             </p>

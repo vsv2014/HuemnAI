@@ -6,8 +6,18 @@ async function safeFetch(url: string, options?: RequestInit) {
     if (!response.ok) {
         try {
             const errorData = await response.json();
-            return { error: errorData.detail || errorData.message || "Request failed", status: response.status };
+            const errorMessage = errorData.detail || errorData.message || "Request failed";
+            if (response.status === 403 && typeof window !== "undefined") {
+              const message = String(errorMessage).toLowerCase();
+              if (message.includes("token") || message.includes("subscribe") || message.includes("subscription")) {
+                window.location.href = "/pricing";
+              }
+            }
+            return { error: errorMessage, status: response.status };
         } catch (e) {
+            if (response.status === 403 && typeof window !== "undefined") {
+              window.location.href = "/pricing";
+            }
             return { error: `Request failed with status ${response.status}`, status: response.status };
         }
     }
@@ -34,6 +44,33 @@ export async function subscribe(planId: number, billingPeriod: "monthly" | "year
       "Content-Type": "application/json"
     },
     body: JSON.stringify({ plan_id: planId, billing_period: billingPeriod })
+  });
+}
+
+export async function changePlan(planId: number, billingPeriod: "monthly" | "yearly", token: string) {
+  if (!token) return { error: "No authentication token" };
+  return safeFetch(`${API_BASE}/api/subscription/change-plan`, {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${token}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ plan_id: planId, billing_period: billingPeriod })
+  });
+}
+
+export async function createBillingPortalSession(token: string) {
+  if (!token) return { error: "No authentication token" };
+  return safeFetch(`${API_BASE}/api/subscription/portal`, {
+    method: "POST",
+    headers: { "Authorization": `Bearer ${token}` }
+  });
+}
+
+export async function getStripeHealth(token: string) {
+  if (!token) return { error: "No authentication token" };
+  return safeFetch(`${API_BASE}/api/subscription/stripe-health`, {
+    headers: { "Authorization": `Bearer ${token}` }
   });
 }
 
@@ -624,33 +661,59 @@ export async function publishVersion(agentId: string, versionId: string, token: 
 
 export async function getToolOperationMode(toolName: string, token: string) {
   if (!token) return { error: "No authentication token" };
-  return safeFetch(`${API_BASE}/api/tools/${toolName}/mode`, {
+  return safeFetch(`${API_BASE}/api/tools/${toolName}/operation-mode`, {
     headers: { "Authorization": `Bearer ${token}` }
   });
 }
 
 export async function setToolOperationMode(toolName: string, mode: string, token: string) {
   if (!token) return { error: "No authentication token" };
-  return safeFetch(`${API_BASE}/api/tools/${toolName}/mode`, {
+  return safeFetch(`${API_BASE}/api/tools/${toolName}/operation-mode`, {
     method: "POST",
     headers: {
       "Authorization": `Bearer ${token}`,
       "Content-Type": "application/json"
     },
-    body: JSON.stringify({ mode })
+    body: JSON.stringify({ operation_mode: mode })
   });
 }
 
-export async function configureConnector(connectorName: string, config: any, token: string) {
+export async function getConnectorConfigs(token: string) {
   if (!token) return { error: "No authentication token" };
-  return safeFetch(`${API_BASE}/api/tools/connectors/${connectorName}`, {
+  return safeFetch(`${API_BASE}/api/config?provider_type=connector`, {
+    headers: { "Authorization": `Bearer ${token}` }
+  });
+}
+
+export async function upsertConnectorConfig(connectorName: string, fields: Record<string, any>, token: string) {
+  if (!token) return { error: "No authentication token" };
+  const list = await getConnectorConfigs(token);
+  const existing = Array.isArray(list?.configs)
+    ? list.configs.find((cfg: any) => cfg.provider === connectorName)
+    : null;
+  if (existing?.id) {
+    return safeFetch(`${API_BASE}/api/config/${existing.id}`, {
+      method: "PUT",
+      headers: {
+        "Authorization": `Bearer ${token}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ fields })
+    });
+  }
+  return safeFetch(`${API_BASE}/api/config`, {
     method: "POST",
     headers: {
       "Authorization": `Bearer ${token}`,
       "Content-Type": "application/json"
     },
-    body: JSON.stringify(config)
+    body: JSON.stringify({ provider_type: "connector", provider: connectorName, fields })
   });
+}
+
+export async function configureConnector(connectorName: string, fields: Record<string, any>, token: string) {
+  if (!token) return { error: "No authentication token" };
+  return upsertConnectorConfig(connectorName, fields, token);
 }
 
 /* ---------------- KNOWLEDGE ---------------- */
@@ -788,15 +851,15 @@ export async function handleCustomerIssue(issue: string, token: string) {
   });
 }
 
-export async function queryKnowledge(query: string, token: string) {
+export async function queryKnowledge(query: string, token: string, conversationHistory: any[] = []) {
   if (!token) return { error: "No authentication token" };
-  return safeFetch(`${API_BASE}/api/knowledge/query`, {
+  return safeFetch(`${API_BASE}/api/knowledge/`, {
     method: "POST",
     headers: {
       "Authorization": `Bearer ${token}`,
       "Content-Type": "application/json"
     },
-    body: JSON.stringify({ query })
+    body: JSON.stringify({ message: query, conversation_history: conversationHistory })
   });
 }
 
@@ -852,11 +915,14 @@ export async function importAgentZip(file: File, importType: "full" | "increment
   }
 }
 
-export async function exportOrchestratorSession(sessionId: string) {
+export async function exportOrchestratorSession(sessionId: string, token: string) {
   try {
     const res = await fetch(`${API_BASE}/api/orchestrator/export`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${token}`
+      },
       body: JSON.stringify({ session_id: sessionId })
     });
     if (!res.ok) {
@@ -870,12 +936,13 @@ export async function exportOrchestratorSession(sessionId: string) {
   }
 }
 
-export async function importOrchestratorZip(file: File) {
+export async function importOrchestratorZip(file: File, token: string) {
   const formData = new FormData();
   formData.append("file", file);
   try {
     const res = await fetch(`${API_BASE}/api/orchestrator/import`, {
       method: "POST",
+      headers: { "Authorization": `Bearer ${token}` },
       body: formData
     });
     if (!res.ok) {
@@ -888,9 +955,26 @@ export async function importOrchestratorZip(file: File) {
   }
 }
 
-export const hrService = {
-  // Placeholder for HR services
-};
+export async function hrService(arg1: string, arg2?: any, arg3?: string) {
+  let payload: any = {};
+  let token = "";
+  if (typeof arg2 === "string" || typeof arg2 === "undefined") {
+    token = arg2 || "";
+    payload = { message: arg1 };
+  } else {
+    payload = arg2 || {};
+    token = arg3 || "";
+  }
+  if (!token) return { error: "No authentication token" };
+  return safeFetch(`${API_BASE}/api/hr/`, {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${token}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(payload)
+  });
+}
 
 /* ---------------- ACTIVITY ---------------- */
 

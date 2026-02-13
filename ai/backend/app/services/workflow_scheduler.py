@@ -6,6 +6,9 @@ from typing import Optional, Dict, Any
 from app.db.session import SessionLocal
 from app.db.models.scheduled_task import ScheduledTask, TaskStatus
 from app.services.event_bus import publish, CHANNEL_CRM
+from app.orchestrator.executor.executor import StepExecutor
+from app.orchestrator.memory.store import MemoryStore
+from app.services.socket_manager import manager
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +49,38 @@ def _is_due(now: datetime, task: ScheduledTask) -> bool:
 
 def _execute_task(task: ScheduledTask) -> Optional[Dict[str, Any]]:
     payload = task.payload or {}
+    # Orchestrator daily run
+    if (task.task_type or "").lower() == "orchestrator_run":
+        try:
+            session_id = payload.get("session_id")
+            if not session_id:
+                raise ValueError("Missing session_id in payload")
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            async def _run():
+                try:
+                    session = await MemoryStore.get_session(session_id)
+                    if not session or "plan" not in session:
+                        await manager.send_json({"event": "console", "data": {"line": f"Daily run skipped: plan not found (session {session_id})"}}, client_id=session_id)
+                        return {"skipped": True}
+                    exe = StepExecutor(session_id)
+                    await manager.send_json({"event": "console", "data": {"line": "Daily automation run started"}}, client_id=session_id)
+                    result = await exe.run(session["plan"])
+                    await manager.send_json({"event": "console", "data": {"line": "Daily automation run completed"}}, client_id=session_id)
+                    return {"published": True, "result": result}
+                except Exception as e:
+                    try:
+                        await manager.send_json({"event": "console", "data": {"line": f"Daily run failed: {e}"}}, client_id=session_id)
+                    except Exception:
+                        pass
+                    return {"published": False, "error": str(e)}
+            out = loop.run_until_complete(_run())
+            loop.close()
+            return out
+        except Exception as e:
+            logger.error(f"Failed orchestrator_run for task {task.id}: {e}")
+            return {"published": False, "error": str(e)}
+    # Default: publish event for general workflows
     event = {
         "event": "workflow_triggered",
         "task_id": task.id,
@@ -55,9 +90,6 @@ def _execute_task(task: ScheduledTask) -> Optional[Dict[str, Any]]:
         "timestamp": datetime.utcnow().isoformat()
     }
     try:
-        # For now publish to CRM channel; can be extended to specific channels
-        # and call agent executor by task_type
-        # This makes triggers visible to connected clients and workers
         import asyncio
         asyncio.run(publish(CHANNEL_CRM, event))
         return {"published": True}

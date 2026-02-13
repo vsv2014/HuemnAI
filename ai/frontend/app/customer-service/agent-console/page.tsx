@@ -23,7 +23,9 @@ import {
 import TicketConsole from "@/components/TicketConsole";
 import EnhancedKnowledgeAI from "@/components/EnhancedKnowledgeAI";
 import ToolSwitcher from "@/components/ToolSwitcher";
-import { getAgentConversation } from "@/services/api";
+import ConnectorConfig from "@/components/ConnectorConfig";
+import ConnectorStatusDropdown from "@/components/ConnectorStatusDropdown";
+import { getAgentConversation, getConnectorConfigs, startToolSession } from "@/services/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -40,6 +42,24 @@ interface QueuedCall {
   required_skills: string[];
   timestamp: number;
 }
+
+const CUSTOMER_SERVICE_CONNECTORS = [
+  { key: "zendesk", label: "Zendesk" },
+  { key: "freshdesk", label: "Freshdesk" },
+  { key: "intercom", label: "Intercom" },
+  { key: "servicenow", label: "ServiceNow" },
+  { key: "hubspot", label: "HubSpot" },
+  { key: "salesforce", label: "Salesforce" },
+  { key: "pipedrive", label: "Pipedrive" },
+  { key: "jira", label: "Jira" },
+  { key: "linear", label: "Linear" },
+  { key: "github", label: "GitHub" },
+  { key: "gitlab", label: "GitLab" },
+  { key: "asana", label: "Asana" },
+  { key: "monday", label: "Monday.com" },
+  { key: "trello", label: "Trello" },
+  { key: "clickup", label: "ClickUp" },
+];
 
 import { useStatusStore } from "@/store/statusStore";
 
@@ -60,6 +80,9 @@ export default function AgentConsolePage({ onSwitchToCustomerView }: { onSwitchT
   const [sessionId, setSessionId] = useState<string | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const transcriptEndRef = useRef<HTMLDivElement>(null);
+  const [showConnectorConfig, setShowConnectorConfig] = useState(false);
+  const [connectorConfigs, setConnectorConfigs] = useState<any[]>([]);
+  const [connectorLoading, setConnectorLoading] = useState(false);
 
   // Handle status errors
   useEffect(() => {
@@ -72,6 +95,39 @@ export default function AgentConsolePage({ onSwitchToCustomerView }: { onSwitchT
   useEffect(() => {
     transcriptEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [transcript]);
+
+  useEffect(() => {
+    if (token) {
+      loadConnectorStatus();
+    }
+  }, [token]);
+
+  useEffect(() => {
+    if (!token) return;
+    startToolSession("customer_service", token).catch(() => {});
+    const interval = setInterval(() => {
+      startToolSession("customer_service", token).catch(() => {});
+    }, 5 * 60 * 1000);
+    return () => clearInterval(interval);
+  }, [token]);
+
+  const loadConnectorStatus = async () => {
+    if (!token) return;
+    setConnectorLoading(true);
+    const response = await getConnectorConfigs(token);
+    if (response && Array.isArray(response.configs)) {
+      setConnectorConfigs(response.configs);
+    }
+    setConnectorLoading(false);
+  };
+
+  const configuredMap = connectorConfigs.reduce((acc: Record<string, boolean>, cfg: any) => {
+    const hasValue =
+      cfg.is_active &&
+      (cfg.api_key || cfg.secret || cfg.password || (cfg.config_data && Object.keys(cfg.config_data).length > 0));
+    acc[cfg.provider] = Boolean(hasValue);
+    return acc;
+  }, {});
 
   // Initialize Twilio Device
   useEffect(() => {
@@ -401,10 +457,33 @@ export default function AgentConsolePage({ onSwitchToCustomerView }: { onSwitchT
            </Button>
          </div>
          
-         <div className="flex items-center">
-            <ToolSwitcher variant="minimal" />
-         </div>
+        <div className="flex items-center gap-2">
+           <ToolSwitcher variant="minimal" />
+           <button
+             onClick={loadConnectorStatus}
+             className="text-sm px-3 py-1.5 rounded-md bg-white/10 hover:bg-white/20 border border-white/20"
+           >
+             {connectorLoading ? "Refreshing..." : "Refresh"}
+           </button>
+           <ConnectorStatusDropdown items={CUSTOMER_SERVICE_CONNECTORS.map((connector) => ({
+             key: connector.key,
+             label: connector.label,
+             configured: configuredMap[connector.key],
+           }))} />
+           <button
+             onClick={() => setShowConnectorConfig(true)}
+             className="text-sm px-3 py-1.5 rounded-md bg-white/10 hover:bg-white/20 border border-white/20"
+           >
+             ⚙️ Configure Tools
+           </button>
+        </div>
       </div>
+
+      {showConnectorConfig && (
+        <div className="relative z-10 px-4 py-2 border-b border-white/10 bg-white/5">
+          <ConnectorConfig currentTool="customer_service" onClose={() => setShowConnectorConfig(false)} />
+        </div>
+      )}
       {activeTab === "voice" ? (
       <div className="relative z-10 flex flex-1 overflow-hidden">
       {/* Sidebar / Status Panel */}

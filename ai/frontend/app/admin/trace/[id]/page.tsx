@@ -159,6 +159,7 @@ export default function TraceViewer() {
   const params = useParams();
   const router = useRouter();
   const conversationId = params.id;
+  const [minimapInteractive, setMinimapInteractive] = useState(false);
   
   const [trace, setTrace] = useState<TraceResponse | null>(null);
   const [agent, setAgent] = useState<any>(null);
@@ -346,10 +347,31 @@ export default function TraceViewer() {
              >
                 <Background color="#333" gap={20} />
                 <Controls />
+                {/* Interactive Minimap Toggle */}
+                <div className="absolute top-4 left-4 z-10">
+                  <button
+                    onClick={() => setMinimapInteractive((v) => !v)}
+                    className={`px-3 py-1.5 rounded-lg border transition-all duration-200 flex items-center gap-2 text-xs font-medium backdrop-blur-md shadow-lg ${
+                      minimapInteractive 
+                        ? 'bg-blue-500/20 border-blue-500/50 text-blue-400 shadow-[0_0_10px_rgba(59,130,246,0.1)]' 
+                        : 'bg-gray-900/80 border-gray-700 text-gray-400 hover:bg-gray-800'
+                    }`}
+                  >
+                    <div className={`w-2 h-2 rounded-full ${minimapInteractive ? 'bg-blue-400 animate-pulse' : 'bg-gray-600'}`} />
+                    Interactive Minimap
+                  </button>
+                </div>
                 <MiniMap 
                     nodeColor={(n) => nodeTypeColors[n.type || 'start'] || '#eee'} 
                     maskColor="rgba(0, 0, 0, 0.7)"
-                    className="bg-gray-900 border border-gray-800 rounded-lg"
+                    className={`transition-all duration-300 ${minimapInteractive ? 'advanced-minimap' : ''} bg-gray-900 border border-gray-800 rounded-lg`}
+                    zoomable={minimapInteractive}
+                    pannable={minimapInteractive}
+                    style={{
+                        width: minimapInteractive ? 200 : 72,
+                        height: minimapInteractive ? 150 : 54,
+                        cursor: minimapInteractive ? 'crosshair' : 'default'
+                    }}
                 />
              </ReactFlow>
            ) : (

@@ -20,7 +20,6 @@ const TOOL_SLUG_TO_NAME: Record<string, string> = {
 };
 
 const ALL_TOOLS = [
-  { title: "AI Orchestrator", desc: "Premium AI Architect with Golden Standard. Build, visualize, and orchestrate multi-agent systems with real-time code generation.", slug: "ai-orchestrator", isMain: true },
   { title: "🤖 Agent Builder", desc: "Build your own AI agents with visual flow builder. Create chatbots, IVR agents, and more with unlimited nodes, LLM integration, and API connections.", slug: "agent-builder" },
   { title: "Customer Service & Agent Console", desc: "Unified platform for customer support and agent ticket resolution. Handles L1 analysis, auto-assignment, and ticket solving.", slug: "customer-service" },
   { title: "CRM", desc: "Manage contacts, deals, pipeline stages, and AI insights.", slug: "crm" },

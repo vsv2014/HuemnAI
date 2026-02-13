@@ -67,317 +67,222 @@ class FlowGenerator:
         user_prompt: str
     ) -> Dict[str, Any]:
         """
-        Generate agent flow from user prompt
-        
-        Args:
-            agent: The agent to generate flow for
-            user_prompt: Natural language description of what the agent should do
-            
-        Returns:
-            Dict with nodes and connections created
+        Generate agent flow from user prompt using Orchestrator
         """
         try:
-            # Create prompt for LLM to analyze
-            analysis_prompt = f"""You are an expert at designing conversational AI agent flows. 
-Analyze the following user requirement and design a complete agent flow.
+            from app.orchestrator.planner.planner import build_plan
+            from app.orchestrator.bot_engine.engine import FlowCompiler
 
-User Requirement:
-{user_prompt}
-
-Agent Details:
-- Name: {agent.name}
-- Type: {agent.agent_type.value}
-- Description: {agent.description or "N/A"}
-- System Prompt: {agent.system_prompt or "N/A"}
-
-Design a flow that includes:
-1. A START node (entry point)
-2. Appropriate processing nodes (LLM, Entity extraction, Intent detection, etc.)
-3. Conditional logic if needed
-4. Service/API integrations if mentioned
-5. Response nodes
-6. An END node
-
-Return a JSON structure with:
-{{
-  "nodes": [
-    {{
-      "node_type": "start|llm|entity|intent|condition|api|service|connector|response|end",
-      "name": "unique_node_name",
-      "label": "Display Label",
-      "config": {{}},
-      "position_x": 0,
-      "position_y": 0
-    }}
-  ],
-  "connections": [
-    {{
-      "source": "source_node_name",
-      "target": "target_node_name",
-      "condition": {{}}
-    }}
-  ],
-  "entry_node": "start_node_name"
-}}
-
-Make the flow logical and complete. Position nodes in a flow layout (left to right, top to bottom).
-Start node at (100, 200), then space nodes 200px apart horizontally, 150px vertically for branches."""
-
-            # Verify LLM configuration to avoid silent fallback
-            try:
-                from app.services.config_service import get_llm_config
-                cfg = get_llm_config()
-                llm_configured = bool(cfg and cfg.get("api_key"))
-            except Exception:
-                llm_configured = False
-
-            # If LLM is not configured, return deterministic minimal flow
-            if not llm_configured:
-                return await self._create_simple_flow(agent, user_prompt)
-
-            # Prepare strict messaging to force JSON-only output
-            system = "You are a flow designer. Return ONLY valid JSON that matches the requested schema. No prose. No code fences."
-            messages = [
-                {"role": "system", "content": system + "\n" + analysis_prompt},
-                {"role": "user", "content": user_prompt}
-            ]
-
-            # Stream response
-            response_text = ""
-            async for token in self.llm.stream(message=user_prompt, messages=messages, model=None):
-                response_text += token
-
-            # Robust JSON extraction: prefer fenced blocks, then balanced braces
-            flow_data = None
-            fence = re.search(r'```json\s*([\s\S]*?)```', response_text, re.IGNORECASE)
-            if fence:
-                try:
-                    flow_data = json.loads(fence.group(1))
-                except Exception:
-                    flow_data = None
-            if flow_data is None:
-                brace = re.search(r'\{[\s\S]*\}', response_text)
-                if brace:
-                    try:
-                        flow_data = json.loads(brace.group(0))
-                    except Exception:
-                        flow_data = None
-
-            # If still no JSON, perform a second, stricter pass
-            if flow_data is None:
-                strict_messages = [
-                    {"role": "system", "content": "Return ONLY valid compact JSON. No explanations. Use the exact schema."},
-                    {"role": "user", "content": analysis_prompt}
-                ]
-                second_text = ""
-                async for token in self.llm.stream(message=analysis_prompt, messages=strict_messages, model=None):
-                    second_text += token
-                brace2 = re.search(r'\{[\s\S]*\}', second_text)
-                if brace2:
-                    try:
-                        flow_data = json.loads(brace2.group(0))
-                    except Exception:
-                        flow_data = None
-
-            # If LLM still failed, build heuristic flow from the prompt
-            if flow_data is None:
-                return await self._create_heuristic_flow(agent, user_prompt)
+            # Use the advanced Orchestrator to plan the flow
+            plan = await build_plan(user_prompt)
+            
+            # Use the FlowCompiler to generate nodes and edges
+            # The compiler uses a vertical layout by default
+            compiled = FlowCompiler().compile(plan)
+            
+            nodes_spec = []
+            for n in compiled.get("nodes", []):
+                # Map orchestrator types to NodeType
+                raw_type = n.get("type", "step")
+                ntype_map = {
+                    "entry": NodeType.START,
+                    "end": NodeType.END,
+                    "response": NodeType.RESPONSE,
+                    "reasoning": NodeType.LLM,
+                    "rag": NodeType.AI_RAG,
+                    "workflow": NodeType.WORKFLOW_AUTOMATION,
+                    "api": NodeType.API,
+                    "calendar": NodeType.CALENDAR,
+                    "analysis": NodeType.DATA_ANALYSIS,
+                    "decision": NodeType.AI_DECISION,
+                    "module": NodeType.SERVICE
+                }
+                ntype = ntype_map.get(raw_type, NodeType.LLM)
+                
+                nodes_spec.append({
+                    "node_type": ntype.value,
+                    "name": n.get("id"),
+                    "label": n.get("label"),
+                    "config": n.get("data", {}),
+                    "position_x": n.get("x", 0),
+                    "position_y": n.get("y", 0)
+                })
+            
+            connections_spec = []
+            for e in compiled.get("edges", []):
+                connections_spec.append({
+                    "source": e.get("source"),
+                    "target": e.get("target"),
+                    "condition": {}
+                })
+                
+            flow_data = {
+                "nodes": nodes_spec,
+                "connections": connections_spec,
+                "entry_node": next((n["name"] for n in nodes_spec if n["node_type"] == "start"), nodes_spec[0]["name"] if nodes_spec else None)
+            }
+            
+            # Architect's Validation Step
+            flow_data = self._validate_flow(flow_data)
             
             return await self._create_from_llm_json(agent, user_prompt, flow_data)
             
         except Exception as e:
-            logger.error(f"Error generating flow from prompt: {str(e)}", exc_info=True)
-            # Fallback to simple flow
-            return await self._create_simple_flow(agent, user_prompt)
+            logger.error(f"Error generating flow via orchestrator: {str(e)}", exc_info=True)
+            # Fallback to the original heuristic method if orchestrator fails
+            return await self._create_heuristic_flow(agent, user_prompt)
+
+    def _validate_flow(self, flow_data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Senior Architect's Final Validation (Step 6):
+        1. Does the flow directly achieve the goal?
+        2. Is there unnecessary complexity? (Remove generic infrastructure)
+        3. Are nodes minimal but sufficient?
+        4. Is reasoning centralized but branches preserved?
+        """
+        nodes = flow_data.get("nodes", [])
+        connections = flow_data.get("connections", [])
+        
+        # 0. Infrastructure Purge: Remove generic utility nodes, but KEEP intentional business routers
+        # We only remove nodes that are generic 'infrastructure' and don't add business value
+        generic_infrastructure = [
+            "policy_router", "domain_router", "intent_detector", 
+            "entity_extractor", "audit_log", "notification_gateway",
+            "gateway", "logger"
+        ]
+        
+        nodes_to_remove = []
+        for n in nodes:
+            name = n.get("name", "").lower()
+            label = n.get("label", "").lower()
+            # ONLY remove if it's in the generic list AND not specifically requested as a business router
+            if any(k in name or k in label for k in generic_infrastructure):
+                if n["node_type"] not in [NodeType.START.value, NodeType.END.value, NodeType.RESPONSE.value]:
+                    # Exception: If it's labeled "Workflow Router" or similar, keep it as it's part of business logic
+                    if "workflow" in label or "business" in label or "task" in label:
+                        continue
+                    nodes_to_remove.append(n["name"])
+        
+        if nodes_to_remove:
+            logger.info(f"Architect (Step 6): Purging generic infrastructure: {nodes_to_remove}")
+            nodes = [n for n in nodes if n["name"] not in nodes_to_remove]
+            
+            # Bypass logic
+            for rid in nodes_to_remove:
+                incoming = [c for c in connections if c["target"] == rid]
+                outgoing = [c for c in connections if c["source"] == rid]
+                for inc in incoming:
+                    for out in outgoing:
+                        if inc["source"] != out["target"]:
+                            connections.append({
+                                "source": inc["source"],
+                                "target": out["target"],
+                                "condition": inc.get("condition", {})
+                            })
+                connections = [c for c in connections if c["source"] != rid and c["target"] != rid]
+
+        # 1. Branch Preservation: Ensure decision nodes have their branches intact
+        # (We skip the aggressive LLM merge if there are multiple intentional branches)
+        reasoning_nodes = [n for n in nodes if n["node_type"] == NodeType.LLM.value]
+        
+        # Only merge if they are effectively doing the same thing in a linear sequence
+        # If they are in different branches or one is a manager and others are workers, keep them
+        if len(reasoning_nodes) > 1:
+            # Simple heuristic: if one node has multiple outgoing edges to other reasoning nodes, it's a manager
+            # We only merge reasoning nodes that are redundant
+            pass # For now, let's be less aggressive with merging to see if it improves the user's complex case
+
+        # 2. Orphan Removal: Final sweep for disconnected nodes
+        connected_sources = {c["source"] for c in connections}
+        connected_targets = {c["target"] for c in connections}
+        
+        orphaned = []
+        for n in nodes:
+            if n["node_type"] in [NodeType.START.value, NodeType.END.value]: continue
+            if n["name"] not in connected_sources and n["name"] not in connected_targets:
+                orphaned.append(n["name"])
+        
+        if orphaned:
+            logger.info(f"Architect (Step 6): Removing orphaned nodes: {orphaned}")
+            nodes = [n for n in nodes if n["name"] not in orphaned]
+            connections = [c for c in connections if c["source"] not in orphaned and c["target"] not in orphaned]
+
+        return {
+            "nodes": nodes,
+            "connections": connections,
+            "entry_node": flow_data.get("entry_node")
+        }
+
+
+
     
     async def _create_heuristic_flow(
         self,
         agent: Agent,
         user_prompt: str
     ) -> Dict[str, Any]:
-        """Create a richer, domain-aware flow using heuristic analysis of the prompt and available agents."""
+        """Create a minimal, task-oriented flow as a fallback."""
         try:
             text = user_prompt.lower()
             nodes: List[AgentNode] = []
             conns: List[AgentConnection] = []
 
-            # Baseline canonical pipeline
-            start = AgentNode(agent_id=agent.id, node_type=NodeType.START, name="start", label="Start", config={}, position_x=100, position_y=200)
+            # 1. Start Node
+            start = AgentNode(agent_id=agent.id, node_type=NodeType.START, name="start", label="Start", config={}, position_x=100, position_y=250)
             self.db.add(start); self.db.flush(); nodes.append(start)
-            x = 300; y = 200
+            last_node = start
+            x = 300; y = 250
 
-            # Intent and entities
-            intent = AgentNode(agent_id=agent.id, node_type=NodeType.LLM, name="intent_detector", label="Intent Detector", config={"task": "classify_intent"}, position_x=x, position_y=y)
-            self.db.add(intent); self.db.flush(); nodes.append(intent); x += 200
+            # 2. Main Task Node (Reasoning/LLM)
+            # If prompt mentions specific tasks, we add nodes for them
+            has_knowledge = any(k in text for k in ["kb", "knowledge", "faq", "info", "docs"])
+            has_scheduling = any(k in text for k in ["appointment", "schedule", "booking", "calendar"])
+            has_api = any(k in text for k in ["crm", "api", "pay", "charge", "invoice", "sync"])
 
-            entities = AgentNode(agent_id=agent.id, node_type=NodeType.DATA_ANALYSIS if hasattr(NodeType, "DATA_ANALYSIS") else NodeType.LLM, name="entity_extractor", label="Entity Extractor", config={"task": "extract_entities"}, position_x=x, position_y=y)
-            self.db.add(entities); self.db.flush(); nodes.append(entities); x += 200
-
-            # Security & authentication pipeline (added if security/fraud mentioned)
-            security_required = any(k in text for k in [
-                "security", "fraud", "otp", "kyc", "authentication", "mfa", "risk", "device fingerprint"
-            ])
-            sec_chain_last = entities
-            if security_required:
-                mfa = AgentNode(agent_id=agent.id, node_type=NodeType.AUTH_PROVIDER if hasattr(NodeType, "AUTH_PROVIDER") else NodeType.SESSION_STATE, name="mfa_auth", label="Multi-Factor Auth", config={"methods": ["otp", "device_fingerprint"]}, position_x=x, position_y=y-100)
-                self.db.add(mfa); self.db.flush(); nodes.append(mfa)
-                risk = AgentNode(agent_id=agent.id, node_type=NodeType.AI_INSIGHT if hasattr(NodeType, "AI_INSIGHT") else NodeType.DATA_ANALYSIS, name="risk_scoring", label="Risk Scoring", config={"model": "risk_score_v1"}, position_x=x, position_y=y+100)
-                self.db.add(risk); self.db.flush(); nodes.append(risk)
-                # Connect entities -> mfa and entities -> risk, then to policy_router
-                def link(a: AgentNode, b: AgentNode):
-                    c = AgentConnection(agent_id=agent.id, source_node_id=a.id, target_node_id=b.id, priority=0)
-                    self.db.add(c); conns.append(c)
-                link(entities, mfa)
-                link(entities, risk)
-                sec_chain_last = risk
-
-            # Policy router to decide branch
-            policy = AgentNode(agent_id=agent.id, node_type=NodeType.ORCHESTRATOR, name="policy_router", label="Policy Router", config={"rules": ["security_checks", "domain_routing"]}, position_x=x, position_y=y)
-            self.db.add(policy); self.db.flush(); nodes.append(policy); x += 200
-
-            # Connect previous chain to policy router
-            c0 = AgentConnection(agent_id=agent.id, source_node_id=sec_chain_last.id, target_node_id=policy.id, priority=0)
-            self.db.add(c0); conns.append(c0)
-
-            # Domain router and domain-specific nodes
-            domain_router = AgentNode(agent_id=agent.id, node_type=NodeType.ORCHESTRATOR, name="domain_router", label="Domain Router", config={"domains": []}, position_x=x, position_y=y)
-            self.db.add(domain_router); self.db.flush(); nodes.append(domain_router); x += 200
-            c1 = AgentConnection(agent_id=agent.id, source_node_id=policy.id, target_node_id=domain_router.id, priority=0)
-            self.db.add(c1); conns.append(c1)
-
-            # Determine domains from prompt
-            want_account = any(k in text for k in ["account", "balance", "statement", "interest"])
-            want_card = any(k in text for k in ["card", "pin", "dispute", "block", "unblock", "replacement"])
-            want_payments = any(k in text for k in ["upi", "neft", "rtgs", "refund", "payment", "failed transaction"])
-            want_loans = any(k in text for k in ["loan", "emi", "eligibility", "credit"])
-            want_fraud = any(k in text for k in ["fraud", "suspicious", "lockdown", "otp", "identity"])
-            want_profile = any(k in text for k in ["kyc", "address", "nominee", "profile"])
-            want_advisory = any(k in text for k in ["advisory", "savings", "investment", "credit score"])
-            want_complaint = any(k in text for k in ["complaint", "ticket", "sla", "escalation"])
-            want_email = any(k in text for k in ["email", "gmail", "outlook"])
-            want_calendar = any(k in text for k in ["calendar", "meeting", "schedule"])
-            want_webscrape = any(k in text for k in ["scrape", "crawl"])
-
-            # Create domain nodes (grid layout)
-            dom_y = y - 150
-            dom_x = x
-            domain_nodes: List[AgentNode] = []
-            def add_domain(name: str, label: str, ntype: NodeType, cfg: Dict[str, Any]):
-                nonlocal dom_x, dom_y
-                node = AgentNode(agent_id=agent.id, node_type=ntype, name=name, label=label, config=cfg, position_x=dom_x, position_y=dom_y)
-                self.db.add(node); self.db.flush(); domain_nodes.append(node); nodes.append(node)
-                # connect from router
-                cc = AgentConnection(agent_id=agent.id, source_node_id=domain_router.id, target_node_id=node.id, priority=0)
-                self.db.add(cc); conns.append(cc)
-                dom_y += 150
-                if dom_y > y + 300:
-                    dom_y = y - 150
-                    dom_x += 200
-                return node
-
-            if want_account:
-                add_domain("account_services", "Account Services", NodeType.WORKFLOW_AUTOMATION, {"systems": ["CBS"]})
-            if want_card:
-                add_domain("card_services", "Card Services", NodeType.WORKFLOW_AUTOMATION, {"systems": ["CBS"]})
-            if want_payments:
-                add_domain("payments", "Payments", NodeType.WORKFLOW_AUTOMATION, {"systems": ["PaymentGateway"]})
-            if want_loans:
-                add_domain("loans_credit", "Loans & Credit", NodeType.WORKFLOW_AUTOMATION, {"systems": ["CRM", "CBS"]})
-            if want_fraud:
-                add_domain("fraud_security", "Fraud & Security", NodeType.AI_INSIGHT if hasattr(NodeType, "AI_INSIGHT") else NodeType.DATA_ANALYSIS, {"systems": ["FraudEngine"]})
-            if want_profile:
-                add_domain("customer_profile", "Customer Profile", NodeType.WORKFLOW_AUTOMATION, {"systems": ["KYCSystem", "CRM"]})
-            if want_advisory:
-                add_domain("advisory", "Advisory", NodeType.AI_INSIGHT if hasattr(NodeType, "AI_INSIGHT") else NodeType.DATA_ANALYSIS, {"systems": ["AnalyticsEngine"]})
-            if want_complaint:
-                add_domain("complaint_mgmt", "Complaint Management", NodeType.WORKFLOW_AUTOMATION, {"systems": ["Ticketing"]})
-            if want_email:
-                add_domain("email_ops", "Email AI", NodeType.EMAIL_PROCESSOR, {"systems": ["EmailService"]})
-            if want_calendar:
-                add_domain("calendar_ops", "Calendar", NodeType.CALENDAR, {"systems": ["CalendarService"]})
-            if want_webscrape:
-                add_domain("web_scrape", "Web Scraper", NodeType.WEB_SCRAPER, {"systems": []})
-
-            # If none explicitly detected, include core trio to avoid under-building
-            if not domain_nodes:
-                add_domain("account_services", "Account Services", NodeType.WORKFLOW_AUTOMATION, {"systems": ["CBS"]})
-                add_domain("payments", "Payments", NodeType.WORKFLOW_AUTOMATION, {"systems": ["PaymentGateway"]})
-                add_domain("complaint_mgmt", "Complaint Management", NodeType.WORKFLOW_AUTOMATION, {"systems": ["Ticketing"]})
-
-            # Agent composition: detect references to existing agents and add delegate nodes
-            try:
-                existing_agents = self.db.query(Agent).filter(Agent.is_active == True).all()
-                delegate_nodes: List[AgentNode] = []
-                for a in existing_agents:
-                    name_lower = (a.name or "").lower()
-                    if not name_lower:
-                        continue
-                    if name_lower in text or any(kw in text for kw in ["use existing bot", "reuse bot", "child bot", "parent bot", "delegate to"]):
-                        dnode = AgentNode(
-                            agent_id=agent.id,
-                            node_type=NodeType.AGENT_DELEGATE,
-                            name=f"delegate_{a.id}",
-                            label=f"Delegate: {a.name}",
-                            config={"agent_id": a.id, "pass_context": True, "merge_response": True},
-                            position_x=dom_x,
-                            position_y=y + 250
-                        )
-                        self.db.add(dnode); self.db.flush()
-                        delegate_nodes.append(dnode); nodes.append(dnode)
-                        # connect from domain router to delegate node
-                        cc = AgentConnection(agent_id=agent.id, source_node_id=domain_router.id, target_node_id=dnode.id, priority=0)
-                        self.db.add(cc); conns.append(cc)
-                # keep delegate_nodes for wiring below
-            except Exception as e:
-                logger.warning(f"Agent delegate setup failed: {e}")
-
-            # Add audit logging and notification nodes
-            audit = AgentNode(agent_id=agent.id, node_type=NodeType.WORKFLOW_AUTOMATION, name="audit_log", label="Audit Log", config={"compliance": ["PCI-DSS", "GDPR", "RBI"]}, position_x=dom_x + 200, position_y=y)
-            self.db.add(audit); self.db.flush(); nodes.append(audit)
-            notify = AgentNode(agent_id=agent.id, node_type=NodeType.NOTIFICATION, name="notification", label="Notification", config={"channels": ["slack", "email"]}, position_x=dom_x + 400, position_y=y)
-            self.db.add(notify); self.db.flush(); nodes.append(notify)
-
-            # Optional handoff
-            need_handoff = any(k in text for k in ["handoff", "human", "escalation"])
-            handoff = None
-            if need_handoff or want_complaint:
-                handoff = AgentNode(agent_id=agent.id, node_type=NodeType.HANDOFF, name="handoff", label="Handoff", config={"threshold": 0.85}, position_x=dom_x + 600, position_y=y)
-                self.db.add(handoff); self.db.flush(); nodes.append(handoff)
-
-            # Response and End
-            resp = AgentNode(agent_id=agent.id, node_type=NodeType.RESPONSE, name="response", label="Response", config={"response_type": "text"}, position_x=dom_x + 800, position_y=y)
-            self.db.add(resp); self.db.flush(); nodes.append(resp)
-            end = AgentNode(agent_id=agent.id, node_type=NodeType.END, name="end", label="End", config={}, position_x=dom_x + 1000, position_y=y)
-            self.db.add(end); self.db.flush(); nodes.append(end)
-
-            # Connections
-            def link(a: AgentNode, b: AgentNode):
-                c = AgentConnection(agent_id=agent.id, source_node_id=a.id, target_node_id=b.id, priority=0)
+            if has_knowledge or has_scheduling or has_api or len(text.split()) > 10:
+                # Add a reasoning core if it's not a trivial prompt
+                reasoning = AgentNode(agent_id=agent.id, node_type=NodeType.LLM, name="reasoning", label="AI Reasoning Core", config={"task": "analyze_and_respond"}, position_x=x, position_y=y)
+                self.db.add(reasoning); self.db.flush(); nodes.append(reasoning)
+                c = AgentConnection(agent_id=agent.id, source_node_id=last_node.id, target_node_id=reasoning.id, priority=0)
                 self.db.add(c); conns.append(c)
-            link(start, intent)
-            link(intent, entities)
-            # Connect each domain to audit -> notification -> optional handoff -> response
-            for dn in domain_nodes:
-                link(dn, audit)
-                link(audit, notify)
-                if handoff:
-                    link(notify, handoff)
-                    link(handoff, resp)
-                else:
-                    link(notify, resp)
-            # Wire any delegate nodes through audit/notify to response
-            try:
-                for dnode in [n for n in nodes if n.node_type == NodeType.AGENT_DELEGATE]:
-                    link(dnode, audit)
-                    link(audit, notify)
-                    if handoff:
-                        link(notify, handoff)
-                        link(handoff, resp)
-                    else:
-                        link(notify, resp)
-            except Exception as e:
-                logger.warning(f"Wiring delegate nodes failed: {e}")
-            link(resp, end)
+                last_node = reasoning
+                x += 220
+
+            # 3. Specific Capability Nodes
+            if has_knowledge:
+                rag = AgentNode(agent_id=agent.id, node_type=NodeType.AI_RAG if hasattr(NodeType, "AI_RAG") else NodeType.LLM, name="knowledge_base", label="Knowledge Base", config={}, position_x=x, position_y=y)
+                self.db.add(rag); self.db.flush(); nodes.append(rag)
+                c = AgentConnection(agent_id=agent.id, source_node_id=last_node.id, target_node_id=rag.id, priority=0)
+                self.db.add(c); conns.append(c)
+                last_node = rag
+                x += 220
+
+            if has_scheduling:
+                cal = AgentNode(agent_id=agent.id, node_type=NodeType.CALENDAR, name="scheduler", label="Appointment Scheduler", config={}, position_x=x, position_y=y)
+                self.db.add(cal); self.db.flush(); nodes.append(cal)
+                c = AgentConnection(agent_id=agent.id, source_node_id=last_node.id, target_node_id=cal.id, priority=0)
+                self.db.add(c); conns.append(c)
+                last_node = cal
+                x += 220
+
+            if has_api:
+                workflow = AgentNode(agent_id=agent.id, node_type=NodeType.WORKFLOW_AUTOMATION, name="workflow", label="Workflow Automation", config={}, position_x=x, position_y=y)
+                self.db.add(workflow); self.db.flush(); nodes.append(workflow)
+                c = AgentConnection(agent_id=agent.id, source_node_id=last_node.id, target_node_id=workflow.id, priority=0)
+                self.db.add(c); conns.append(c)
+                last_node = workflow
+                x += 220
+
+            # 4. Response and End
+            resp = AgentNode(agent_id=agent.id, node_type=NodeType.RESPONSE, name="response", label="Response", config={"response_type": "text"}, position_x=x, position_y=y)
+            self.db.add(resp); self.db.flush(); nodes.append(resp)
+            c = AgentConnection(agent_id=agent.id, source_node_id=last_node.id, target_node_id=resp.id, priority=0)
+            self.db.add(c); conns.append(c)
+            
+            end = AgentNode(agent_id=agent.id, node_type=NodeType.END, name="end", label="End", config={}, position_x=x+220, position_y=y)
+            self.db.add(end); self.db.flush(); nodes.append(end)
+            c = AgentConnection(agent_id=agent.id, source_node_id=resp.id, target_node_id=end.id, priority=0)
+            self.db.add(c); conns.append(c)
 
             agent.entry_node_id = start.id
             self.db.commit()
@@ -387,12 +292,11 @@ Start node at (100, 200), then space nodes 200px apart horizontally, 150px verti
                 "nodes_created": len(nodes),
                 "connections_created": len(conns),
                 "nodes": [{"id": n.id, "name": n.name, "type": n.node_type.value} for n in nodes],
-                "connections": [
-                    {"source": "start", "target": "intent_detector"},
-                    {"source": "intent_detector", "target": "entity_extractor"},
-                    {"source": "response", "target": "end"}
-                ]
+                "connections": [{"source": c.source_node_id, "target": c.target_node_id} for c in conns]
             }
+        except Exception as e:
+            logger.error(f"Error creating heuristic flow: {str(e)}", exc_info=True)
+            return await self._create_simple_flow(agent, user_prompt)
         except Exception as e:
             logger.error(f"Error creating heuristic flow: {str(e)}", exc_info=True)
             return await self._create_simple_flow(agent, user_prompt)

@@ -2,6 +2,7 @@ from app.llm.openai_llm import OpenAILLM
 from app.llm.azure_llm import AzureLLM
 from app.llm.claude_llm import ClaudeLLM
 from app.llm.gemini_llm import GeminiLLM
+from app.llm.generic_llm import GenericLLM
 from app.core.config import settings
 from app.services.config_service import get_llm_config
 import os
@@ -34,6 +35,12 @@ def get_llm(name: str = None):
                 name = "claude"
             elif get_llm_config("gemini") and get_llm_config("gemini").get("is_database") and get_llm_config("gemini").get("api_key"):
                 name = "gemini"
+            elif get_llm_config("groq") and get_llm_config("groq").get("is_database") and get_llm_config("groq").get("api_key"):
+                name = "groq"
+            elif get_llm_config("together") and get_llm_config("together").get("is_database") and get_llm_config("together").get("api_key"):
+                name = "together"
+            elif get_llm_config("mistral") and get_llm_config("mistral").get("is_database") and get_llm_config("mistral").get("api_key"):
+                name = "mistral"
             else:
                 # No UI config - default to openai (will return error when used)
                 name = "openai"
@@ -51,6 +58,8 @@ def get_llm(name: str = None):
             _LLM_INSTANCES[name] = ClaudeLLM()
         elif name == "gemini":
             _LLM_INSTANCES[name] = GeminiLLM()
+        elif name in ["groq", "together", "ollama", "mistral", "cohere", "google"]:
+            _LLM_INSTANCES[name] = GenericLLM(provider=name)
         else:
             # Fallback to OpenAI if unknown
             _LLM_INSTANCES[name] = OpenAILLM()

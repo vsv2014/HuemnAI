@@ -2,7 +2,8 @@
 
 import { useState, useEffect, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
-import { queryKnowledge, recordActivity } from "../../services/api";
+import { queryKnowledge, recordActivity, startToolSession } from "../../services/api";
+import { useAuthStore } from "@/store/authStore";
 
 function KnowledgeContent() {
   const searchParams = useSearchParams();
@@ -12,6 +13,7 @@ function KnowledgeContent() {
   const [confidence, setConfidence] = useState<number>(0);
   const [loading, setLoading] = useState(false);
   const [conversationHistory, setConversationHistory] = useState<Array<{role: string, text: string}>>([]);
+  const token = useAuthStore((s) => s.token);
 
   // Handle search query from URL (from header search bar)
   useEffect(() => {
@@ -26,12 +28,24 @@ function KnowledgeContent() {
 
   // Track activity
   useEffect(() => {
+    const userId = "user1";
     const interval = setInterval(() => {
-      recordActivity("user1").catch(() => {}); // Silently fail - non-critical
+      if (token) {
+        recordActivity(userId, token).catch(() => {}); // Silently fail - non-critical
+      }
     }, 30000); // Record activity every 30 seconds
 
     return () => clearInterval(interval);
-  }, []);
+  }, [token]);
+
+  useEffect(() => {
+    if (!token) return;
+    startToolSession("knowledge_ai", token).catch(() => {});
+    const interval = setInterval(() => {
+      startToolSession("knowledge_ai", token).catch(() => {});
+    }, 5 * 60 * 1000);
+    return () => clearInterval(interval);
+  }, [token]);
 
   async function handleSearchFromUrl(searchQuery: string) {
     if (!searchQuery.trim()) return;
@@ -40,7 +54,7 @@ function KnowledgeContent() {
     const currentQuery = searchQuery.trim();
     
     try {
-      const res = await queryKnowledge(currentQuery, []);
+      const res = await queryKnowledge(currentQuery, token || "");
       setResults(res.results ?? []);
       setSolution(res.solution || "");
       setConfidence(res.confidence || 0);
@@ -68,7 +82,7 @@ function KnowledgeContent() {
     const updatedHistory = [...conversationHistory, { role: "user", text: currentQuery }];
     
     try {
-      const res = await queryKnowledge(currentQuery, updatedHistory);
+      const res = await queryKnowledge(currentQuery, token || "");
       setResults(res.results ?? []);
       setSolution(res.solution || "");
       setConfidence(res.confidence || 0);

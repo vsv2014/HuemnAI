@@ -10,6 +10,9 @@ from app.services.knowledge_service import (
 )
 from app.api.auth import get_current_user
 from app.db.models.subscription import UserAccount
+from app.db.session import get_db
+from app.utils.subscription import consume_tool_tokens
+from sqlalchemy.orm import Session
 import logging
 
 logger = logging.getLogger(__name__)
@@ -33,7 +36,8 @@ class QueryPayload(BaseModel):
 @router.post("/")
 async def query(
     payload: QueryPayload,
-    user: Optional[UserAccount] = Depends(get_current_user)
+    user: Optional[UserAccount] = Depends(get_current_user),
+    db: Session = Depends(get_db)
 ):
     """
     Query knowledge base with semantic search and get comprehensive solutions.
@@ -42,6 +46,8 @@ async def query(
     Includes crawled knowledge sources if user is authenticated.
     """
     try:
+        if user:
+            consume_tool_tokens(db, user, "knowledge_ai", 1)
         user_id = user.id if user else None
         result = await query_with_solution(
             payload.message, 

@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field, ConfigDict
 from datetime import datetime
 import uuid
 import logging
+import json
 
 logger = logging.getLogger(__name__)
 
@@ -21,6 +22,23 @@ from app.db.models.subscription import UserAccount
 from app.api.auth import get_current_user
 
 router = APIRouter()
+
+
+def build_node_code(node: AgentNode) -> str:
+    node_type = node.node_type.value if hasattr(node.node_type, "value") else str(node.node_type)
+    payload = {
+        "node_id": node.id,
+        "node_type": node_type,
+        "name": node.name,
+        "label": node.label,
+        "timeout": node.timeout,
+        "retry_count": node.retry_count,
+        "error_handling": node.error_handling or {},
+        "tags": node.tags or [],
+        "description": node.description,
+        "config": node.config or {},
+    }
+    return json.dumps(payload, indent=2, sort_keys=True, ensure_ascii=False)
 
 
 # Pydantic models for request/response
@@ -362,7 +380,11 @@ async def get_agent(agent_id: int, db: Session = Depends(get_db)):
             "position_x": node.position_x,
             "position_y": node.position_y,
             "timeout": node.timeout,
-            "description": node.description
+            "retry_count": node.retry_count,
+            "error_handling": node.error_handling,
+            "description": node.description,
+            "tags": node.tags,
+            "generated_code": build_node_code(node)
         }
         for node in agent.nodes
     ]
@@ -513,7 +535,8 @@ async def create_node(
         "label": node.label,
         "config": node.config,
         "position_x": node.position_x,
-        "position_y": node.position_y
+        "position_y": node.position_y,
+        "generated_code": build_node_code(node)
     }
 
 
@@ -550,6 +573,7 @@ async def update_node(
         "id": node.id,
         "name": node.name,
         "config": node.config,
+        "generated_code": build_node_code(node),
         "updated_at": node.updated_at.isoformat() if node.updated_at else None
     }
 

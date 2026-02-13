@@ -245,10 +245,12 @@ async def stripe_webhook(request: Request):
         await handle_checkout_completed(session)
     elif event["type"] == "invoice.payment_succeeded":
         # Handle recurring payment success
-        pass
+        invoice = event["data"]["object"]
+        await handle_invoice_payment_succeeded(invoice)
     elif event["type"] == "invoice.payment_failed":
         # Handle payment failure (e.g., email user)
-        pass
+        invoice = event["data"]["object"]
+        await handle_invoice_payment_failed(invoice)
         
     return {"status": "success"}
 
@@ -259,10 +261,23 @@ async def handle_checkout_completed(session):
     """
     db = SessionLocal()
     try:
-        user_id = session.get("metadata", {}).get("user_id")
-        plan_id = session.get("metadata", {}).get("plan_id")
-        billing_period = session.get("metadata", {}).get("billing_period")
-        
+        metadata = session.get("metadata", {}) or {}
+        user_id = metadata.get("user_id")
+        plan_id = metadata.get("plan_id")
+        billing_period = metadata.get("billing_period")
+
+        if not user_id or not plan_id:
+            stripe_subscription_id = session.get("subscription")
+            if stripe_subscription_id:
+                try:
+                    stripe_sub = stripe.Subscription.retrieve(stripe_subscription_id)
+                    sub_meta = stripe_sub.get("metadata", {}) or {}
+                    user_id = user_id or sub_meta.get("user_id")
+                    plan_id = plan_id or sub_meta.get("plan_id")
+                    billing_period = billing_period or sub_meta.get("billing_period")
+                except Exception as e:
+                    logger.error(f"Failed to fetch Stripe subscription metadata: {e}")
+
         if not user_id or not plan_id:
             logger.error("Missing metadata in Stripe session")
             return
@@ -291,16 +306,19 @@ async def handle_checkout_completed(session):
         else:
             ends_at = started_at + timedelta(days=365)
             
+        amount_paid = session.get("amount_total")
+        if amount_paid is not None:
+            amount_paid = amount_paid / 100.0
         new_subscription = Subscription(
             user_id=user.id,
             plan_id=plan.id,
             status="active",
-            amount_paid=session["amount_total"] / 100.0,
+            amount_paid=amount_paid,
             billing_period=billing_period,
             started_at=started_at,
             ends_at=ends_at,
             payment_method="stripe",
-            transaction_id=session["payment_intent"],
+            transaction_id=session.get("payment_intent") or session.get("subscription"),
             stripe_checkout_session_id=session["id"],
             stripe_subscription_id=session.get("subscription")
         )
@@ -326,3 +344,41 @@ async def handle_checkout_completed(session):
     finally:
         db.close()
 
+async def handle_invoice_payment_succeeded(invoice: dict):
+    db = SessionLocal()
+    try:
+        subscription_id = invoice.get("subscription")
+        if not subscription_id:
+            return
+        subscription = db.query(Subscription).filter(Subscription.stripe_subscription_id == subscription_id).first()
+        if not subscription:
+            return
+        now = datetime.utcnow()
+        if subscription.billing_period == "yearly":
+            subscription.ends_at = now + timedelta(days=365)
+        else:
+            subscription.ends_at = now + timedelta(days=30)
+        subscription.status = "active"
+        db.commit()
+    except Exception as e:
+        logger.error(f"Error handling invoice payment: {e}", exc_info=True)
+        db.rollback()
+    finally:
+        db.close()
+
+async def handle_invoice_payment_failed(invoice: dict):
+    db = SessionLocal()
+    try:
+        subscription_id = invoice.get("subscription")
+        if not subscription_id:
+            return
+        subscription = db.query(Subscription).filter(Subscription.stripe_subscription_id == subscription_id).first()
+        if not subscription:
+            return
+        subscription.status = "past_due"
+        db.commit()
+    except Exception as e:
+        logger.error(f"Error handling invoice failure: {e}", exc_info=True)
+        db.rollback()
+    finally:
+        db.close()

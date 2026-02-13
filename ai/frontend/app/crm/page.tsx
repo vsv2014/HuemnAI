@@ -7,7 +7,7 @@ import { CopilotChat } from "@/components/crm/CopilotChat";
 import ActivityTimeline from "@/components/crm/ActivityTimeline";
 import { useAuthStore } from "@/store/authStore";
 import { startToolSession, consumeToken } from "@/services/api";
-import { Home, HelpCircle, ChevronLeft } from "lucide-react";
+import { Home, HelpCircle, ChevronLeft, RefreshCw } from "lucide-react";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "http://127.0.0.1:8000";
 
@@ -16,8 +16,19 @@ export default function CRMPage() {
   const token = useAuthStore((s) => s.token);
   const [selectedDealId, setSelectedDealId] = useState<string | null>(null);
   const [sessionStarted, setSessionStarted] = useState(false);
+  const [refreshKey, setRefreshKey] = useState(0);
   const headers: HeadersInit = { "Content-Type": "application/json" };
   if (token) headers["Authorization"] = `Bearer ${token}`;
+
+  const tryConsumeToken = async () => {
+    if (!token) return true;
+    const res: any = await consumeToken("crm", 1, token);
+    if (res?.error || res?.success === false) {
+      router.push("/pricing");
+      return false;
+    }
+    return true;
+  };
 
   const handleDealClick = (dealId: string) => {
     setSelectedDealId(dealId);
@@ -33,9 +44,7 @@ export default function CRMPage() {
         body: JSON.stringify({ stage: newStage }),
       });
       if (!res.ok) throw new Error("Failed to update deal");
-      if (token) {
-        await consumeToken("crm", 1, token);
-      }
+      await tryConsumeToken();
     } catch (err) {
       console.error("Stage change failed:", err);
       throw err;
@@ -48,10 +57,18 @@ export default function CRMPage() {
       const res = await startToolSession("crm", token);
       if (res && !res.error) {
         setSessionStarted(true);
-        await consumeToken("crm", 1, token);
+        await tryConsumeToken();
       }
     };
     init();
+  }, [token, sessionStarted]);
+
+  useEffect(() => {
+    if (!token || !sessionStarted) return;
+    const interval = setInterval(() => {
+      startToolSession("crm", token).catch(() => {});
+    }, 5 * 60 * 1000);
+    return () => clearInterval(interval);
   }, [token, sessionStarted]);
 
   return (
@@ -59,6 +76,14 @@ export default function CRMPage() {
       <div className="flex items-center justify-between">
         <h1 className="text-3xl font-bold text-white">CRM</h1>
         <div className="flex items-center gap-2">
+          <button
+            onClick={() => setRefreshKey((prev) => prev + 1)}
+            className="px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white/80 hover:text-white hover:bg-white/10 transition-colors flex items-center gap-2"
+            title="Refresh CRM data"
+          >
+            <RefreshCw className="w-4 h-4" />
+            <span className="text-sm">Refresh</span>
+          </button>
           <button
             onClick={() => router.back()}
             className="px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white/80 hover:text-white hover:bg-white/10 transition-colors flex items-center gap-2"
@@ -93,7 +118,7 @@ export default function CRMPage() {
               onClick={async ()=>{
                 try{
                   const r = await fetch(`${API_BASE}/api/crm/seed`,{method:"POST",headers});
-                  if (r.ok && token){ await consumeToken("crm", 1, token); }
+                  if (r.ok){ await tryConsumeToken(); }
                 } catch {}
               }}
               className="px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white/80 hover:text-white hover:bg-white/10 transition-colors"
@@ -102,6 +127,7 @@ export default function CRMPage() {
             </button>
           </div>
           <PipelineKanban
+            key={`pipeline-${refreshKey}`}
             onDealClick={handleDealClick}
             onStageChange={handleStageChange}
           />
@@ -113,7 +139,7 @@ export default function CRMPage() {
               onClick={async ()=>{
                 try{
                   const r = await fetch(`${API_BASE}/api/crm/seed`,{method:"POST",headers});
-                  if (r.ok && token){ await consumeToken("crm", 1, token); }
+                  if (r.ok){ await tryConsumeToken(); }
                 } catch {}
               }}
               className="px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white/80 hover:text-white hover:bg-white/10 transition-colors"
@@ -121,10 +147,10 @@ export default function CRMPage() {
               Generate Sample Data
             </button>
           </div>
-          <ContactsManager data={{}} onRefresh={() => {}} token={token || ""} />
+          <ContactsManager key={`contacts-${refreshKey}`} data={{}} onRefresh={() => {}} token={token || ""} />
           <div className="mt-6">
             <h3 className="text-md font-semibold text-white mb-3">Activity Timeline</h3>
-            <ActivityTimeline />
+            <ActivityTimeline key={`activities-${refreshKey}`} />
           </div>
           <div className="mt-6">
             <h3 className="text-md font-semibold text-white mb-3">Copilot</h3>

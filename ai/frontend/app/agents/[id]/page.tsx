@@ -509,6 +509,9 @@ function FlowCanvas({
   const [selectedNode, setSelectedNode] = useState<Node | null>(null);
   const [selectedEdge, setSelectedEdge] = useState<Edge | null>(null);
   const [draggedNodeType, setDraggedNodeType] = useState<string | null>(null);
+  const [showCodePanel, setShowCodePanel] = useState(false);
+  const [selectedNodeCode, setSelectedNodeCode] = useState("");
+  const [nodeCodeStatus, setNodeCodeStatus] = useState<"saved" | "unsaved">("saved");
   const reactFlowWrapper = useRef<HTMLDivElement>(null);
   const { screenToFlowPosition, getViewport } = useReactFlow();
   const positionUpdateTimeout = useRef<NodeJS.Timeout | null>(null);
@@ -531,6 +534,7 @@ function FlowCanvas({
   
   // Click-to-Connect State
   const [connectingSourceId, setConnectingSourceId] = useState<string | null>(null);
+  const [minimapInteractive, setMinimapInteractive] = useState(false);
 
   // Update nodes when connecting mode changes
   useEffect(() => {
@@ -593,6 +597,7 @@ function FlowCanvas({
         retry_count: (node as any).retry_count || 0,
         error_handling: (node as any).error_handling || {},
         tags: (node as any).tags || [],
+        code: node.config?.generated_code || (node as any).generated_code || "",
       },
       draggable: true,
     }));
@@ -653,6 +658,7 @@ function FlowCanvas({
   // Handle node configuration updates
   const updateNodeConfiguration = useCallback(
     (nodeId: string, dataUpdates: any) => {
+      setNodeCodeStatus("unsaved");
       // Update nodes state to reflect changes in the graph
       setNodes((nds) =>
         nds.map((n) => {
@@ -676,11 +682,26 @@ function FlowCanvas({
         clearTimeout(nodeUpdateTimeout.current);
       }
 
-      nodeUpdateTimeout.current = setTimeout(() => {
+      nodeUpdateTimeout.current = setTimeout(async () => {
         if (!token) return;
-        updateNode(parseInt(nodeId), dataUpdates, token).catch((err) =>
-          console.error("Failed to update node configuration:", err)
-        );
+        try {
+          const response: any = await updateNode(parseInt(nodeId), dataUpdates, token);
+          if (response?.generated_code) {
+            setNodes((nds) =>
+              nds.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, code: response.generated_code } } : n))
+            );
+            setSelectedNode((prev) => {
+              if (prev?.id === nodeId) {
+                return { ...prev, data: { ...prev.data, code: response.generated_code } };
+              }
+              return prev;
+            });
+            setSelectedNodeCode((current) => (current ? response.generated_code : current));
+            setNodeCodeStatus("saved");
+          }
+        } catch (err) {
+          console.error("Failed to update node configuration:", err);
+        }
       }, 1000);
     },
     [setNodes, token]
@@ -1199,6 +1220,21 @@ function FlowCanvas({
           }
         }}
       >
+        {/* Floating Controls Overlay */}
+        <div className="absolute top-4 left-4 z-10 flex gap-2">
+          <button
+            onClick={() => setMinimapInteractive((v) => !v)}
+            className={`px-3 py-1.5 rounded-lg border transition-all duration-200 flex items-center gap-2 text-xs font-medium backdrop-blur-md shadow-lg ${
+              minimapInteractive 
+                ? 'bg-sky-500/20 border-sky-500/50 text-sky-400 shadow-[0_0_10px_rgba(14,165,233,0.1)]' 
+                : 'bg-black/40 border-white/10 text-white/70 hover:bg-black/60'
+            }`}
+          >
+            <div className={`w-2 h-2 rounded-full ${minimapInteractive ? 'bg-sky-400 animate-pulse' : 'bg-white/30'}`} />
+            Interactive Minimap
+          </button>
+        </div>
+
         <ReactFlow
           nodes={nodes}
           edges={edges}
@@ -1234,6 +1270,8 @@ function FlowCanvas({
             } else {
               // Standard Select
               setSelectedNode(node);
+              setSelectedNodeCode(node.data.code || "");
+              setNodeCodeStatus("saved");
               setSelectedEdge(null);
             }
           }}
@@ -1291,7 +1329,7 @@ function FlowCanvas({
             }}
           />
           <MiniMap 
-            className="advanced-minimap !bg-gradient-to-br !from-[#0a0f1a] !via-[#0f1419] !to-[#0a0f1a] !border !border-white/20 !rounded-xl !shadow-2xl !backdrop-blur-xl"
+            className={`transition-all duration-300 ${minimapInteractive ? 'advanced-minimap' : ''} !bg-gradient-to-br !from-[#0a0f1a] !via-[#0f1419] !to-[#0a0f1a] !border !border-white/20 !rounded-xl !shadow-2xl !backdrop-blur-xl`}
             nodeColor={(node) => {
               const config = NODE_TYPES.find((n) => n.type === node.data?.nodeType);
               return config?.color || "#6b7280";
@@ -1300,14 +1338,15 @@ function FlowCanvas({
             maskColor="rgba(0, 0, 0, 0.4)"
             maskStrokeColor="rgba(59, 130, 246, 0.8)"
             maskStrokeWidth={2}
-            pannable={true}
-            zoomable={true}
+            pannable={minimapInteractive}
+            zoomable={minimapInteractive}
             style={{
-              height: 200,
-              width: 300,
+              height: minimapInteractive ? 200 : 100,
+              width: minimapInteractive ? 300 : 150,
               borderRadius: '12px',
               border: '1px solid rgba(255, 255, 255, 0.2)',
               boxShadow: '0 8px 32px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.1)',
+              cursor: minimapInteractive ? 'crosshair' : 'default'
             }}
           />
         </ReactFlow>
@@ -4109,24 +4148,56 @@ function FlowCanvas({
                 <h4 className="text-sm font-semibold text-white mb-3">Multi-Agent Coordination</h4>
                 <div className="space-y-3">
                   <div>
-                    <label className="block text-xs text-white/70 mb-1">Agent IDs (comma-separated)</label>
-                    <input
-                      type="text"
-                      value={selectedNode.data.config?.agent_ids || ""}
-                      onChange={(e) => {
-                        const agent_ids = e.target.value;
-                        setSelectedNode({
-                          ...selectedNode,
-                          data: {
-                            ...selectedNode.data,
-                            config: { ...selectedNode.data.config, agent_ids },
-                          },
-                        });
-                        updateNodeConfiguration(selectedNode.id, { config: { ...selectedNode.data.config, agent_ids } });
-                      }}
-                      className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm"
-                      placeholder="1, 2, 3"
-                    />
+                    <label className="block text-xs text-white/70 mb-2">Select Agents</label>
+                    <div className="max-h-40 overflow-y-auto space-y-1 p-2 bg-white/5 border border-white/10 rounded-lg">
+                      {availableAgents
+                        .filter((a: any) => a.id !== agentId && a.is_active)
+                        .map((agent: any) => {
+                          const agentIds = (selectedNode.data.config?.agent_ids || "")
+                            .split(",")
+                            .map((id: string) => id.trim())
+                            .filter(Boolean);
+                          const isSelected = agentIds.includes(agent.id.toString());
+                          return (
+                            <label key={agent.id} className="flex items-center gap-2 px-2 py-1 hover:bg-white/5 rounded cursor-pointer transition-colors group">
+                              <input
+                                type="checkbox"
+                                checked={isSelected}
+                                onChange={(e) => {
+                                  let newIds;
+                                  if (e.target.checked) {
+                                    newIds = [...agentIds, agent.id.toString()];
+                                  } else {
+                                    newIds = agentIds.filter((id: string) => id !== agent.id.toString());
+                                  }
+                                  const agent_ids = newIds.join(", ");
+                                  const updatedConfig = { 
+                                    ...selectedNode.data.config, 
+                                    agent_ids,
+                                    agents: newIds.map((id: string) => parseInt(id))
+                                  };
+                                  setSelectedNode({
+                                    ...selectedNode,
+                                    data: {
+                                      ...selectedNode.data,
+                                      config: updatedConfig,
+                                    },
+                                  });
+                                  updateNodeConfiguration(selectedNode.id, { config: updatedConfig });
+                                }}
+                                className="w-3.5 h-3.5 rounded border-white/20 bg-white/5 text-indigo-500 focus:ring-indigo-500 focus:ring-offset-0"
+                              />
+                              <div className="flex flex-col">
+                                <span className="text-xs text-white group-hover:text-indigo-300 transition-colors">{agent.name}</span>
+                                <span className="text-[10px] text-white/40">ID: {agent.id} • {agent.agent_type}</span>
+                              </div>
+                            </label>
+                          );
+                        })}
+                      {availableAgents.filter((a: any) => a.id !== agentId && a.is_active).length === 0 && (
+                        <div className="text-[10px] text-white/40 p-2 italic text-center">No other active agents found.</div>
+                      )}
+                    </div>
                   </div>
                   <div>
                     <label className="block text-xs text-white/70 mb-1">Coordination Strategy</label>
@@ -5905,24 +5976,59 @@ function FlowCanvas({
                     </select>
                   </div>
                   <div>
-                    <label className="block text-xs text-white/70 mb-1">Agent IDs (comma-separated)</label>
-                    <input
-                      type="text"
-                      value={Array.isArray(selectedNode.data.config?.agents) ? selectedNode.data.config.agents.join(", ") : ""}
-                      onChange={(e) => {
-                        const agents = e.target.value.split(",").map((a) => a.trim()).filter(Boolean);
-                        setSelectedNode({
-                          ...selectedNode,
-                          data: {
-                            ...selectedNode.data,
-                            config: { ...selectedNode.data.config, agents },
-                          },
-                        });
-                        updateNodeConfiguration(selectedNode.id, { config: { ...selectedNode.data.config, agents } });
-                      }}
-                      className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm"
-                      placeholder="1, 2, 3"
-                    />
+                    <label className="block text-xs text-white/70 mb-2">Select Agents</label>
+                    <div className="max-h-40 overflow-y-auto space-y-1 p-2 bg-white/5 border border-white/10 rounded-lg">
+                      {availableAgents
+                        .filter((a: any) => a.id !== agentId && a.is_active)
+                        .map((agent: any) => {
+                          const agentIds = Array.isArray(selectedNode.data.config?.agents)
+                            ? selectedNode.data.config.agents.map((id: any) => id.toString())
+                            : (selectedNode.data.config?.agent_ids || "")
+                                .split(",")
+                                .map((id: string) => id.trim())
+                                .filter(Boolean);
+                          const isSelected = agentIds.includes(agent.id.toString());
+                          return (
+                            <label key={agent.id} className="flex items-center gap-2 px-2 py-1 hover:bg-white/5 rounded cursor-pointer transition-colors group">
+                              <input
+                                type="checkbox"
+                                checked={isSelected}
+                                onChange={(e) => {
+                                  let newIds;
+                                  if (e.target.checked) {
+                                    newIds = [...agentIds, agent.id.toString()];
+                                  } else {
+                                    newIds = agentIds.filter((id: string) => id !== agent.id.toString());
+                                  }
+                                  const agent_ids = newIds.join(", ");
+                                  const agents = newIds.map((id: string) => parseInt(id));
+                                  const updatedConfig = { 
+                                    ...selectedNode.data.config, 
+                                    agent_ids,
+                                    agents
+                                  };
+                                  setSelectedNode({
+                                    ...selectedNode,
+                                    data: {
+                                      ...selectedNode.data,
+                                      config: updatedConfig,
+                                    },
+                                  });
+                                  updateNodeConfiguration(selectedNode.id, { config: updatedConfig });
+                                }}
+                                className="w-3.5 h-3.5 rounded border-white/20 bg-white/5 text-indigo-500 focus:ring-indigo-500 focus:ring-offset-0"
+                              />
+                              <div className="flex flex-col">
+                                <span className="text-xs text-white group-hover:text-indigo-300 transition-colors">{agent.name}</span>
+                                <span className="text-[10px] text-white/40">ID: {agent.id} • {agent.agent_type}</span>
+                              </div>
+                            </label>
+                          );
+                        })}
+                      {availableAgents.filter((a: any) => a.id !== agentId && a.is_active).length === 0 && (
+                        <div className="text-[10px] text-white/40 p-2 italic text-center">No other active agents found.</div>
+                      )}
+                    </div>
                   </div>
                 </div>
               </div>
@@ -6528,6 +6634,46 @@ function FlowCanvas({
                     placeholder='{"on_error": "continue", "fallback_node": null}'
                   />
                 </div>
+                <div className="pt-2 border-t border-white/10">
+                  <button
+                    onClick={() => {
+                      setSelectedNodeCode(selectedNode.data.code || "");
+                      setShowCodePanel((v) => !v);
+                    }}
+                    className="w-full flex items-center justify-center space-x-2 px-3 py-2 rounded-lg text-xs font-bold bg-sky-500/10 hover:bg-sky-500/20 text-sky-400 border border-sky-500/20 transition-all"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <polyline points="16 18 22 12 16 6"></polyline>
+                      <polyline points="8 6 2 12 8 18"></polyline>
+                    </svg>
+                    <span>{showCodePanel ? "Hide Node Code" : "Show Node Code"}</span>
+                  </button>
+                </div>
+                {showCodePanel && (
+                  <div className="rounded-lg border border-white/10 bg-black/30">
+                    <div className="flex items-center justify-between px-3 py-2 border-b border-white/10">
+                      <span className="text-xs font-semibold text-sky-300">Node Code</span>
+                      <div className="flex items-center gap-2">
+                        <span className={`text-[10px] px-2 py-0.5 rounded-full border ${nodeCodeStatus === "saved" ? "bg-emerald-500/10 text-emerald-300 border-emerald-500/30" : "bg-amber-500/10 text-amber-300 border-amber-500/30"}`}>
+                          {nodeCodeStatus === "saved" ? "Saved" : "Unsaved"}
+                        </span>
+                        <button
+                          onClick={() => setShowCodePanel(false)}
+                          className="text-[10px] text-white/60 hover:text-white"
+                        >
+                          Hide
+                        </button>
+                      </div>
+                    </div>
+                    {selectedNodeCode || selectedNode.data.code ? (
+                      <pre className="max-h-64 overflow-y-auto p-3 text-[10px] text-sky-200 whitespace-pre-wrap font-mono">
+                        {selectedNodeCode || selectedNode.data.code}
+                      </pre>
+                    ) : (
+                      <div className="p-3 text-[10px] text-white/50">No code available for this node.</div>
+                    )}
+                  </div>
+                )}
                 <div>
                   <label className="block text-xs text-white/70 mb-1">Tags (comma-separated)</label>
                   <input
