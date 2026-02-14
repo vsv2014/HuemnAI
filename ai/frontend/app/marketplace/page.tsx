@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { Search, Filter, Download, Box, LayoutTemplate, ArrowRight, Star } from "lucide-react";
+import { Search, Filter, Download, Box, LayoutTemplate, ArrowRight, Star, Loader2 } from "lucide-react";
 
 const templates = [
   {
@@ -101,6 +101,12 @@ export default function MarketplacePage() {
   const [activeTab, setActiveTab] = useState<"templates" | "integrations">("templates");
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCategory, setSelectedCategory] = useState<string>("All");
+  const [creatingTemplateId, setCreatingTemplateId] = useState<string | null>(null);
+
+  const handleUseTemplate = (template: any) => {
+    setCreatingTemplateId(template?.id || null);
+    setTimeout(() => setCreatingTemplateId(null), 1200);
+  };
 
   const categories = ["All", "HR", "IT", "Sales", "Support", "Healthcare", "CRM", "ITSM", "ERP"];
 
