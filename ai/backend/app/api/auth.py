@@ -9,6 +9,7 @@ import jwt
 from sqlalchemy.orm import Session
 from app.db.session import get_db
 from app.db.models.subscription import UserAccount, SubscriptionPlan, Subscription, UserIntegration, UserToolSubscription, EmailVerification
+from app.utils.subscription import sync_tool_subscriptions
 from app.core.config import settings
 from app.services.email_service import send_welcome_email, send_login_notification_email, send_password_reset_email, send_otp_email
 import logging
@@ -399,47 +400,14 @@ async def login(
             user.subscription_status = "expired"
             db.commit()
     
-    # Get user's subscribed tools for SSO
-    from app.db.models.subscription import UserToolSubscription
-    tool_subscriptions = db.query(UserToolSubscription).filter(
-        UserToolSubscription.user_id == user.id,
-        UserToolSubscription.subscription_status == "active"
-    ).all()
-
-    # If no tools found (e.g. old user), create default tools
-    if not tool_subscriptions:
-        default_tools = [
-            ("agent_builder", "Agent Builder"),
-            ("customer_service", "Customer Service"),
-            ("hr_services", "HR Services"),
-            ("knowledge_ai", "Knowledge AI"),
-            ("analytics_dashboard", "Analytics Dashboard")
-        ]
-        
-        for tool_name, tool_display_name in default_tools:
-            tool_sub = UserToolSubscription(
-                user_id=user.id,
-                tool_name=tool_name,
-                tool_display_name=tool_display_name,
-                subscription_status="active",
-                tokens_remaining=50000,
-                tokens_total=50000
-            )
-            db.add(tool_sub)
-        
-        db.commit()
-        
-        # Re-fetch
-        tool_subscriptions = db.query(UserToolSubscription).filter(
-            UserToolSubscription.user_id == user.id,
-            UserToolSubscription.is_active == True,
-            UserToolSubscription.subscription_status == "active"
-        ).all()
+    tool_subscriptions = sync_tool_subscriptions(db, user)
     
     subscribed_tools = [{
         "tool_name": sub.tool_name,
         "tool_display_name": sub.tool_display_name,
-        "subscribed_at": sub.subscribed_at.isoformat() if sub.subscribed_at else None
+        "subscribed_at": sub.subscribed_at.isoformat() if sub.subscribed_at else None,
+        "tokens_remaining": sub.tokens_remaining,
+        "tokens_total": sub.tokens_total
     } for sub in tool_subscriptions]
     
     # Create token (valid for 24h)
@@ -557,27 +525,7 @@ async def google_login(
         db.commit()
         db.refresh(user)
         
-        # Initialize default tool subscriptions
-        default_tools = [
-            ("agent_builder", "Agent Builder"),
-            ("customer_service", "Customer Service"),
-            ("hr_services", "HR Services"),
-            ("knowledge_ai", "Knowledge AI"),
-            ("analytics_dashboard", "Analytics Dashboard")
-        ]
-        
-        for tool_name, tool_display_name in default_tools:
-            tool_sub = UserToolSubscription(
-                user_id=user.id,
-                tool_name=tool_name,
-                tool_display_name=tool_display_name,
-                subscription_status="active",
-                tokens_remaining=50000,
-                tokens_total=50000
-            )
-            db.add(tool_sub)
-        
-        db.commit()
+        sync_tool_subscriptions(db, user)
         
     # Check trial/subscription status
     trial_days_remaining = None
@@ -589,16 +537,14 @@ async def google_login(
             db.commit()
             
     # Get user's subscribed tools
-    tool_subscriptions = db.query(UserToolSubscription).filter(
-        UserToolSubscription.user_id == user.id,
-        UserToolSubscription.is_active == True,
-        UserToolSubscription.subscription_status == "active"
-    ).all()
+    tool_subscriptions = sync_tool_subscriptions(db, user)
     
     subscribed_tools = [{
         "tool_name": sub.tool_name,
         "tool_display_name": sub.tool_display_name,
-        "subscribed_at": sub.subscribed_at.isoformat() if sub.subscribed_at else None
+        "subscribed_at": sub.subscribed_at.isoformat() if sub.subscribed_at else None,
+        "tokens_remaining": sub.tokens_remaining,
+        "tokens_total": sub.tokens_total
     } for sub in tool_subscriptions]
     
     # Create token

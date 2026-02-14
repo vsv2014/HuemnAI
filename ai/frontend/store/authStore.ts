@@ -19,6 +19,8 @@ interface SubscribedTool {
   tool_name: string;
   tool_display_name: string;
   subscribed_at: string | null;
+  tokens_remaining?: number;
+  tokens_total?: number;
 }
 
 interface AuthState {
@@ -102,4 +104,3 @@ export const useAuthStore = create<AuthState>()(
     }
   )
 );
-

@@ -18,25 +18,41 @@ A comprehensive subscription and authentication system has been implemented with
    - Trial days remaining display
 
 3. **Subscription Plans**
-   - **Basic Plan**: $29/month (50% off = $14.50 first subscription)
+   - **Basic Plan**: $99/month (50% off first subscription)
      - 2 AI agents
+     - Agent Builder, Customer Service Console, Knowledge AI
+     - Status Updater
+     - Ticket assigner and ticket solver
+     - Basic analytics dashboard
      - Basic integrations (Zendesk, Jira)
      - Email support
      - 5,000 queries/month
    
-   - **Professional Plan**: $49/month (50% off = $24.50 first subscription)
+   - **Advanced Plan**: $299/month (50% off first subscription)
      - 5 AI agents
+     - Agent Builder, Customer Service Console, Knowledge AI
+     - Status Updater, Premium Voice Studio
+     - Ticket assigner and ticket solver
+     - CRM workspace
+     - Advanced analytics dashboard
+     - Multi-channel support (Email, Chat, Social)
+     - Workflow automation
      - All integrations (Zendesk, Jira, Salesforce, LinkedIn)
      - Priority support
      - 50,000 queries/month
-     - Advanced analytics
    
-   - **Enterprise Plan**: $99/month (50% off = $49.50 first subscription)
+   - **Enterprise Plan**: Contact for quotation
      - Unlimited AI agents
+     - Agent Builder, Customer Service Console, Knowledge AI
+     - Status Updater, Premium Voice Studio
+     - Ticket assigner and ticket solver
+     - CRM workspace
+     - Enterprise analytics & reporting
+     - Multi-channel support (Email, Chat, Social, Voice)
+     - Workflow automation
      - All integrations + custom integrations
      - 24/7 dedicated support
      - Unlimited queries
-     - Advanced analytics & reporting
      - Custom training & onboarding
 
 4. **50% First Subscription Discount**

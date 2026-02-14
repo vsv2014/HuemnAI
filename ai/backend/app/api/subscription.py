@@ -8,6 +8,7 @@ from app.db.models.subscription import (
     UserAccount, SubscriptionPlan, Subscription, UserIntegration, UserToolSubscription, UserToolSession
 )
 from app.api.auth import get_current_user
+from app.utils.subscription import sync_tool_subscriptions, enforce_tool_access, get_plan_token_limit, get_plan_name
 import logging
 import stripe
 import os
@@ -43,40 +44,49 @@ class SubscriptionResponse(BaseModel):
 # Custom pricing as specified
 PRICING = {
     "basic": {
-        "monthly": 199.0,  # Basic plan: $199/month, First subscription: $99.50
-        "yearly": 1990.0,  # Basic yearly: $1,990/year, First subscription: $995 (save 2 months)
+        "monthly": 99.0,  # Basic plan: $99/month, First subscription: $49.50
+        "yearly": 990.0,  # Basic yearly: $990/year, First subscription: $495 (save 2 months)
         "features": [
             "Access to 2 AI agents",
+            "Agent Builder",
+            "Customer Service Console",
+            "Knowledge AI",
+            "Status Updater",
+            "Ticket assigner and ticket solver",
+            "Basic analytics dashboard",
             "Basic integrations (Zendesk, Jira)",
             "Email support",
             "5,000 queries/month",
-            "Basic analytics dashboard",
-            "Knowledge base access",
             "Standard response templates",
-            "Ticket management system",
             "Basic reporting & insights",
             "Mobile app access"
         ],
         "integrations": ["zendesk", "jira"]
     },
     "professional": {
-        "monthly": 599.0,  # Advanced plan: $599/month (most popular)
-        "yearly": 5990.0,  # Advanced yearly: $5,990/year
+        "monthly": 299.0,  # Advanced plan: $299/month (most popular)
+        "yearly": 2990.0,  # Advanced yearly: $2,990/year
         "features": [
             "Access to 5 AI agents",
+            "Agent Builder",
+            "Customer Service Console",
+            "Knowledge AI",
+            "Status Updater",
+            "Premium Voice Studio",
+            "Analytics dashboard (advanced)",
+            "Ticket assigner and ticket solver",
+            "CRM workspace",
+            "Multi-channel support (Email, Chat, Social)",
+            "Workflow automation",
             "All integrations (Zendesk, Jira, Salesforce, LinkedIn)",
             "Priority support",
             "50,000 queries/month",
-            "Advanced analytics",
-            "Real-time analytics dashboard",
-            "Custom AI model training",
             "Advanced knowledge base management",
+            "Custom AI model training",
             "Custom response templates",
-            "Multi-channel support (Email, Chat, Social)",
             "Advanced reporting & insights",
             "API access for integrations",
             "Team collaboration tools",
-            "Workflow automation",
             "Mobile app access",
             "SLA monitoring & alerts"
         ],
@@ -88,6 +98,16 @@ PRICING = {
         "yearly": None,  # Enterprise: Contact for quotation
         "features": [
             "Unlimited AI agents",
+            "Agent Builder",
+            "Customer Service Console",
+            "Knowledge AI",
+            "Status Updater",
+            "Premium Voice Studio",
+            "Analytics dashboard (enterprise)",
+            "Ticket assigner and ticket solver",
+            "CRM workspace",
+            "Multi-channel support (Email, Chat, Social, Voice)",
+            "Workflow automation",
             "All integrations + custom integrations",
             "24/7 dedicated support",
             "Unlimited queries",
@@ -343,6 +363,7 @@ async def subscribe(
         user.subscription_status = "active"
         user.has_used_trial = True  # Mark trial as used
         await _activate_integrations(user, plan, db)
+        sync_tool_subscriptions(db, user)
         
         db.commit()
         
@@ -478,6 +499,7 @@ async def subscribe(
     
     # Activate integrations based on plan
     await _activate_integrations(user, plan, db)
+    sync_tool_subscriptions(db, user)
     
     db.commit()
     
@@ -635,6 +657,7 @@ async def change_plan(
     user.subscription_started_at = datetime.utcnow()
     user.subscription_ends_at = new_ends_at
     db.commit()
+    sync_tool_subscriptions(db, user)
 
     return {
         "success": True,
@@ -694,6 +717,7 @@ async def subscribe_to_tool(
     db: Session = Depends(get_db)
 ):
     """Subscribe to a specific tool"""
+    enforce_tool_access(db, user, tool_name)
     normalized_tool_name = normalize_tool_name(tool_name)
     # Check if user already has active subscription for this tool
     existing, normalized_tool_name = get_or_create_tool_subscription(
@@ -749,71 +773,21 @@ async def get_subscribed_tools(
     db: Session = Depends(get_db)
 ):
     """Get all tools user has subscribed to with per-tool token counts"""
-    # During trial, all tools are accessible with 50,000 tokens each
-    if user.subscription_status == "trial":
-        all_tools_data = [
-            {"tool_name": "agent_builder", "tool_display_name": "Agent Builder"},
-            {"tool_name": "customer_service", "tool_display_name": "Customer Service & Agent Console"},
-            {"tool_name": "knowledge_ai", "tool_display_name": "Knowledge AI"},
-            {"tool_name": "hr_services", "tool_display_name": "HR Services"},
-            {"tool_name": "status_updater", "tool_display_name": "Status Updater"},
-            {"tool_name": "analytics_dashboard", "tool_display_name": "Analytics Dashboard"},
-        ]
-        
-        # Get or create tool subscriptions with tokens
-        tools_with_tokens = []
-        for tool_data in all_tools_data:
-            tool_sub, _ = get_or_create_tool_subscription(
-                db,
-                user,
-                tool_data["tool_name"],
-                tool_display_name=tool_data["tool_display_name"],
-                create_if_missing=True
-            )
-            
-            tools_with_tokens.append({
-                "tool_name": tool_sub.tool_name,
-                "tool_display_name": tool_sub.tool_display_name,
-                "tokens_remaining": tool_sub.tokens_remaining or 50000,
-                "tokens_total": tool_sub.tokens_total or 50000,
-                "subscribed_at": tool_sub.subscribed_at.isoformat() if tool_sub.subscribed_at else None,
-                "status": tool_sub.subscription_status
-            })
-        
-        return {
-            "success": True,
-            "tools": tools_with_tokens,
-            "is_trial": True
-        }
-    
-    # For subscribed users, return only subscribed tools with tokens
-    tool_subscriptions = db.query(UserToolSubscription).filter(
-        UserToolSubscription.user_id == user.id,
-        UserToolSubscription.is_active == True,
-        UserToolSubscription.subscription_status == "active"
-    ).all()
-    normalized_tools = []
-    for sub in tool_subscriptions:
-        normalized_name = normalize_tool_name(sub.tool_name)
-        if sub.tool_name != normalized_name:
-            sub.tool_name = normalized_name
-            db.commit()
-        normalized_tools.append(sub)
-    
+    tool_subscriptions = sync_tool_subscriptions(db, user)
     return {
         "success": True,
         "tools": [
             {
                 "tool_name": sub.tool_name,
                 "tool_display_name": sub.tool_display_name,
-                "tokens_remaining": sub.tokens_remaining or 50000,
-                "tokens_total": sub.tokens_total or 50000,
+                "tokens_remaining": sub.tokens_remaining,
+                "tokens_total": sub.tokens_total,
                 "subscribed_at": sub.subscribed_at.isoformat() if sub.subscribed_at else None,
                 "status": sub.subscription_status
             }
-            for sub in normalized_tools
+            for sub in tool_subscriptions
         ],
-        "is_trial": False
+        "is_trial": user.subscription_status == "trial"
     }
 
 @router.get("/token-status/{tool_name}")
@@ -856,6 +830,7 @@ async def start_tool_session(
 ):
     """Start or resume a tool session (15-minute timeout)"""
     ensure_subscription_active(user, db)
+    enforce_tool_access(db, user, tool_name)
     tool_sub, normalized_tool_name = get_or_create_tool_subscription(
         db,
         user,
@@ -863,6 +838,12 @@ async def start_tool_session(
         tool_display_name=tool_name.replace("_", " ").title(),
         create_if_missing=True
     )
+    plan_name = get_plan_name(user)
+    token_limit = get_plan_token_limit(plan_name)
+    if tool_sub.tokens_total is None or tool_sub.tokens_total < token_limit:
+        tool_sub.tokens_total = token_limit
+    if tool_sub.tokens_remaining is None or tool_sub.tokens_remaining > token_limit:
+        tool_sub.tokens_remaining = token_limit
     if tool_sub.tokens_remaining is not None and tool_sub.tokens_remaining <= 0:
         raise HTTPException(
             status_code=403,

@@ -71,12 +71,6 @@ export default function ProductGrid() {
       return []; // Don't show any tools if not authenticated
     }
 
-    // During trial period, show ALL tools
-    const { subscriptionStatus } = useAuthStore.getState();
-    if (subscriptionStatus === "trial") {
-      return ALL_TOOLS; // Show all tools during trial
-    }
-
     // If authenticated and subscribed, show only subscribed tools + Settings
     const subscribedToolNames = new Set(subscribedTools.map(t => t.tool_name));
     

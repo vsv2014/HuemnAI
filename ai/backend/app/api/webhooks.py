@@ -333,7 +333,9 @@ async def handle_checkout_completed(session):
         
         # Activate Integrations
         from app.api.subscription import _activate_integrations
+        from app.utils.subscription import sync_tool_subscriptions
         await _activate_integrations(user, plan, db)
+        sync_tool_subscriptions(db, user)
         
         db.commit()
         logger.info(f"Subscription activated for user {user.id}")

@@ -6,9 +6,7 @@ The Enterprise plan has been enhanced specifically for companies and organizatio
 ## Enterprise Plan Features
 
 ### Pricing
-- **Monthly**: $299/month (50% off first subscription = $149.50)
-- **Yearly**: $2,990/year (50% off first subscription = $1,495)
-- **Original Pricing**: $299/month, $2,990/year
+- **Contact for quotation**
 
 ### Enterprise-Specific Features
 
@@ -51,6 +49,12 @@ The Enterprise plan has been enhanced specifically for companies and organizatio
 
 ### All Standard Features Included
 - Unlimited AI agents
+- Agent Builder, Customer Service Console, Knowledge AI
+- Status Updater, Premium Voice Studio
+- Ticket assigner and ticket solver
+- CRM workspace
+- Multi-channel support (Email, Chat, Social, Voice)
+- Workflow automation
 - All integrations (Zendesk, Jira, Salesforce, LinkedIn, Greenhouse)
 - Custom integrations support
 - 24/7 dedicated support

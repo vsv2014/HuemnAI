@@ -83,6 +83,143 @@ def get_user_subscription_info(user: UserAccount) -> dict:
 def normalize_tool_name(tool_name: str) -> str:
     return tool_name.replace("-", "_").lower() if tool_name else tool_name
 
+TOOL_DISPLAY_NAMES = {
+    "agent_builder": "Agent Builder",
+    "customer_service": "Customer Service & Agent Console",
+    "knowledge_ai": "Knowledge AI",
+    "status_updater": "Status Updater",
+    "ticket_assigner": "Ticket Assigner",
+    "ticket_solver": "Ticket Solver",
+    "analytics_dashboard": "Analytics Dashboard",
+    "crm": "CRM",
+    "voice_studio": "Premium Voice Studio",
+    "hr_services": "HR Services"
+}
+
+PLAN_TOOL_MATRIX = {
+    "basic": [
+        "agent_builder",
+        "customer_service",
+        "knowledge_ai",
+        "status_updater",
+        "ticket_assigner",
+        "ticket_solver",
+        "analytics_dashboard"
+    ],
+    "professional": [
+        "agent_builder",
+        "customer_service",
+        "knowledge_ai",
+        "status_updater",
+        "ticket_assigner",
+        "ticket_solver",
+        "analytics_dashboard",
+        "crm",
+        "voice_studio",
+        "hr_services"
+    ],
+    "enterprise": [
+        "agent_builder",
+        "customer_service",
+        "knowledge_ai",
+        "status_updater",
+        "ticket_assigner",
+        "ticket_solver",
+        "analytics_dashboard",
+        "crm",
+        "voice_studio",
+        "hr_services"
+    ],
+    "trial": [
+        "agent_builder",
+        "customer_service",
+        "knowledge_ai",
+        "status_updater",
+        "ticket_assigner",
+        "ticket_solver",
+        "analytics_dashboard",
+        "crm",
+        "voice_studio",
+        "hr_services"
+    ]
+}
+
+PLAN_TOKEN_LIMITS = {
+    "basic": 100000,
+    "professional": 500000,
+    "enterprise": 1000000000,
+    "trial": 10000
+}
+
+def get_plan_name(user: UserAccount) -> str:
+    if user.subscription_status == "trial":
+        return "trial"
+    if user.subscription_plan and user.subscription_plan.name:
+        return user.subscription_plan.name
+    return "basic"
+
+def get_plan_tools(plan_name: str) -> list[str]:
+    return PLAN_TOOL_MATRIX.get(plan_name, PLAN_TOOL_MATRIX["basic"])
+
+def get_plan_token_limit(plan_name: str) -> int:
+    return PLAN_TOKEN_LIMITS.get(plan_name, PLAN_TOKEN_LIMITS["basic"])
+
+def enforce_tool_access(db: Session, user: UserAccount, tool_name: str) -> None:
+    plan_name = get_plan_name(user)
+    normalized_name = normalize_tool_name(tool_name)
+    allowed = get_plan_tools(plan_name)
+    if normalized_name not in allowed:
+        raise HTTPException(
+            status_code=403,
+            detail="This tool is not included in your current plan. Please upgrade to access it."
+        )
+
+def sync_tool_subscriptions(db: Session, user: UserAccount) -> list[UserToolSubscription]:
+    plan_name = get_plan_name(user)
+    allowed_tools = set(get_plan_tools(plan_name))
+    token_limit = get_plan_token_limit(plan_name)
+    existing = db.query(UserToolSubscription).filter(
+        UserToolSubscription.user_id == user.id
+    ).all()
+    existing_map = {normalize_tool_name(s.tool_name): s for s in existing}
+
+    for tool_name in allowed_tools:
+        tool_sub = existing_map.get(tool_name)
+        if not tool_sub:
+            tool_sub = UserToolSubscription(
+                user_id=user.id,
+                tool_name=tool_name,
+                tool_display_name=TOOL_DISPLAY_NAMES.get(tool_name, tool_name.replace("_", " ").title()),
+                subscription_status="active",
+                is_active=True,
+                subscribed_at=datetime.utcnow(),
+                tokens_remaining=token_limit,
+                tokens_total=token_limit
+            )
+            db.add(tool_sub)
+        else:
+            tool_sub.is_active = True
+            tool_sub.subscription_status = "active"
+            tool_sub.tool_display_name = tool_sub.tool_display_name or TOOL_DISPLAY_NAMES.get(tool_name, tool_name.replace("_", " ").title())
+            if tool_sub.tokens_total != token_limit:
+                tool_sub.tokens_total = token_limit
+                tool_sub.tokens_remaining = token_limit
+            elif tool_sub.tokens_remaining is None or tool_sub.tokens_remaining > token_limit:
+                tool_sub.tokens_remaining = token_limit
+
+    for tool_sub in existing:
+        normalized = normalize_tool_name(tool_sub.tool_name)
+        if normalized not in allowed_tools:
+            tool_sub.is_active = False
+            tool_sub.subscription_status = "inactive"
+
+    db.commit()
+    return db.query(UserToolSubscription).filter(
+        UserToolSubscription.user_id == user.id,
+        UserToolSubscription.is_active == True,
+        UserToolSubscription.subscription_status == "active"
+    ).all()
+
 def ensure_subscription_active(user: UserAccount, db: Session) -> None:
     if settings.BYPASS_SUBSCRIPTION:
         return
@@ -109,6 +246,9 @@ def ensure_subscription_active(user: UserAccount, db: Session) -> None:
 
 def consume_tool_tokens(db: Session, user: UserAccount, tool_name: str, tokens: int = 1) -> UserToolSubscription:
     ensure_subscription_active(user, db)
+    enforce_tool_access(db, user, tool_name)
+    plan_name = get_plan_name(user)
+    token_limit = get_plan_token_limit(plan_name)
     normalized_name = normalize_tool_name(tool_name)
     legacy_name = tool_name.replace("_", "-") if tool_name else tool_name
     tool_sub = db.query(UserToolSubscription).filter(
@@ -123,19 +263,18 @@ def consume_tool_tokens(db: Session, user: UserAccount, tool_name: str, tokens: 
             subscription_status="active",
             is_active=True,
             subscribed_at=datetime.utcnow(),
-            tokens_remaining=50000,
-            tokens_total=50000
+            tokens_remaining=token_limit,
+            tokens_total=token_limit
         )
         db.add(tool_sub)
         db.commit()
         db.refresh(tool_sub)
     if tool_sub.tool_name != normalized_name:
         tool_sub.tool_name = normalized_name
-    if tool_sub.tokens_remaining is None:
-        tool_sub.tokens_remaining = 50000
-        tool_sub.tokens_total = tool_sub.tokens_total or 50000
-    if tool_sub.tokens_total is None:
-        tool_sub.tokens_total = 50000
+    if tool_sub.tokens_total is None or tool_sub.tokens_total < token_limit:
+        tool_sub.tokens_total = token_limit
+    if tool_sub.tokens_remaining is None or tool_sub.tokens_remaining > token_limit:
+        tool_sub.tokens_remaining = token_limit
     if tool_sub.tokens_remaining < tokens:
         db.commit()
         raise HTTPException(
@@ -168,4 +307,3 @@ def consume_tool_tokens(db: Session, user: UserAccount, tool_name: str, tokens: 
     active_session.last_consumption_at = now
     db.commit()
     return tool_sub
-
