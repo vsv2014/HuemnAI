@@ -1,5 +1,6 @@
 import logging
 import time
+import asyncio
 from threading import Thread
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any
@@ -9,6 +10,7 @@ from app.services.event_bus import publish, CHANNEL_CRM
 from app.orchestrator.executor.executor import StepExecutor
 from app.orchestrator.memory.store import MemoryStore
 from app.services.socket_manager import manager
+from app.core.celery_app import orchestrator_daily_run
 
 logger = logging.getLogger(__name__)
 
@@ -55,6 +57,11 @@ def _execute_task(task: ScheduledTask) -> Optional[Dict[str, Any]]:
             session_id = payload.get("session_id")
             if not session_id:
                 raise ValueError("Missing session_id in payload")
+            try:
+                job = orchestrator_daily_run.delay(session_id)
+                return {"published": True, "queued": True, "job_id": job.id}
+            except Exception:
+                pass
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
             async def _run():

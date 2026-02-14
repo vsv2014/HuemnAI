@@ -41,6 +41,132 @@ def build_node_code(node: AgentNode) -> str:
     return json.dumps(payload, indent=2, sort_keys=True, ensure_ascii=False)
 
 
+def _normalize_keywords(value: Any) -> List[str]:
+    if isinstance(value, list):
+        return [str(item).strip() for item in value if str(item).strip()]
+    if isinstance(value, str):
+        return [item.strip() for item in value.split(",") if item.strip()]
+    return []
+
+
+def _match_keywords(message: str, keywords: List[str]) -> bool:
+    if not message or not keywords:
+        return False
+    lowered = message.lower()
+    return any(keyword.lower() in lowered for keyword in keywords)
+
+
+def _persist_debug_trace(conversation: AgentConversation, debug_trace: List[Dict[str, Any]]) -> None:
+    if not debug_trace:
+        return
+    existing_trace = conversation.debug_trace if isinstance(conversation.debug_trace, list) else []
+    offset = 0
+    if existing_trace:
+        offset = max(
+            (entry.get("step") or 0)
+            for entry in existing_trace
+            if isinstance(entry, dict)
+        )
+    normalized_trace = []
+    for index, entry in enumerate(debug_trace):
+        if not isinstance(entry, dict):
+            continue
+        step_value = entry.get("step") if isinstance(entry.get("step"), int) else index + 1
+        normalized_trace.append({**entry, "step": step_value + offset})
+    conversation.debug_trace = [*existing_trace, *normalized_trace] if normalized_trace else existing_trace
+
+
+def _resolve_conversation_section(agent_settings: Optional[Dict[str, Any]], message: str) -> Optional[Dict[str, Any]]:
+    settings = agent_settings or {}
+    sections = settings.get("conversation_sections") or {}
+    feedback = sections.get("feedback_flow") or {}
+    if feedback.get("enabled") and feedback.get("message"):
+        keywords = _normalize_keywords(feedback.get("triggers") or ["feedback", "survey", "rate", "rating"])
+        if _match_keywords(message, keywords):
+            return {
+                "response": str(feedback.get("message")),
+                "node_type": "FEEDBACK_FLOW",
+                "node_name": "Feedback Flow",
+                "metadata": {"section": "feedback_flow", "matched_keywords": keywords}
+            }
+    end_flow = sections.get("end_flow") or {}
+    if end_flow.get("enabled") and end_flow.get("message"):
+        keywords = _normalize_keywords(end_flow.get("triggers") or ["bye", "goodbye", "thanks", "thank you", "see you", "exit", "end"])
+        if _match_keywords(message, keywords):
+            return {
+                "response": str(end_flow.get("message")),
+                "node_type": "END_FLOW",
+                "node_name": "End Flow",
+                "metadata": {"section": "end_flow", "matched_keywords": keywords}
+            }
+    small_talk = sections.get("small_talk") or {}
+    if small_talk.get("enabled"):
+        entries = small_talk.get("entries") or []
+        for entry in entries:
+            if not isinstance(entry, dict):
+                continue
+            triggers = _normalize_keywords(entry.get("triggers") or entry.get("keywords") or entry.get("phrases"))
+            response = entry.get("response")
+            if response and _match_keywords(message, triggers):
+                return {
+                    "response": str(response),
+                    "node_type": "SMALL_TALK",
+                    "node_name": "Small Talk",
+                    "metadata": {"section": "small_talk", "matched_keywords": triggers}
+                }
+    return None
+
+
+def _resolve_session_start(agent: Agent, agent_settings: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    settings = agent_settings or {}
+    sections = settings.get("conversation_sections") or {}
+    response_parts: List[str] = []
+    trace_entries: List[Dict[str, Any]] = []
+
+    greetings = sections.get("greetings") or {}
+    greeting_enabled = greetings.get("enabled", True)
+    greeting_message = greetings.get("message") or agent.welcome_message
+    if greeting_enabled and greeting_message:
+        response_parts.append(str(greeting_message))
+        trace_entries.append({
+            "step": len(trace_entries) + 1,
+            "node_id": None,
+            "node_type": "GREETING",
+            "node_name": "Greeting",
+            "status": "completed",
+            "message": "Handled by Greeting configuration",
+            "timestamp": datetime.utcnow().isoformat(),
+            "metadata": {"section": "greetings"},
+            "response_preview": str(greeting_message)[:100]
+        })
+
+    start_flow = sections.get("start_flow") or {}
+    start_enabled = start_flow.get("enabled", True)
+    start_message = start_flow.get("message")
+    if start_enabled and start_message:
+        response_parts.append(str(start_message))
+        trace_entries.append({
+            "step": len(trace_entries) + 1,
+            "node_id": None,
+            "node_type": "START_FLOW",
+            "node_name": "Start Flow",
+            "status": "completed",
+            "message": "Handled by Start Flow configuration",
+            "timestamp": datetime.utcnow().isoformat(),
+            "metadata": {"section": "start_flow"},
+            "response_preview": str(start_message)[:100]
+        })
+
+    if not response_parts:
+        return None
+
+    return {
+        "response": "\n\n".join(response_parts),
+        "debug_trace": trace_entries,
+        "metadata": {"sections": [entry.get("metadata") for entry in trace_entries]}
+    }
+
+
 # Pydantic models for request/response
 class AgentCreate(BaseModel):
     name: str
@@ -786,13 +912,15 @@ async def process_message(
         db.commit()
         db.refresh(conversation)
     
-    # Save user message
-    user_message = AgentMessage(
-        conversation_id=conversation.id,
-        role="user",
-        content=request.message
-    )
-    db.add(user_message)
+    context_payload = request.context or {}
+    session_start_event = context_payload.get("event") == "session_start"
+    if not session_start_event:
+        user_message = AgentMessage(
+            conversation_id=conversation.id,
+            role="user",
+            content=request.message
+        )
+        db.add(user_message)
     
     # Execute agent flow
     from app.services.agent_executor import AgentExecutor
@@ -806,66 +934,97 @@ async def process_message(
     if not agent.entry_node_id:
         logger.warning(f"Agent {agent.id} has NO ENTRY NODE set!")
     
-    try:
-        result = await executor.execute(agent, conversation, request.message)
-        logger.info(f"Executor result keys: {list(result.keys())}")
-        logger.info(f"Executor result has debug_trace: {'debug_trace' in result}")
-        
-        response_text = result.get("response", agent.fallback_message or "I'm processing your request...")
-        debug_trace = result.get("debug_trace", [])
-        
-        # Log debug trace for debugging
-        logger.info(f"Extracted debug_trace length: {len(debug_trace)}")
-        logger.info(f"debug_trace type: {type(debug_trace)}")
-        logger.info(f"debug_trace value: {debug_trace}")
-        
-        if debug_trace:
-            logger.info(f"Debug trace steps: {[e.get('step') for e in debug_trace]}")
-            logger.info(f"Debug trace types: {[e.get('node_type') for e in debug_trace]}")
-        else:
-            logger.warning("Debug trace is empty! Creating diagnostic entry.")
-            # Create a minimal trace if empty
+    session_start_result = _resolve_session_start(agent, agent.settings) if session_start_event else None
+    if session_start_result:
+        response_text = session_start_result["response"]
+        conversation.context = conversation.context or {}
+        history = conversation.context.get("message_history") or []
+        history.append({"role": "assistant", "content": response_text})
+        conversation.context["message_history"] = history
+        debug_trace = session_start_result["debug_trace"]
+        result = {"node_id": None, "context": conversation.context, "metadata": session_start_result.get("metadata", {})}
+    else:
+        section_result = _resolve_conversation_section(agent.settings, request.message)
+        if section_result:
+            response_text = section_result["response"]
+            conversation.context = conversation.context or {}
+            history = conversation.context.get("message_history") or []
+            history.append({"role": "user", "content": request.message})
+            history.append({"role": "assistant", "content": response_text})
+            conversation.context["last_user_message"] = request.message
+            conversation.context["message_history"] = history
             debug_trace = [{
                 "step": 1,
                 "node_id": None,
-                "node_type": "WARNING",
-                "node_name": "No Trace Generated",
-                "status": "warning",
-                "message": f"Execution completed but no debug trace was generated. Agent entry_node_id: {agent.entry_node_id}, Result keys: {list(result.keys())}",
-                "timestamp": datetime.utcnow().isoformat()
+                "node_type": section_result["node_type"],
+                "node_name": section_result["node_name"],
+                "status": "completed",
+                "message": f"Handled by {section_result['node_name']} configuration",
+                "timestamp": datetime.utcnow().isoformat(),
+                "metadata": section_result.get("metadata", {}),
+                "response_preview": response_text[:100]
             }]
-        
-        # Update conversation with result
-        conversation.current_node_id = result.get("node_id")
-        conversation.context = result.get("context", conversation.context)
-        conversation.execution_history = conversation.execution_history or []
-        conversation.execution_history.append({
-            "timestamp": datetime.utcnow().isoformat(),
-            "node_id": result.get("node_id"),
-            "metadata": result.get("metadata", {})
-        })
-        
-        # Persist full debug trace
-        if debug_trace:
-            conversation.debug_trace = debug_trace
-            
-    except Exception as e:
-        logger.error(f"Error executing agent: {str(e)}", exc_info=True)
-        import traceback
-        error_traceback = traceback.format_exc()
-        response_text = agent.fallback_message or "I encountered an error. Please try again."
-        debug_trace = [{
-            "step": 1,
-            "node_id": None,
-            "node_type": "ERROR",
-            "node_name": "Execution Error",
-            "status": "error",
-            "message": f"Error executing agent: {str(e)}",
-            "error": str(e),
-            "error_traceback": error_traceback,
-            "timestamp": datetime.utcnow().isoformat()
-        }]
-        logger.error(f"Error traceback: {error_traceback}")
+            result = {"node_id": None, "context": conversation.context, "metadata": section_result.get("metadata", {})}
+        else:
+            try:
+                result = await executor.execute(agent, conversation, request.message)
+                logger.info(f"Executor result keys: {list(result.keys())}")
+                logger.info(f"Executor result has debug_trace: {'debug_trace' in result}")
+                
+                response_text = result.get("response", agent.fallback_message or "I'm processing your request...")
+                debug_trace = result.get("debug_trace", [])
+                
+                # Log debug trace for debugging
+                logger.info(f"Extracted debug_trace length: {len(debug_trace)}")
+                logger.info(f"debug_trace type: {type(debug_trace)}")
+                logger.info(f"debug_trace value: {debug_trace}")
+                
+                if debug_trace:
+                    logger.info(f"Debug trace steps: {[e.get('step') for e in debug_trace]}")
+                    logger.info(f"Debug trace types: {[e.get('node_type') for e in debug_trace]}")
+                else:
+                    logger.warning("Debug trace is empty! Creating diagnostic entry.")
+                    # Create a minimal trace if empty
+                    debug_trace = [{
+                        "step": 1,
+                        "node_id": None,
+                        "node_type": "WARNING",
+                        "node_name": "No Trace Generated",
+                        "status": "warning",
+                        "message": f"Execution completed but no debug trace was generated. Agent entry_node_id: {agent.entry_node_id}, Result keys: {list(result.keys())}",
+                        "timestamp": datetime.utcnow().isoformat()
+                    }]
+                    
+            except Exception as e:
+                logger.error(f"Error executing agent: {str(e)}", exc_info=True)
+                import traceback
+                error_traceback = traceback.format_exc()
+                response_text = agent.fallback_message or "I encountered an error. Please try again."
+                debug_trace = [{
+                    "step": 1,
+                    "node_id": None,
+                    "node_type": "ERROR",
+                    "node_name": "Execution Error",
+                    "status": "error",
+                    "message": f"Error executing agent: {str(e)}",
+                    "error": str(e),
+                    "error_traceback": error_traceback,
+                    "timestamp": datetime.utcnow().isoformat()
+                }]
+                result = {"node_id": None, "context": conversation.context, "metadata": {"error": True}}
+                logger.error(f"Error traceback: {error_traceback}")
+    
+    # Update conversation with result
+    conversation.current_node_id = result.get("node_id") if isinstance(result, dict) else None
+    conversation.context = result.get("context", conversation.context) if isinstance(result, dict) else conversation.context
+    conversation.execution_history = conversation.execution_history or []
+    conversation.execution_history.append({
+        "timestamp": datetime.utcnow().isoformat(),
+        "node_id": result.get("node_id") if isinstance(result, dict) else None,
+        "metadata": result.get("metadata", {}) if isinstance(result, dict) else {}
+    })
+    
+    _persist_debug_trace(conversation, debug_trace)
     
     # Save assistant response
     assistant_message = AgentMessage(

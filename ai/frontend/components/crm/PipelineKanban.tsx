@@ -1,3 +1,5 @@
+"use client";
+
 /**
  * PipelineKanban Component
  * 
@@ -8,7 +10,9 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { useAuthStore } from "@/store/authStore";
-import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid } from "recharts";
+import * as Recharts from "recharts";
+
+const { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid } = Recharts as any;
 
 interface Deal {
   id: string;

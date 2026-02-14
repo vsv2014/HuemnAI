@@ -37,7 +37,7 @@ export default function ModelsLibraryPage() {
     setLoading(true);
     setError(null);
     try {
-      const response = await getModels(agentId, token);
+      const response = await getModels(token);
       if (!response.error && Array.isArray(response)) {
         const configured = response.filter((m: any) => m.is_configured);
         const available = response.filter((m: any) => !m.is_configured);

@@ -28,7 +28,7 @@ const STATUS_CONNECTORS = [
   { key: "notion", label: "Notion" },
 ];
 
-export default function StatusUpdaterPage() {
+export default function StatusUpdaterPage({ toolName, toolId }: { toolName?: string; toolId?: string }) {
   const router = useRouter();
   const { token, user, isAuthenticated } = useAuthStore();
   const { status: currentStatus, setStatus, fetchStatus, loading } = useStatusStore();

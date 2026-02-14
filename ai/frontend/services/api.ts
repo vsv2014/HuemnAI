@@ -418,17 +418,41 @@ export async function getGuardrails(agentId: string | number, token: string) {
   });
 }
 
-export async function redirectChatToCall(agentId: string | number, conversationId: string | number, token: string) {
+export async function redirectChatToCall(
+  payload: {
+    phone_number: string;
+    agent_id: string | number;
+    session_id?: string;
+    context?: Record<string, any>;
+  },
+  token: string
+) {
   if (!token) return { error: "No authentication token" };
-  return safeFetch(`${API_BASE}/api/agents/${agentId}/conversations/${conversationId}/redirect-to-call`, {
+  return safeFetch(`${API_BASE}/api/ivr/redirect-to-call`, {
     method: "POST",
-    headers: { "Authorization": `Bearer ${token}` }
+    headers: {
+      "Authorization": `Bearer ${token}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(payload)
   });
 }
 
-export async function getChangeLogs(agentId: string | number, token: string) {
+export async function getChangeLogs(
+  agentId: string | number,
+  token: string,
+  filters?: { start_date?: string; end_date?: string; module?: string }
+) {
   if (!token) return { error: "No authentication token" };
-  return safeFetch(`${API_BASE}/api/agents/${agentId}/changelogs`, {
+  const queryParams = new URLSearchParams();
+  if (filters?.start_date) queryParams.append("start_date", filters.start_date);
+  if (filters?.end_date) queryParams.append("end_date", filters.end_date);
+  if (filters?.module) queryParams.append("module", filters.module);
+  const queryString = queryParams.toString();
+  const url = queryString
+    ? `${API_BASE}/api/agents/${agentId}/changelogs?${queryString}`
+    : `${API_BASE}/api/agents/${agentId}/changelogs`;
+  return safeFetch(url, {
     headers: { "Authorization": `Bearer ${token}` }
   });
 }
@@ -474,7 +498,7 @@ export async function getLanguages(agentId: string | number, token: string) {
   });
 }
 
-export async function updateLanguage(agentId: string | number, languageData: any, token: string) {
+export async function updateLanguage(agentId: string | number, languageId: string | number, languageData: any, token: string) {
   if (!token) return { error: "No authentication token" };
   return safeFetch(`${API_BASE}/api/agents/${agentId}/languages`, {
     method: "PUT",
@@ -482,7 +506,7 @@ export async function updateLanguage(agentId: string | number, languageData: any
       "Authorization": `Bearer ${token}`,
       "Content-Type": "application/json"
     },
-    body: JSON.stringify(languageData)
+    body: JSON.stringify({ language_id: languageId, ...languageData })
   });
 }
 
@@ -498,9 +522,17 @@ export async function updateAgentProfile(agentId: string | number, profileData: 
   });
 }
 
-export async function getVariables(agentId: string | number, token: string) {
+export async function getVariables(agentId: string | number, type: string | undefined, token: string) {
   if (!token) return { error: "No authentication token" };
-  return safeFetch(`${API_BASE}/api/agents/${agentId}/variables`, {
+  const queryParams = new URLSearchParams();
+  if (type) {
+    queryParams.append("type", type);
+  }
+  const queryString = queryParams.toString();
+  const url = queryString
+    ? `${API_BASE}/api/agents/${agentId}/variables?${queryString}`
+    : `${API_BASE}/api/agents/${agentId}/variables`;
+  return safeFetch(url, {
     headers: { "Authorization": `Bearer ${token}` }
   });
 }
@@ -531,30 +563,42 @@ export async function submitDemoRequest(data: any) {
 
 /* ---------------- TICKET ASSIGNER ---------------- */
 
-export async function getPendingTickets(token: string) {
+export async function getPendingTickets(token: string, unassignedOnly?: boolean) {
   if (!token) return { error: "No authentication token" };
-  return safeFetch(`${API_BASE}/api/ticket-assigner/pending`, {
+  const queryParams = new URLSearchParams();
+  if (unassignedOnly) {
+    queryParams.append("unassigned_only", "true");
+  }
+  const queryString = queryParams.toString();
+  const url = queryString
+    ? `${API_BASE}/api/ticket-assigner/pending-tickets?${queryString}`
+    : `${API_BASE}/api/ticket-assigner/pending-tickets`;
+  return safeFetch(url, {
     headers: { "Authorization": `Bearer ${token}` }
   });
 }
 
-export async function assignTicket(ticketId: number, userId: number, token: string) {
+export async function assignTicket(ticketId: number, assignedTo: string | number, token: string) {
   if (!token) return { error: "No authentication token" };
-  return safeFetch(`${API_BASE}/api/ticket-assigner/assign/${ticketId}`, {
+  return safeFetch(`${API_BASE}/api/ticket-assigner/assign`, {
     method: "POST",
     headers: {
       "Authorization": `Bearer ${token}`,
       "Content-Type": "application/json"
     },
-    body: JSON.stringify({ user_id: userId })
+    body: JSON.stringify({ ticket_id: ticketId, assigned_to: assignedTo })
   });
 }
 
 export async function autoAssignTicket(ticketId: number, token: string) {
   if (!token) return { error: "No authentication token" };
-  return safeFetch(`${API_BASE}/api/ticket-assigner/auto-assign/${ticketId}`, {
+  return safeFetch(`${API_BASE}/api/ticket-assigner/auto-assign`, {
     method: "POST",
-    headers: { "Authorization": `Bearer ${token}` }
+    headers: {
+      "Authorization": `Bearer ${token}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ ticket_id: ticketId })
   });
 }
 
@@ -632,7 +676,7 @@ export async function updateUserRole(userId: number, role: string, token: string
   });
 }
 
-export async function getTrace(id: string, token: string) {
+export async function getTrace(id: string | number, token: string) {
   if (!token) return { error: "No authentication token" };
   // Stub implementation
   return safeFetch(`${API_BASE}/api/traces/${id}`, {
@@ -640,7 +684,7 @@ export async function getTrace(id: string, token: string) {
   });
 }
 
-export async function getVersions(agentId: string, token: string) {
+export async function getVersions(agentId: string | number, token: string) {
   if (!token) return { error: "No authentication token" };
   // Stub implementation
   return safeFetch(`${API_BASE}/api/agents/${agentId}/versions`, {
@@ -648,7 +692,7 @@ export async function getVersions(agentId: string, token: string) {
   });
 }
 
-export async function publishVersion(agentId: string, versionId: string, token: string) {
+export async function publishVersion(agentId: string | number, versionId: string | number, token: string) {
   if (!token) return { error: "No authentication token" };
   // Stub implementation
   return safeFetch(`${API_BASE}/api/agents/${agentId}/versions/${versionId}/publish`, {
@@ -839,15 +883,29 @@ export async function getConversation(conversationId: string, token: string) {
 
 /* ---------------- CHAT / AI ---------------- */
 
-export async function handleCustomerIssue(issue: string, token: string) {
+export async function handleCustomerIssue(
+  issue: string,
+  token: string,
+  connectorType?: string,
+  conversationHistory?: Array<{ role: string; text: string; data?: any }>,
+  userId?: string,
+  attachments?: string[]
+) {
   if (!token) return { error: "No authentication token" };
-  return safeFetch(`${API_BASE}/api/chat/issue`, {
+  const payload = {
+    user_id: userId || "user",
+    message: issue,
+    connector_type: connectorType,
+    conversation_history: conversationHistory || [],
+    attachments: attachments || []
+  };
+  return safeFetch(`${API_BASE}/api/chat/handle`, {
     method: "POST",
     headers: {
       "Authorization": `Bearer ${token}`,
       "Content-Type": "application/json"
     },
-    body: JSON.stringify({ issue })
+    body: JSON.stringify(payload)
   });
 }
 

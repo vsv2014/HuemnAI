@@ -17,6 +17,7 @@ const TOOL_SLUG_TO_NAME: Record<string, string> = {
   "hr-services": "hr_services",
   "knowledge-ai": "knowledge_ai",
   "analytics-dashboard": "analytics_dashboard",
+  "voice": "voice_studio",
 };
 
 const ALL_TOOLS = [

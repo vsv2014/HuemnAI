@@ -34,6 +34,7 @@ export default function AppSidebar({ agentId }: { agentId: number }) {
       items: [
         { id: "dialogs", label: "Dialogs", icon: "💬", path: `/agents/${agentId}` },
         { id: "alerts", label: "Alert Tasks", icon: "🔔", path: `/agents/${agentId}/alerts` },
+        { id: "greetings", label: "Greetings", icon: "👋", path: `/agents/${agentId}/greetings` },
         { id: "small-talk", label: "Small Talk", icon: "💭", path: `/agents/${agentId}/small-talk` },
         { id: "digital-skills", label: "Digital Skills", icon: "🎨", path: `/agents/${agentId}/digital-skills` },
         { id: "feedback", label: "Feedback Survey", icon: "📊", path: `/agents/${agentId}/feedback` },

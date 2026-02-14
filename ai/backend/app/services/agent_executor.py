@@ -439,7 +439,8 @@ class AgentExecutor:
             agent_id=agent.id,
             node_id=current_node_id,
             context=context,
-            conversation_id=conversation.id
+            conversation_id=conversation.id,
+            execution_state={"visited_loop_nodes": set(), "visited_nodes": set()}
         )
         
         # Log trace after execution
@@ -510,7 +511,8 @@ class AgentExecutor:
         node_id: int,
         context: Dict[str, Any],
         conversation_id: int,
-        max_depth: int = 50
+        max_depth: int = 50,
+        execution_state: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
         """
         Execute a single node and determine next node
@@ -534,6 +536,27 @@ class AgentExecutor:
                 "metadata": {"error": "max_depth_reached"}
             }
         
+        if execution_state is None:
+            execution_state = {"visited_loop_nodes": set(), "visited_nodes": set()}
+        execution_state.setdefault("visited_loop_nodes", set())
+        execution_state.setdefault("visited_nodes", set())
+        if node_id in execution_state.get("visited_nodes", set()):
+            self.debug_trace.append({
+                "step": len(self.debug_trace) + 1,
+                "node_id": node_id,
+                "node_type": "CYCLE_GUARD",
+                "node_name": "Cycle Guard",
+                "status": "ended",
+                "message": f"Cycle detected at node {node_id}; waiting for user input.",
+                "timestamp": datetime.utcnow().isoformat()
+            })
+            return {
+                "response": "",
+                "node_id": None,
+                "context": context,
+                "metadata": {"cycle_detected": True}
+            }
+
         # Get node
         node = self.db.query(AgentNode).filter(
             AgentNode.id == node_id,
@@ -1042,8 +1065,21 @@ class AgentExecutor:
         # Update context with result
         context.update(result.get("context", {}))
         
+        if node.node_type == NodeType.LOOP:
+            execution_state.setdefault("visited_loop_nodes", set()).add(node_id)
+        execution_state.setdefault("visited_nodes", set()).add(node_id)
+
         # Determine next node
         next_node_id = result.get("next_node_id")
+        if result.get("response"):
+            metadata = result.get("metadata") or {}
+            allow_chain_after_response = bool(metadata.get("continue_after_response") or context.get("allow_response_chaining"))
+            if not allow_chain_after_response:
+                next_node_id = None
+                result["prevent_default_connection"] = True
+        if node.node_type in (NodeType.RESPONSE, NodeType.MESSAGE, NodeType.END):
+            next_node_id = None
+            result["prevent_default_connection"] = True
         
         # Check if we should skip default connection lookup
         # This is useful for Condition nodes that evaluate to False and have no fallback
@@ -1053,7 +1089,13 @@ class AgentExecutor:
             # Find next node from connections
             next_node_id = await self._get_next_node(agent_id, node_id, context)
         
+        if next_node_id and next_node_id in execution_state.get("visited_nodes", set()):
+            result.setdefault("metadata", {})
+            result["metadata"]["cycle_detected"] = True
+            next_node_id = None
+
         # Add transition info to trace
+        next_node = None
         if next_node_id:
             # Get next node info for better display
             next_node = self.db.query(AgentNode).filter(
@@ -1061,20 +1103,25 @@ class AgentExecutor:
                 AgentNode.agent_id == agent_id
             ).first()
             next_node_name = next_node.name or next_node.label or f"Node {next_node_id}" if next_node else f"Node {next_node_id}"
-            
-            self.debug_trace.append({
-                "step": len(self.debug_trace) + 1,
-                "node_id": None,
-                "node_type": "TRANSITION",
-                "node_name": "Flow Transition",
-                "status": "transitioning",
-                "message": f"Transitioning from '{self.debug_trace[trace_index]['node_name']}' to '{next_node_name}'",
-                "from_node_id": node_id,
-                "to_node_id": next_node_id,
-                "from_node_name": self.debug_trace[trace_index]["node_name"],
-                "to_node_name": next_node_name,
-                "timestamp": datetime.utcnow().isoformat()
-            })
+
+            if next_node and next_node.node_type == NodeType.LOOP and next_node_id in execution_state.get("visited_loop_nodes", set()):
+                next_node_id = None
+                next_node = None
+                next_node_name = None
+            else:
+                self.debug_trace.append({
+                    "step": len(self.debug_trace) + 1,
+                    "node_id": None,
+                    "node_type": "TRANSITION",
+                    "node_name": "Flow Transition",
+                    "status": "transitioning",
+                    "message": f"Transitioning from '{self.debug_trace[trace_index]['node_name']}' to '{next_node_name}'",
+                    "from_node_id": node_id,
+                    "to_node_id": next_node_id,
+                    "from_node_name": self.debug_trace[trace_index]["node_name"],
+                    "to_node_name": next_node_name,
+                    "timestamp": datetime.utcnow().isoformat()
+                })
         else:
             end_reason = "response_sent" if result.get("response") else "no_next_node"
             end_message = f"Flow completed" if result.get("response") else f"Flow ended - no next node found"
@@ -1102,7 +1149,8 @@ class AgentExecutor:
                 node_id=next_node_id,
                 context=context,
                 conversation_id=conversation_id,
-                max_depth=max_depth - 1
+                max_depth=max_depth - 1,
+                execution_state=execution_state
             )
             
             # Merge responses

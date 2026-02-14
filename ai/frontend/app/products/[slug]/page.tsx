@@ -99,7 +99,7 @@ export default function ProductPage({ params }: { params: { slug: string } }) {
 
             <div className="mt-4">
               {/* Inline demo widget */}
-              <ProductDemo product={product?.title} />
+              <ProductDemo prompt={product?.title || slug} />
             </div>
           </div>
         </aside>

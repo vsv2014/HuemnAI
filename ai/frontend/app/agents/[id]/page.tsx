@@ -60,6 +60,8 @@ import ReactFlow, {
   EdgeProps,
   useStore,
   EdgeLabelRenderer,
+  ConnectionMode,
+  BackgroundVariant,
 } from "reactflow";
 import "reactflow/dist/style.css";
 import { getEdgeParams } from "./utils";
@@ -220,28 +222,26 @@ const CustomNode = ({ data, selected }: { data: any; selected: boolean }) => {
         />
 
       {/* Target Handle (Receiver) - Always present but transparent */}
-      {data?.nodeType !== "start" && (
-        <Handle
-          type="target"
-          position={Position.Left}
-          className="organic-handle-target"
-          isConnectable={true}
-          id="target"
-          style={{ 
-            position: 'absolute',
-            inset: 0,
-            width: '100%', 
-            height: '100%', 
-            transform: 'none',
-            border: 'none',
-            borderRadius: 'inherit',
-            background: 'transparent',
-            opacity: 0,
-            zIndex: isConnecting && !isSelf ? 20 : -1, // HIGHEST priority when dragging connection
-            pointerEvents: isConnecting && !isSelf ? 'auto' : 'none',
-          }}
-        />
-      )}
+      <Handle
+        type="target"
+        position={Position.Left}
+        className="organic-handle-target"
+        isConnectable={data?.nodeType !== "start"}
+        id="target"
+        style={{ 
+          position: 'absolute',
+          inset: 0,
+          width: '100%', 
+          height: '100%', 
+          transform: 'none',
+          border: 'none',
+          borderRadius: 'inherit',
+          background: 'transparent',
+          opacity: 0,
+          zIndex: isConnecting && !isSelf ? 20 : -1,
+          pointerEvents: isConnecting && !isSelf ? 'auto' : 'none',
+        }}
+      />
 
       {/* Node Content - Draggable Area (Restricted) */}
       <div 
@@ -295,28 +295,26 @@ const CustomNode = ({ data, selected }: { data: any; selected: boolean }) => {
       )}
 
       {/* Source Handle (Sender) - Always present for edge rendering */}
-      {data?.nodeType !== "end" && (
-        <Handle
-          type="source"
-          position={Position.Right}
-          className="organic-handle-source"
-          isConnectable={true}
-          id="source"
-          style={{ 
-            position: 'absolute',
-            inset: 0,
-            width: '100%', 
-            height: '100%', 
-            transform: 'none',
-            border: 'none',
-            borderRadius: 'inherit',
-            background: 'transparent',
-            opacity: 0,
-            zIndex: -1, // Behind content
-            pointerEvents: 'none', // Disable drag-to-connect from handle
-          }}
-        />
-      )}
+      <Handle
+        type="source"
+        position={Position.Right}
+        className="organic-handle-source"
+        isConnectable={data?.nodeType !== "end"}
+        id="source"
+        style={{ 
+          position: 'absolute',
+          inset: 0,
+          width: '100%', 
+          height: '100%', 
+          transform: 'none',
+          border: 'none',
+          borderRadius: 'inherit',
+          background: 'transparent',
+          opacity: 0,
+          zIndex: -1,
+          pointerEvents: 'none',
+        }}
+      />
     </div>
     </>
   );
@@ -506,6 +504,8 @@ function FlowCanvas({
 }) {
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
+  const memoNodeTypes = useMemo(() => nodeTypes, []);
+  const memoEdgeTypes = useMemo(() => edgeTypes, []);
   const [selectedNode, setSelectedNode] = useState<Node | null>(null);
   const [selectedEdge, setSelectedEdge] = useState<Edge | null>(null);
   const [draggedNodeType, setDraggedNodeType] = useState<string | null>(null);
@@ -560,11 +560,12 @@ function FlowCanvas({
     if (!token) return;
     const loadAvailableAgents = async () => {
       try {
-        const response = await getAgents(token, { is_active: true });
+        const response = await getAgents(token);
         if (!response.error && Array.isArray(response)) {
-          setAvailableAgents(response);
+          const activeAgents = response.filter((a: any) => a.is_active !== false);
+          setAvailableAgents(activeAgents);
           // Auto-select first IVR agent if available
-          const ivrAgents = response.filter((a: any) => a.agent_type === "ivr");
+          const ivrAgents = activeAgents.filter((a: any) => a.agent_type === "ivr");
           if (ivrAgents.length > 0 && !selectedIVRAgent) {
             setSelectedIVRAgent(ivrAgents[0].id);
           }
@@ -612,6 +613,8 @@ function FlowCanvas({
         id: conn.id.toString(),
         source: conn.source_node_id.toString(),
         target: conn.target_node_id.toString(),
+        sourceHandle: "source",
+        targetHandle: "target",
         label: conn.label || "",
         data: { backendId: conn.id, condition: conn.condition },
         type: "smoothstep",
@@ -870,10 +873,10 @@ function FlowCanvas({
       }
 
       // Get node type from dataTransfer (primary method)
-      let nodeType = event.dataTransfer.getData("application/reactflow") || 
-                     event.dataTransfer.getData("text/plain") ||
-                     event.dataTransfer.getData("text") ||
-                     draggedNodeType;
+      const nodeType = event.dataTransfer.getData("application/reactflow") || 
+                       event.dataTransfer.getData("text/plain") ||
+                       event.dataTransfer.getData("text") ||
+                       draggedNodeType;
       
       if (!nodeType) {
         console.log("❌ No node type found in drop event. Available types:", {
@@ -913,8 +916,8 @@ function FlowCanvas({
       const connection: Connection = {
         source: params.source || "",
         target: params.target || "",
-        sourceHandle: params.sourceHandle,
-        targetHandle: params.targetHandle,
+        sourceHandle: params.sourceHandle ?? "source",
+        targetHandle: params.targetHandle ?? "target",
       };
       
       if (!connection.source || !connection.target) {
@@ -1003,6 +1006,42 @@ function FlowCanvas({
       }
     },
     [token, agentId, edges, setEdges]
+  );
+
+  const getConditionTargets = useCallback((config: any) => {
+    const targets = new Set<string>();
+    if (config?.fallback_node_id) {
+      targets.add(String(config.fallback_node_id));
+    }
+    (config?.conditions || []).forEach((cond: any) => {
+      if (cond?.next_node_id) {
+        targets.add(String(cond.next_node_id));
+      }
+    });
+    return targets;
+  }, []);
+
+  const removeConnectionIfUnused = useCallback(
+    async (sourceId: string, targetId: string, nextTargets: Set<string>) => {
+      if (nextTargets.has(targetId)) return;
+      const existingEdge = edges.find((e) => e.source === sourceId && e.target === targetId);
+      if (!existingEdge) return;
+      setEdges((eds) => eds.filter((e) => e.id !== existingEdge.id));
+      if (existingEdge.data?.backendId && token) {
+        await deleteConnection(existingEdge.data.backendId, token);
+      }
+    },
+    [edges, setEdges, token]
+  );
+
+  const ensureConditionConnection = useCallback(
+    async (sourceId: string, targetId: string | null | undefined) => {
+      if (!targetId || sourceId === targetId) return;
+      const existingEdge = edges.find((e) => e.source === sourceId && e.target === targetId);
+      if (existingEdge) return;
+      await onConnect({ source: sourceId, target: targetId, sourceHandle: "source", targetHandle: "target" });
+    },
+    [edges, onConnect]
   );
 
   // Handle edge updates (reconnect)
@@ -1285,8 +1324,8 @@ function FlowCanvas({
             setSelectedEdge(null);
             setConnectingSourceId(null);
           }}
-          nodeTypes={nodeTypes}
-          edgeTypes={edgeTypes}
+          nodeTypes={memoNodeTypes}
+          edgeTypes={memoEdgeTypes}
           minZoom={0.1}
           maxZoom={4}
           translateExtent={[[-Infinity, -Infinity], [Infinity, Infinity]]}
@@ -1303,7 +1342,7 @@ function FlowCanvas({
           nodesConnectable={true}
           edgesUpdatable={true}
           edgesFocusable={true}
-          connectionMode="loose"
+          connectionMode={ConnectionMode.Loose}
           connectionRadius={30}
           snapToGrid={false}
           snapGrid={[15, 15]}
@@ -1314,18 +1353,16 @@ function FlowCanvas({
             gap={20} 
             size={1} 
             color="#1a1f36" 
-            variant="dots"
+            variant={BackgroundVariant.Dots}
             style={{ opacity: 0.3 }}
           />
           <Controls 
             className="bg-[#0a0f1a]/90 backdrop-blur-xl border border-white/10 rounded-lg shadow-2xl"
             showInteractive={false}
             style={{ 
-              button: {
-                backgroundColor: 'rgba(26, 31, 54, 0.8)',
-                borderColor: 'rgba(255, 255, 255, 0.1)',
-                color: '#ffffff',
-              }
+              backgroundColor: 'rgba(26, 31, 54, 0.8)',
+              border: '1px solid rgba(255, 255, 255, 0.1)',
+              color: '#ffffff',
             }}
           />
           <MiniMap 
@@ -2707,9 +2744,18 @@ function FlowCanvas({
                       value={selectedNode.data.config?.fallback_node_id || ""}
                       onChange={(e) => {
                         const val = e.target.value;
+                        const previousTarget = selectedNode.data.config?.fallback_node_id;
+                        const updatedConfig = { ...selectedNode.data.config, fallback_node_id: val === "" ? null : val };
                         updateNodeConfiguration(selectedNode.id, {
-                          config: { ...selectedNode.data.config, fallback_node_id: val === "" ? null : val }
+                          config: updatedConfig
                         });
+                        const nextTargets = getConditionTargets(updatedConfig);
+                        if (previousTarget) {
+                          void removeConnectionIfUnused(selectedNode.id, String(previousTarget), nextTargets);
+                        }
+                        if (val) {
+                          void ensureConditionConnection(selectedNode.id, val);
+                        }
                       }}
                       className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm"
                     >
@@ -2865,9 +2911,18 @@ function FlowCanvas({
                               const val = e.target.value;
                               const newConditions = [...(selectedNode.data.config?.conditions || [])];
                               newConditions[index] = { ...newConditions[index], next_node_id: val === "" ? null : val };
+                              const previousTarget = condition.next_node_id;
+                              const updatedConfig = { ...selectedNode.data.config, conditions: newConditions };
                               updateNodeConfiguration(selectedNode.id, {
-                                config: { ...selectedNode.data.config, conditions: newConditions }
+                                config: updatedConfig
                               });
+                              const nextTargets = getConditionTargets(updatedConfig);
+                              if (previousTarget) {
+                                void removeConnectionIfUnused(selectedNode.id, String(previousTarget), nextTargets);
+                              }
+                              if (val) {
+                                void ensureConditionConnection(selectedNode.id, val);
+                              }
                             }}
                             className="w-full px-2 py-1.5 bg-black/20 border border-white/10 rounded text-white text-xs"
                           >
@@ -6960,9 +7015,10 @@ export default function AgentBuilderPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showTestPanel, setShowTestPanel] = useState(false);
-  const [activeTab, setActiveTab] = useState<"dialogs" | "settings" | "genai" | "analytics">("dialogs");
+  const [activeTab, setActiveTab] = useState<"dialogs" | "assistant" | "settings" | "genai" | "analytics">("dialogs");
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({
     dialogs: true,
+    assistant: true,
     genai: false,
     analytics: false,
     settings: false,
@@ -7029,8 +7085,6 @@ export default function AgentBuilderPage() {
         MozUserSelect: 'none',
         msUserSelect: 'none',
         touchAction: 'none',
-        WebkitUserDrag: 'none',
-        userDrag: 'none'
       }}
       onDragStart={(e) => {
         // Only allow dragging inside ReactFlow canvas, not the page container
@@ -7038,7 +7092,7 @@ export default function AgentBuilderPage() {
         if (!target.closest('.react-flow__pane') && !target.closest('.react-flow__node')) {
           e.preventDefault();
           e.stopPropagation();
-          e.stopImmediatePropagation();
+          (e.nativeEvent as any).stopImmediatePropagation?.();
           return false;
         }
       }}
@@ -7062,20 +7116,18 @@ export default function AgentBuilderPage() {
           MozUserSelect: 'none',
           msUserSelect: 'none',
           touchAction: 'none',
-          WebkitUserDrag: 'none',
-          userDrag: 'none',
           cursor: 'default'
         }}
         onDragStart={(e) => {
           e.preventDefault();
           e.stopPropagation();
-          e.stopImmediatePropagation();
+          (e.nativeEvent as any).stopImmediatePropagation?.();
           return false;
         }}
         onDrag={(e) => {
           e.preventDefault();
           e.stopPropagation();
-          e.stopImmediatePropagation();
+          (e.nativeEvent as any).stopImmediatePropagation?.();
           return false;
         }}
         onDragEnd={(e) => {
@@ -7100,7 +7152,7 @@ export default function AgentBuilderPage() {
           onDragStart={(e) => {
             e.preventDefault();
             e.stopPropagation();
-            e.stopImmediatePropagation();
+            (e.nativeEvent as any).stopImmediatePropagation?.();
             return false;
           }}
           onDrag={(e) => {
@@ -7148,9 +7200,7 @@ export default function AgentBuilderPage() {
           WebkitUserSelect: 'none',
           MozUserSelect: 'none',
           msUserSelect: 'none',
-          touchAction: 'none',
-          WebkitUserDrag: 'none',
-          userDrag: 'none'
+        touchAction: 'none'
         }}
         onDragStart={(e) => {
           const target = e.target as HTMLElement;
@@ -7312,9 +7362,7 @@ export default function AgentBuilderPage() {
                                 onDragStart={(e) => {
                                   // Critical: Stop all propagation to prevent parent handlers from blocking
                                   e.stopPropagation();
-                                  if (e.stopImmediatePropagation && typeof e.stopImmediatePropagation === 'function') {
-                                    e.stopImmediatePropagation();
-                                  }
+                                  (e.nativeEvent as any).stopImmediatePropagation?.();
                                   
                                   // Set data in multiple formats for compatibility
                                   if (e.dataTransfer) {
@@ -7343,8 +7391,6 @@ export default function AgentBuilderPage() {
                                   color: "#fff",
                                   userSelect: 'none',
                                   WebkitUserSelect: 'none',
-                                  WebkitUserDrag: 'element',
-                                  userDrag: 'element',
                                   touchAction: 'none',
                                   pointerEvents: 'auto',
                                   cursor: 'grab',
@@ -7401,6 +7447,53 @@ export default function AgentBuilderPage() {
                       );
                     })}
                   </div>
+                </div>
+              )}
+            </div>
+
+            {/* Virtual Assistant Section */}
+            <div className="border-b border-white/5">
+              <button
+                onClick={() => {
+                  if (isSidebarCollapsed) setIsSidebarCollapsed(false);
+                  setActiveTab("assistant");
+                  setExpandedSections(prev => ({ ...prev, assistant: !prev.assistant }));
+                }}
+                className={`w-full ${isSidebarCollapsed ? 'px-0 justify-center' : 'px-4 justify-between'} py-4 flex items-center transition-all group relative overflow-hidden ${
+                  activeTab === "assistant"
+                    ? "bg-cyan-500/10 text-cyan-300 border-l-2 border-cyan-500"
+                    : "text-white/60 hover:text-white hover:bg-white/5 border-l-2 border-transparent"
+                }`}
+                title="Virtual Assistant"
+              >
+                <div className="absolute inset-0 bg-gradient-to-r from-cyan-500/0 via-cyan-500/5 to-cyan-500/0 translate-x-[-100%] group-hover:translate-x-[100%] transition-transform duration-1000" />
+                <div className="flex items-center gap-3">
+                  <span className="text-xl filter drop-shadow-[0_0_8px_rgba(34,211,238,0.5)]">🤖</span>
+                  {!isSidebarCollapsed && <span className="font-medium tracking-wide text-sm">Virtual Assistant</span>}
+                </div>
+                {!isSidebarCollapsed && (
+                  <span className={`transform transition-transform duration-300 text-xs opacity-50 ${expandedSections.assistant ? 'rotate-180' : ''}`}>
+                    ▼
+                  </span>
+                )}
+              </button>
+              {expandedSections.assistant && !isSidebarCollapsed && (
+                <div className="bg-[#0f1419]/60 p-2">
+                  <Link href={`/agents/${agentId}/greetings`} className="block px-3 py-2 text-sm rounded hover:bg-white/5 transition-colors text-white/80">
+                    👋 Greetings
+                  </Link>
+                  <Link href={`/agents/${agentId}/small-talk`} className="block px-3 py-2 text-sm rounded hover:bg-white/5 transition-colors text-white/80">
+                    💭 Small Talk
+                  </Link>
+                  <Link href={`/agents/${agentId}/feedback`} className="block px-3 py-2 text-sm rounded hover:bg-white/5 transition-colors text-white/80">
+                    📊 Feedback Survey
+                  </Link>
+                  <Link href={`/agents/${agentId}/flows/start`} className="block px-3 py-2 text-sm rounded hover:bg-white/5 transition-colors text-white/80">
+                    ▶️ Start Flows
+                  </Link>
+                  <Link href={`/agents/${agentId}/flows/exit`} className="block px-3 py-2 text-sm rounded hover:bg-white/5 transition-colors text-white/80">
+                    ⏹️ Exit Flows
+                  </Link>
                 </div>
               )}
             </div>
@@ -7646,13 +7739,11 @@ export default function AgentBuilderPage() {
               style={{
                 userSelect: 'none',
                 WebkitUserSelect: 'none',
-                WebkitUserDrag: 'none',
-                userDrag: 'none'
               }}
               onDragStart={(e) => {
                 e.preventDefault();
                 e.stopPropagation();
-                e.stopImmediatePropagation();
+                (e.nativeEvent as any).stopImmediatePropagation?.();
                 return false;
               }}
               onDrag={(e) => {
@@ -7711,7 +7802,7 @@ export default function AgentBuilderPage() {
               onDragStart={(e) => {
                 e.preventDefault();
                 e.stopPropagation();
-                e.stopImmediatePropagation();
+                (e.nativeEvent as any).stopImmediatePropagation?.();
                 return false;
               }}
               onDrag={(e) => {
@@ -7755,7 +7846,7 @@ export default function AgentBuilderPage() {
               onDragStart={(e) => {
                       e.preventDefault();
                 e.stopPropagation();
-                e.stopImmediatePropagation();
+                (e.nativeEvent as any).stopImmediatePropagation?.();
                 return false;
               }}
               onDrag={(e) => {

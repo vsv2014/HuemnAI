@@ -26,20 +26,18 @@ export default function AppHeader({ agentId, agentName, environment = "In Dev" }
         MozUserSelect: 'none',
         msUserSelect: 'none',
         touchAction: 'none',
-        WebkitUserDrag: 'none',
-        userDrag: 'none',
         cursor: 'default'
       }}
       onDragStart={(e) => {
         e.preventDefault();
         e.stopPropagation();
-        e.stopImmediatePropagation();
+        (e.nativeEvent as any).stopImmediatePropagation?.();
         return false;
       }}
       onDrag={(e) => {
         e.preventDefault();
         e.stopPropagation();
-        e.stopImmediatePropagation();
+        (e.nativeEvent as any).stopImmediatePropagation?.();
         return false;
       }}
       onDragEnd={(e) => {
@@ -64,7 +62,7 @@ export default function AppHeader({ agentId, agentName, environment = "In Dev" }
         onDragStart={(e) => {
           e.preventDefault();
           e.stopPropagation();
-          e.stopImmediatePropagation();
+          (e.nativeEvent as any).stopImmediatePropagation?.();
           return false;
         }}
         onDrag={(e) => {

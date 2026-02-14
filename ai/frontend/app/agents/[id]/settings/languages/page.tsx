@@ -6,7 +6,7 @@ import AgentLayout from "@/components/AgentLayout";
 import LoadingSpinner from "@/components/LoadingSpinner";
 import ErrorBoundary from "@/components/ErrorBoundary";
 import { useAuthStore } from "@/store/authStore";
-import { getLanguages, createLanguage, updateLanguage } from "@/services/api";
+import { getLanguages, updateLanguage } from "@/services/api";
 
 interface Language {
   id: string;

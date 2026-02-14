@@ -39,6 +39,7 @@ export interface DebugTraceEntry {
     node_count: number;
     entry_node_id: number | null;
     has_nodes: boolean;
+    available_nodes?: Array<{ id: number; name: string; type: string }>;
   };
 }
 
@@ -60,6 +61,21 @@ export default function DebugPanel({ debugTrace, isOpen, onClose, onRefresh }: D
   }, [debugTrace, isOpen]);
 
   if (!isOpen) return null;
+  
+  const normalizeTimestamp = (timestamp: string) => {
+    if (!timestamp) return null;
+    const hasTimezone = /([zZ]|[+-]\d{2}:\d{2})$/.test(timestamp);
+    const normalized = hasTimezone ? timestamp : `${timestamp}Z`;
+    const parsed = new Date(normalized);
+    if (Number.isNaN(parsed.getTime())) return null;
+    return normalized;
+  };
+  
+  const formatTimestamp = (timestamp: string) => {
+    const normalized = normalizeTimestamp(timestamp);
+    const date = normalized ? new Date(normalized) : new Date();
+    return date.toLocaleTimeString();
+  };
 
   const getStatusColor = (status: string, nodeType?: string) => {
     if (nodeType === "EXECUTION_START") return "bg-purple-500/20 border-purple-500/50 text-purple-300";
@@ -161,7 +177,7 @@ export default function DebugPanel({ debugTrace, isOpen, onClose, onRefresh }: D
                     <span className="font-semibold text-sm">{entry.node_name}</span>
                   </div>
                   <span className="text-xs opacity-60 whitespace-nowrap">
-                    {new Date(entry.timestamp).toLocaleTimeString()}
+                    {formatTimestamp(entry.timestamp)}
                   </span>
                 </div>
 

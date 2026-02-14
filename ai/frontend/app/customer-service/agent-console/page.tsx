@@ -149,7 +149,7 @@ export default function AgentConsolePage({ onSwitchToCustomerView }: { onSwitchT
         const data = await response.json();
         const newDevice = new Device(data.token, {
             logLevel: 1,
-            codecPreferences: ["opus", "pcmu"],
+            codecPreferences: ["opus", "pcmu"] as any,
         });
 
         newDevice.on("registered", () => {

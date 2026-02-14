@@ -2,7 +2,6 @@
 
 import { useStatusStore } from "@/store/statusStore";
 import { useAuthStore } from "@/store/authStore";
-import { toast } from "sonner"; // Assuming sonner or similar toast is used, or just alert
 
 export default function AgentStatus() {
   const { setStatus, loading } = useStatusStore();

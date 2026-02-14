@@ -52,6 +52,7 @@ PRICING = {
             "Customer Service Console",
             "Knowledge AI",
             "Status Updater",
+            "Premium Voice Studio",
             "Ticket assigner and ticket solver",
             "Basic analytics dashboard",
             "Basic integrations (Zendesk, Jira)",

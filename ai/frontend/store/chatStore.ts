@@ -6,7 +6,7 @@ import {
   hrService,
   updateAgentStatus,
   recordActivity,
-  getConversation,
+  getAgentConversation,
 } from "@/services/api";
 import { TOOLS } from "@/config/tools";
 
@@ -69,14 +69,14 @@ function detectTicketIntent(text: string): { needs_ticket: boolean; needs_agent:
 export interface Message {
   role: "user" | "assistant" | "system";
   text: string;
-  data?: any; // Additional data for tool responses
+  data?: any;
 }
 
 interface ChatState {
   tool: string;
   messages: Message[];
   loading: boolean;
-  conversationHistory: Array<{ role: string; text: string }>;
+  conversationHistory: Array<{ role: string; text: string; data?: any }>;
   sessionId?: string;
   agentId?: number;
 
@@ -174,8 +174,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
           result = await handleCustomerIssue(
             text,
             token,
-            undefined, // connector_type - can be configured
-            conversationHistory
+            undefined,
+            conversationHistory,
+            String(userId)
           );
           
           if (result.type === "GREETING") {
@@ -244,7 +245,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
                 text,
                 token,
                 undefined,
-                conversationHistory
+                conversationHistory,
+                String(userId)
               );
               
               // Add the Customer Service response
@@ -259,7 +261,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
                 ],
                 conversationHistory: [
                   ...s.conversationHistory,
-                  { role: "assistant", text: customerServiceResult.message || "" }
+                  { role: "assistant", text: customerServiceResult.message || "", data: customerServiceResult }
                 ],
                 loading: false
               }));
@@ -283,7 +285,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
                 result.original_query || text,
                 token,
                 undefined,
-                conversationHistory
+                conversationHistory,
+                String(userId)
               );
               
               // Add the Customer Service response
@@ -298,7 +301,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
                 ],
                 conversationHistory: [
                   ...s.conversationHistory,
-                  { role: "assistant", text: customerServiceResult.message || "" }
+                  { role: "assistant", text: customerServiceResult.message || "", data: customerServiceResult }
                 ],
                 loading: false
               }));
@@ -381,7 +384,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
             assistantMessage = "I understand you'd like to create a ticket or connect with an agent. Let me transfer you to our Customer Service team...";
             set({ tool: TOOLS.CUSTOMER_SERVICE });
             setTimeout(async () => {
-              const customerServiceResult = await handleCustomerIssue(text, "user1", undefined, conversationHistory);
+              const customerServiceResult = await handleCustomerIssue(text, "user1", undefined, conversationHistory, String(userId));
               set((s) => ({
                 messages: [
                   ...s.messages,
@@ -393,7 +396,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
                 ],
                 conversationHistory: [
                   ...s.conversationHistory,
-                  { role: "assistant", text: customerServiceResult.message || "" }
+                  { role: "assistant", text: customerServiceResult.message || "", data: customerServiceResult }
                 ],
                 loading: false
               }));
@@ -412,7 +415,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
             await recordActivity(userId, token);
           } else {
             // Record activity for any message
-            await recordActivity("user1");
+            await recordActivity("user1", token);
             assistantMessage = "Activity recorded. Send 'online', 'busy', 'away', or 'offline' to update status.";
           }
           break;
@@ -440,7 +443,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       ],
       conversationHistory: [
         ...s.conversationHistory,
-        { role: "assistant", text: assistantMessage },
+        { role: "assistant", text: assistantMessage, data: result },
       ],
     }));
   },

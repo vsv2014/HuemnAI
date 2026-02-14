@@ -34,6 +34,7 @@ import {
   LayoutGrid,
   Layers,
   Database,
+  Plus,
   Menu,
   Mic,
   Paperclip,
@@ -166,7 +167,7 @@ export default function EnhancedKnowledgeAI({ embedded = false }: { embedded?: b
     setActiveTab("query");
     
     try {
-      const conv = await getConversation(id, token);
+      const conv = await getConversation(id.toString(), token);
       if (conv && conv.messages) {
         const history = conv.messages.map((msg: any) => ({
           role: msg.role,
@@ -200,10 +201,11 @@ export default function EnhancedKnowledgeAI({ embedded = false }: { embedded?: b
     
     // Add user message immediately
     const userMsg: ChatMessage = { role: "user", content: searchQuery };
-    setConversationHistory(prev => [...prev, userMsg]);
+    const nextHistory = [...conversationHistory, userMsg];
+    setConversationHistory(nextHistory);
 
     try {
-      const res = await chatWithKnowledge(searchQuery, token, currentConversationId || undefined);
+      const res = await chatWithKnowledge(searchQuery, nextHistory, token);
       
       if (res.conversation_id) {
         setCurrentConversationId(res.conversation_id);
@@ -243,7 +245,12 @@ export default function EnhancedKnowledgeAI({ embedded = false }: { embedded?: b
         }, token);
         
         if (createRes.success && createRes.id) {
-          res = await uploadKnowledgeDocument(fileInputRef.current.files[0], createRes.id, token);
+          const formData = new FormData();
+          formData.append("file", fileInputRef.current.files[0]);
+          formData.append("name", newSourceName);
+          formData.append("auto_crawl", "false");
+          formData.append("source_id", createRes.id.toString());
+          res = await uploadKnowledgeDocument(formData, token);
         } else {
           res = { error: "Failed to create source container" };
         }
@@ -278,7 +285,7 @@ export default function EnhancedKnowledgeAI({ embedded = false }: { embedded?: b
   const handleDeleteSource = async (id: number) => {
     if (!token || !confirm("Are you sure you want to delete this source?")) return;
     try {
-      await deleteKnowledgeSource(id.toString(), token);
+      await deleteKnowledgeSource(id, token);
       await loadSources();
     } catch (error) {
       console.error("Error deleting source:", error);
@@ -288,7 +295,7 @@ export default function EnhancedKnowledgeAI({ embedded = false }: { embedded?: b
   const handleCrawlSource = async (id: number) => {
     if (!token) return;
     try {
-      await crawlKnowledgeSource(id.toString(), token);
+      await crawlKnowledgeSource(id, token);
       await loadSources();
     } catch (error) {
       console.error("Error crawling source:", error);

@@ -1,4 +1,4 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from prometheus_fastapi_instrumentator import Instrumentator
@@ -19,6 +19,13 @@ from app.core.lifecycle import register_lifecycle
 from app.services.status_service import start_status_watcher
 from app.services.knowledge_crawler_scheduler import start_knowledge_crawler_scheduler
 from app.services.status_service import start_token_consumer
+from app.db.session import ping_database
+from app.core.redis import redis_client
+from app.core.config import settings
+from app.core.logging import get_logger
+import sentry_sdk
+import time
+import uuid
 
 # Initialize structured logging and Sentry
 from app.core.logging import setup_logging
@@ -28,6 +35,7 @@ setup_logging()
 init_db()
 
 app = FastAPI(title="HUEMN.Ai")
+http_logger = get_logger("http")
 
 # Mount uploads directory
 import os
@@ -59,6 +67,39 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    request_id = request.headers.get("x-request-id") or str(uuid.uuid4())
+    start = time.perf_counter()
+    try:
+        response = await call_next(request)
+        duration_ms = int((time.perf_counter() - start) * 1000)
+        http_logger.info(
+            "request",
+            request_id=request_id,
+            method=request.method,
+            path=request.url.path,
+            status_code=response.status_code,
+            duration_ms=duration_ms,
+            client_ip=request.client.host if request.client else None,
+            user_agent=request.headers.get("user-agent")
+        )
+        response.headers["x-request-id"] = request_id
+        return response
+    except Exception as exc:
+        duration_ms = int((time.perf_counter() - start) * 1000)
+        http_logger.error(
+            "request_error",
+            request_id=request_id,
+            method=request.method,
+            path=request.url.path,
+            duration_ms=duration_ms,
+            error=str(exc)
+        )
+        if settings.SENTRY_DSN:
+            sentry_sdk.capture_exception(exc)
+        raise
+
 @app.get("/")
 async def root():
     return {"message": "HUEMN.Ai API", "version": "2.0.0", "tools": ["ticketing", "ticket_assigner", "status_updater", "knowledge_ai", "hr_services"]}
@@ -66,6 +107,24 @@ async def root():
 @app.get("/health")
 async def health():
     return {"status": "ok"}
+
+@app.get("/health/ready")
+async def health_ready():
+    db_status = "ok"
+    redis_status = "ok"
+    detail = {}
+    try:
+        ping_database()
+    except Exception as exc:
+        db_status = "error"
+        detail["database"] = str(exc)
+    try:
+        await redis_client.ping()
+    except Exception as exc:
+        redis_status = "error"
+        detail["redis"] = str(exc)
+    status = "ok" if (db_status == "ok" and redis_status == "ok") else "degraded"
+    return {"status": status, "database": db_status, "redis": redis_status, "detail": detail}
 
 app.include_router(chat.router, prefix="/api/chat")
 app.include_router(actions.router, prefix="/api/actions")

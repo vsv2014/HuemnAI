@@ -42,6 +42,17 @@ export default function AgentTestPage() {
     scrollToBottom();
   }, [messages]);
 
+  const normalizeDebugTrace = (trace: DebugTraceEntry[], startStep: number) => {
+    return trace.map((entry, index) => {
+      const stepValue = typeof entry.step === "number" ? entry.step : index + 1;
+      return {
+        ...entry,
+        step: stepValue + startStep,
+        timestamp: entry.timestamp || new Date().toISOString(),
+      };
+    });
+  };
+
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   };
@@ -54,18 +65,47 @@ export default function AgentTestPage() {
         alert("Failed to load agent: " + response.error);
       } else {
         setAgent(response);
-        // Add welcome message if available
-        if (response.welcome_message) {
+        await startSession();
+      }
+    } catch (err) {
+      alert("Failed to load agent");
+      console.error(err);
+    }
+  };
+
+  const startSession = async () => {
+    if (!token) return;
+    setMessages([]);
+    setDebugTrace([]);
+    setSessionId(null);
+    setLoading(true);
+    try {
+      const response = await processAgentMessage({
+        agent_id: agentId,
+        message: "",
+        session_id: undefined,
+        channel: "web",
+        context: { event: "session_start" },
+      }, token);
+      if (!response.error) {
+        if (response.session_id) {
+          setSessionId(response.session_id);
+        }
+        if (Array.isArray(response.debug_trace) && response.debug_trace.length > 0) {
+          setDebugTrace(normalizeDebugTrace(response.debug_trace, 0));
+        }
+        if (response.response) {
           setMessages([{
             role: "assistant",
-            content: response.welcome_message,
+            content: response.response,
             timestamp: new Date(),
           }]);
         }
       }
     } catch (err) {
-      alert("Failed to load agent");
-      console.error(err);
+      console.error("Failed to start session:", err);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -96,8 +136,15 @@ export default function AgentTestPage() {
         alert("Error: " + response.error);
       } else {
         // Set session ID if first message
-        if (!sessionId && response.session_id) {
+        if (response.session_id && response.session_id !== sessionId) {
           setSessionId(response.session_id);
+        }
+        if (Array.isArray(response.debug_trace) && response.debug_trace.length > 0) {
+          setDebugTrace((prev) => {
+            const maxStep = prev.reduce((max, entry) => Math.max(max, entry.step || 0), 0);
+            const normalized = normalizeDebugTrace(response.debug_trace, maxStep);
+            return [...prev, ...normalized];
+          });
         }
         
         // Add assistant response
@@ -124,30 +171,12 @@ export default function AgentTestPage() {
   };
 
   const handleClear = () => {
-    setMessages([]);
-    setSessionId(null);
-    setDebugTrace([]);
-    if (agent?.welcome_message) {
-      setMessages([{
-        role: "assistant",
-        content: agent.welcome_message,
-        timestamp: new Date(),
-      }]);
-    }
+    startSession();
   };
 
   const handleRefresh = () => {
-    setMessages([]);
-    setSessionId(null);
-    setDebugTrace([]);
     setInput("");
-    if (agent?.welcome_message) {
-      setMessages([{
-        role: "assistant",
-        content: agent.welcome_message,
-        timestamp: new Date(),
-      }]);
-    }
+    startSession();
   };
 
   if (!agent) {

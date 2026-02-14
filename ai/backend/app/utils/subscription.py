@@ -104,7 +104,8 @@ PLAN_TOOL_MATRIX = {
         "status_updater",
         "ticket_assigner",
         "ticket_solver",
-        "analytics_dashboard"
+        "analytics_dashboard",
+        "voice_studio"
     ],
     "professional": [
         "agent_builder",

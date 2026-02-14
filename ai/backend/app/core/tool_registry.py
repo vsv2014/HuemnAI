@@ -11,6 +11,8 @@ The registry stores a ToolEntry with `handler` and `metadata` and keeps current 
 """
 
 from typing import Callable, Dict, Any, Optional
+import time
+from app.core.logging import get_logger
 from dataclasses import dataclass, field
 from app.db.session import SessionLocal
 from app.db.models.tool_config import ToolConfig
@@ -112,4 +114,31 @@ def trigger_tool(name: str, payload: Optional[Dict[str, Any]] = None):
         raise KeyError(f"Tool '{name}' not registered")
     if not entry.enabled:
         raise RuntimeError(f"Tool '{name}' is disabled")
-    return entry.handler(payload)
+    logger = get_logger("tool")
+    start = time.perf_counter()
+    payload = payload or {}
+    try:
+        result = entry.handler(payload)
+        duration_ms = int((time.perf_counter() - start) * 1000)
+        logger.info(
+            "tool_execute",
+            tool=name,
+            enabled=entry.enabled,
+            mode=entry.mode,
+            operation_mode=entry.operation_mode,
+            duration_ms=duration_ms,
+            payload_keys=list(payload.keys())
+        )
+        return result
+    except Exception as exc:
+        duration_ms = int((time.perf_counter() - start) * 1000)
+        logger.error(
+            "tool_error",
+            tool=name,
+            enabled=entry.enabled,
+            mode=entry.mode,
+            operation_mode=entry.operation_mode,
+            duration_ms=duration_ms,
+            error=str(exc)
+        )
+        raise

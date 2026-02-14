@@ -72,7 +72,7 @@ export default function AuditLogPage() {
     fetchLogs();
   };
 
-  const handleExport = async (format: "csv" | "json") => {
+  const handleExport = async (format: "csv" | "json" | "docx") => {
     if (!token) return;
     try {
         const result = await exportAuditLogs(token, format, {

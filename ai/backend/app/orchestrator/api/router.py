@@ -24,6 +24,7 @@ from app.db.models.agent import Agent
 from app.api.auth import get_current_user
 from app.db.models.subscription import UserAccount
 from app.utils.subscription import consume_tool_tokens
+from app.core.celery_app import celery_app, execute_orchestrator, run_orchestrator_code
 
 def require_agent_builder_access(
     user: UserAccount = Depends(get_current_user),
@@ -49,7 +50,8 @@ class ExecuteRequest(BaseModel):
 
 class ExecuteResponse(BaseModel):
     status: str
-    context: Dict[str, Any]
+    context: Optional[Dict[str, Any]] = None
+    job_id: Optional[str] = None
 
 class CodeRequest(BaseModel):
     session_id: str
@@ -58,6 +60,7 @@ class CodeRequest(BaseModel):
 class CodeResponse(BaseModel):
     status: str
     returncode: Optional[int] = None
+    job_id: Optional[str] = None
 
 class ClarifyRequest(BaseModel):
     session_id: str
@@ -99,6 +102,11 @@ class MediaItem(BaseModel):
 class MediaListResponse(BaseModel):
     session_id: str
     assets: List[MediaItem]
+
+class JobStatusResponse(BaseModel):
+    status: str
+    job_id: str
+    result: Optional[Dict[str, Any]] = None
 
 class ScheduleItem(BaseModel):
     id: str
@@ -294,18 +302,36 @@ async def execute(req: ExecuteRequest):
     session = await MemoryStore.get_session(req.session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
-    executor = StepExecutor(req.session_id)
-    result = await executor.run(session["plan"])
-    MemoryStore.audit("execute", {"session_id": req.session_id, "result": result})
-    return result
+    try:
+        job = execute_orchestrator.delay(req.session_id)
+        return {"status": "queued", "job_id": job.id}
+    except Exception:
+        executor = StepExecutor(req.session_id)
+        result = await executor.run(session["plan"])
+        MemoryStore.audit("execute", {"session_id": req.session_id, "result": result})
+        return result
 
 
 @router.post("/run-code", response_model=CodeResponse, dependencies=[Depends(require_agent_builder_access)])
 async def run_code(req: CodeRequest):
-    runner = SandboxRunner(req.session_id)
-    result = await runner.run_python(req.code)
-    MemoryStore.audit("run_code", {"session_id": req.session_id, "result": result})
-    return {"status": result.get("status", "done"), "returncode": result.get("returncode")}
+    try:
+        job = run_orchestrator_code.delay(req.session_id, req.code)
+        return {"status": "queued", "job_id": job.id}
+    except Exception:
+        runner = SandboxRunner(req.session_id)
+        result = await runner.run_python(req.code)
+        MemoryStore.audit("run_code", {"session_id": req.session_id, "result": result})
+        return {"status": result.get("status", "done"), "returncode": result.get("returncode")}
+
+
+@router.get("/jobs/{job_id}", response_model=JobStatusResponse, dependencies=[Depends(require_agent_builder_access)])
+async def get_job_status(job_id: str):
+    res = celery_app.AsyncResult(job_id)
+    if res.successful():
+        return {"status": "completed", "job_id": job_id, "result": res.result}
+    if res.failed():
+        return {"status": "failed", "job_id": job_id, "result": {"error": str(res.result)}}
+    return {"status": (res.status or "pending").lower(), "job_id": job_id}
 
 
 @router.websocket("/console/{session_id}")

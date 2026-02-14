@@ -213,7 +213,7 @@ function MetricCard({ title, value, change, trend, icon, size = "normal" }: any)
           {change}
         </span>
       </div>
-      <div className={size === "small" ? "text-2xl" : "text-3xl"} className="font-bold text-white mb-1">
+      <div className={`font-bold text-white mb-1 ${size === "small" ? "text-2xl" : "text-3xl"}`}>
         {value}
       </div>
       <div className="text-sm text-white/60">{title}</div>

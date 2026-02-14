@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { login, googleLogin } from "@/services/api";
 import { useAuthStore } from "@/store/authStore";
@@ -11,6 +11,8 @@ import OtpVerificationModal from "@/components/OtpVerificationModal";
 export default function LoginPage() {
   const router = useRouter();
   const setAuth = useAuthStore((state) => state.setAuth);
+  const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
+  const searchParams = useSearchParams();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -21,6 +23,20 @@ export default function LoginPage() {
   const [otpEmail, setOtpEmail] = useState("");
   const [pendingGoogleToken, setPendingGoogleToken] = useState<string | null>(null);
   const [pendingPassword, setPendingPassword] = useState<string | null>(null);
+
+  const getRedirectPath = () => {
+    const redirectParam = searchParams?.get("redirect");
+    if (redirectParam && redirectParam.startsWith("/")) {
+      return redirectParam;
+    }
+    return "/";
+  };
+
+  useEffect(() => {
+    if (isAuthenticated) {
+      router.replace(getRedirectPath());
+    }
+  }, [isAuthenticated, router, searchParams]);
 
   const handleLoginSuccess = (data: any) => {
     if (data.requires_otp) {
@@ -42,7 +58,7 @@ export default function LoginPage() {
         data.subscribed_tools,
         data.login_time || null
       );
-      router.push("/");
+      router.push(getRedirectPath());
     } else {
       setError("Invalid response from server");
     }
@@ -284,4 +300,3 @@ export default function LoginPage() {
     </div>
   );
 }
-

@@ -198,8 +198,8 @@ export const CopilotChat: React.FC<CopilotChatProps> = ({
         body: JSON.stringify({ mode, message: content, context: { deal_id: contextDealId } })
       });
       let text = 'Sorry, I encountered an error. Please try again.';
-      let thinking = '';
-      let sources: Message['sources'] = [];
+      const thinking = '';
+      const sources: Message['sources'] = [];
       if (res.ok) {
         const data = await res.json();
         text = data.response || text;

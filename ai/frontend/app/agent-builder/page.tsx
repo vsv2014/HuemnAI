@@ -96,7 +96,7 @@ const CustomNode = ({ data }: { data: any }) => {
 };
 
 const StepNode = ({ data }: { data: any }) => {
-  const { updateNode } = useReactFlow();
+  const { setNodes } = useReactFlow();
   const isActive = data.status === 'active';
   const isVisited = data.status === 'visited';
   const collapsed = !!data.collapsed;
@@ -121,7 +121,13 @@ const StepNode = ({ data }: { data: any }) => {
         </div>
         <div className="flex items-center gap-2">
           <button
-            onClick={() => updateNode(data.id, { data: { ...data, collapsed: !collapsed } })}
+            onClick={() =>
+              setNodes((nds) =>
+                nds.map((node) =>
+                  node.id === data.id ? { ...node, data: { ...node.data, collapsed: !collapsed } } : node
+                )
+              )
+            }
             className="text-sky-300 hover:text-sky-200 text-xs px-2 py-0.5 border border-sky-500/30 rounded"
             title={collapsed ? 'Expand' : 'Minimize'}
           >
@@ -177,7 +183,7 @@ const EntryNode = ({ data }: { data: any }) => {
 };
 
 const ModuleNode = ({ data }: { data: any }) => {
-  const { updateNode } = useReactFlow();
+  const { setNodes } = useReactFlow();
   const collapsed = !!data.collapsed;
   return (
     <div className="relative">
@@ -186,7 +192,13 @@ const ModuleNode = ({ data }: { data: any }) => {
         <div className="flex items-center justify-between">
           <div className="text-xs font-bold uppercase tracking-widest text-amber-400">{data.label || 'Module'}</div>
           <button
-            onClick={() => updateNode(data.id, { data: { ...data, collapsed: !collapsed } })}
+            onClick={() =>
+              setNodes((nds) =>
+                nds.map((node) =>
+                  node.id === data.id ? { ...node, data: { ...node.data, collapsed: !collapsed } } : node
+                )
+              )
+            }
             className="text-amber-400 hover:text-amber-300 text-xs px-2 py-0.5 border border-amber-500/30 rounded"
             title={collapsed ? 'Expand' : 'Minimize'}
           >
@@ -324,6 +336,8 @@ export default function AgentBuilderPage() {
     const amt = parseFloat(answers["payment_amount"] || "");
     return !!answers["payment_currency"] && !!answers["payment_method"] && !Number.isNaN(amt) && amt > 0;
   }, [answers]);
+  const memoNodeTypes = useMemo(() => nodeTypes, []);
+  const memoEdgeTypes = useMemo(() => edgeTypes, []);
   const uploadInputRef = useRef<HTMLInputElement | null>(null);
   const [mediaPreviews, setMediaPreviews] = useState<Array<{ name: string; url: string; type: string }>>([]);
   const [planSteps, setPlanSteps] = useState<string[]>([]);
@@ -421,8 +435,7 @@ export default function AgentBuilderPage() {
   }, []);
   
   useEffect(() => {
-    let timer: any;
-    timer = setInterval(() => {
+    const timer = setInterval(() => {
       try {
         const soon = Date.now() + 24 * 60 * 60 * 1000;
         scheduledTasks.forEach((t) => {
@@ -433,7 +446,7 @@ export default function AgentBuilderPage() {
         });
       } catch {}
     }, 60 * 1000);
-    return () => { if (timer) clearInterval(timer); };
+    return () => { clearInterval(timer); };
   }, [scheduledTasks]);
   
   useEffect(() => {
@@ -620,14 +633,17 @@ export default function AgentBuilderPage() {
               body: JSON.stringify({ session_id: data.session_id, message: prompt }),
             });
             // Poll chat history briefly to wait for assistant reply (since backend streams asynchronously)
-            let mapped: Array<{role: string, text: string}> = [];
+            let mapped: Array<{ role: "user" | "assistant"; text: string }> = [];
             for (let i = 0; i < 4; i++) {
               const histRes = await fetch(`${API_BASE}/api/orchestrator/chat/history?session_id=${data.session_id}`, {
                 headers: buildHeaders(false)
               });
               const hist = await histRes.json();
               const chatItems = Array.isArray(hist.chat) ? hist.chat : [];
-              mapped = chatItems.map((m: any) => ({ role: m.role, text: m.text }));
+              mapped = chatItems.map((m: any) => ({
+                role: m.role === "user" ? "user" : "assistant",
+                text: m.text || ""
+              }));
               if (mapped.some((m) => m.role === "assistant")) break;
               await new Promise((r) => setTimeout(r, 250));
             }
@@ -906,6 +922,26 @@ export default function AgentBuilderPage() {
     }
   }, [sessionId]);
 
+  const waitForJob = async (jobId: string) => {
+    for (let i = 0; i < 40; i++) {
+      const res = await fetch(`${API_BASE}/api/orchestrator/jobs/${jobId}`, {
+        headers: buildHeaders(false)
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data?.detail || "Job status failed");
+      }
+      if (data.status === "completed") {
+        return data.result;
+      }
+      if (data.status === "failed") {
+        throw new Error(data?.result?.error || "Job failed");
+      }
+      await new Promise((r) => setTimeout(r, 750));
+    }
+    throw new Error("Job timeout");
+  };
+
   const handleExecute = async () => {
     setExecutionResult({ result: "", logs: [] });
     try {
@@ -917,11 +953,21 @@ export default function AgentBuilderPage() {
         });
         const data = await res.json();
         if (res.ok) {
-          setExecutionResult((prev) => {
-            const friendly = (data?.context?.respond && String(data.context.respond)) || (prev?.result || "Execution complete");
-            return { result: friendly, logs: prev?.logs || [], raw: data?.context };
-          });
-          toast.success("Plan executed", { style: { background: '#333', color: '#60a5fa' } });
+          if (data?.job_id) {
+            const jobResult = await waitForJob(data.job_id);
+            const ctx = jobResult?.context || jobResult?.result?.context;
+            setExecutionResult((prev) => {
+              const friendly = (ctx?.respond && String(ctx.respond)) || (prev?.result || "Execution complete");
+              return { result: friendly, logs: prev?.logs || [], raw: ctx || jobResult };
+            });
+            toast.success("Plan executed", { style: { background: '#333', color: '#60a5fa' } });
+          } else {
+            setExecutionResult((prev) => {
+              const friendly = (data?.context?.respond && String(data.context.respond)) || (prev?.result || "Execution complete");
+              return { result: friendly, logs: prev?.logs || [], raw: data?.context };
+            });
+            toast.success("Plan executed", { style: { background: '#333', color: '#60a5fa' } });
+          }
         } else {
           toast.error("Plan execution failed: " + data.detail);
         }
@@ -932,8 +978,14 @@ export default function AgentBuilderPage() {
           body: JSON.stringify({ session_id: `ad-hoc-${Date.now()}`, code: generatedCode }),
         });
         const data = await res.json();
-        setExecutionResult((prev) => ({ ...(prev || {}), logs: [...(prev?.logs || []), `status=${data.status} code=${data.returncode ?? ''}`] }));
-        toast.success("Code run invoked", { style: { background: '#333', color: '#60a5fa' } });
+        if (data?.job_id) {
+          const jobResult = await waitForJob(data.job_id);
+          setExecutionResult((prev) => ({ ...(prev || {}), logs: [...(prev?.logs || []), `status=${jobResult?.status} code=${jobResult?.returncode ?? ''}`] }));
+          toast.success("Code run invoked", { style: { background: '#333', color: '#60a5fa' } });
+        } else {
+          setExecutionResult((prev) => ({ ...(prev || {}), logs: [...(prev?.logs || []), `status=${data.status} code=${data.returncode ?? ''}`] }));
+          toast.success("Code run invoked", { style: { background: '#333', color: '#60a5fa' } });
+        }
       } else {
         toast.error("No session or code to execute");
       }
@@ -950,6 +1002,16 @@ export default function AgentBuilderPage() {
           });
           if (res.ok) {
             const data = await res.json();
+            if (data?.job_id) {
+              const jobResult = await waitForJob(data.job_id);
+              const ctx = jobResult?.context || jobResult?.result?.context;
+              setExecutionResult((prev) => {
+                const friendly = (ctx?.respond && String(ctx.respond)) || (prev?.result || "Execution complete");
+                return { result: friendly, logs: prev?.logs || [], raw: ctx || jobResult };
+              });
+              toast.success("Plan executed (retried)", { style: { background: '#333', color: '#60a5fa' } });
+              return;
+            }
             setExecutionResult((prev) => {
               const friendly = (data?.context?.respond && String(data.context.respond)) || (prev?.result || "Execution complete");
               return { result: friendly, logs: prev?.logs || [], raw: data?.context };
@@ -2166,8 +2228,8 @@ export default function AgentBuilderPage() {
                       onNodesChange={onNodesChangeSynced}
                       onEdgesChange={onEdgesChange}
                       onNodeClick={handleNodeClick}
-                      edgeTypes={edgeTypes}
-                      nodeTypes={nodeTypes}
+                      edgeTypes={memoEdgeTypes}
+                      nodeTypes={memoNodeTypes}
                       panOnDrag={!hoveringDivider && !dragging}
                       defaultEdgeOptions={{
                         type: 'premium',

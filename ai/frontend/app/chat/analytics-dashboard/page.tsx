@@ -3,7 +3,13 @@
 import { useEffect, useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import {
+import * as Recharts from "recharts";
+import { getAnalyticsOverview, getAnalyticsTrends, startToolSession } from "@/services/api";
+import { useAuthStore } from "@/store/authStore";
+import TrialBanner from "@/components/TrialBanner";
+import ToolSwitcher from "@/components/ToolSwitcher";
+
+const {
   LineChart,
   Line,
   BarChart,
@@ -21,11 +27,7 @@ import {
   ResponsiveContainer,
   RadialBarChart,
   RadialBar,
-} from "recharts";
-import { getAnalyticsOverview, getAnalyticsTrends, startToolSession } from "@/services/api";
-import { useAuthStore } from "@/store/authStore";
-import TrialBanner from "@/components/TrialBanner";
-import ToolSwitcher from "@/components/ToolSwitcher";
+} = Recharts as any;
 
 interface AnalyticsData {
   overview: {

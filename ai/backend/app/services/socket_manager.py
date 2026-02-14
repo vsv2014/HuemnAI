@@ -40,4 +40,9 @@ class ConnectionManager:
             for connection in self.active_connections[client_id]:
                 await connection.send_text(message)
 
+    async def broadcast_agent_event(self, agent_id: str, event: str, payload: Dict[str, Any]):
+        if agent_id in self.active_connections:
+            for connection in self.active_connections[agent_id]:
+                await connection.send_json({"event": event, "data": payload})
+
 manager = ConnectionManager()

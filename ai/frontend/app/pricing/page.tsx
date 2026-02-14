@@ -47,7 +47,20 @@ export default function PricingPage() {
       if (response && response.error) {
         setError(response.error);
       } else if (response && response.plans) {
-        setPlans(response.plans);
+        const updatedPlans = response.plans.map((plan: Plan) => {
+          if (!plan?.features || !Array.isArray(plan.features)) {
+            return plan;
+          }
+          const needsPremiumVoice = ["basic", "professional", "enterprise", "trial"].includes(plan.name);
+          if (!needsPremiumVoice) return plan;
+          const hasPremiumVoice = plan.features.some((f) => f.toLowerCase() === "premium voice studio" || f.toLowerCase() === "premium voice");
+          if (hasPremiumVoice) return plan;
+          return {
+            ...plan,
+            features: [...plan.features, "Premium Voice Studio"]
+          };
+        });
+        setPlans(updatedPlans);
       } else {
         setError("Failed to load pricing plans. Please check if the backend is running.");
       }

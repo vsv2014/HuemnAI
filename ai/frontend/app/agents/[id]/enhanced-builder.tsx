@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import { useRouter, useParams } from "next/navigation";
 import { useAuthStore } from "@/store/authStore";
-import { getAgent, updateAgent, getAgents, createNode, updateNode, deleteNode, createConnection, deleteConnection, getVoiceProfiles } from "@/services/api";
+import { getAgent, updateAgent, getAgents, createNode, updateNode, deleteNode, createConnection, updateConnection, deleteConnection, getVoiceProfiles } from "@/services/api";
 import ReactFlow, {
   Node,
   Edge,
@@ -40,7 +40,74 @@ interface ConnectionData {
   label?: string;
 }
 
+const PremiumEdge = ({
+  id,
+  sourceX,
+  sourceY,
+  targetX,
+  targetY,
+  sourcePosition,
+  targetPosition,
+}: any) => {
+  const [edgePath, labelX, labelY] = getSmoothStepPath({
+    sourceX,
+    sourceY,
+    targetX,
+    targetY,
+    sourcePosition,
+    targetPosition,
+    borderRadius: 12
+  });
+  const gradId = `grad-${id}`;
+  const pathId = `path-${id}`;
+  const arrowId = `arrow-${id}`;
+  return (
+    <g filter="url(#shadow)">
+      <defs>
+        <linearGradient id={gradId} x1="0%" y1="0%" x2="100%" y2="0%">
+          <stop offset="0%" stopColor="#06b6d4" />
+          <stop offset="50%" stopColor="#f59e0b" />
+          <stop offset="100%" stopColor="#60a5fa" />
+        </linearGradient>
+        <filter id="shadow" x="-50%" y="-50%" width="200%" height="200%">
+          <feDropShadow dx="0" dy="0" stdDeviation="2" floodColor="rgba(245,158,11,0.25)" />
+        </filter>
+        <marker id={arrowId} viewBox="0 0 10 10" refX="10" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+          <path d="M 0 0 L 10 5 L 0 10 z" fill="#60a5fa" opacity="0.9" />
+        </marker>
+      </defs>
+      <style>
+        {`@keyframes edgeDash { to { stroke-dashoffset: -240; } }
+          .edge-dash-${id} { stroke-dasharray: 6 10; animation: edgeDash 2.4s linear infinite; }`}
+      </style>
+      <path id={pathId} d={edgePath} stroke={`url(#${gradId})`} strokeWidth="2.5" fill="none" opacity="0.95" markerEnd={`url(#${arrowId})`} />
+      <path d={edgePath} className={`edge-dash-${id}`} stroke="#22d3ee" fill="none" strokeWidth={1.5} markerEnd={`url(#${arrowId})`} />
+      <circle r="2.2" fill="#22d3ee">
+        <animateMotion dur="2s" repeatCount="indefinite">
+          <mpath href={`#${pathId}`} />
+        </animateMotion>
+      </circle>
+      <circle r="2" fill="#f59e0b" opacity="0.9">
+        <animateMotion dur="3.2s" repeatCount="indefinite">
+          <mpath href={`#${pathId}`} />
+        </animateMotion>
+      </circle>
+      <circle r="1.8" fill="#60a5fa" opacity="0.9">
+        <animateMotion dur="1.6s" repeatCount="indefinite">
+          <mpath href={`#${pathId}`} />
+        </animateMotion>
+      </circle>
+      <EdgeLabelRenderer>
+        <div style={{ transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)` }} className="pointer-events-none text-[10px] font-bold tracking-widest uppercase text-cyan-300 bg-black/40 px-1.5 py-0.5 rounded border border-cyan-500/30 shadow-[0_0_10px_rgba(6,182,212,0.2)]">
+          Data Flow
+        </div>
+      </EdgeLabelRenderer>
+    </g>
+  );
+};
+
 const nodeTypes: NodeTypes = {};
+const edgeTypes = { premium: PremiumEdge };
 
 const nodeTypeColors: Record<string, string> = {
   start: "#10b981",
@@ -125,7 +192,7 @@ export default function EnhancedAgentBuilder() {
   
   const [agent, setAgent] = useState<any>(null);
   const [nodes, setNodes] = useNodesState([]);
-  const [edges, setEdges] = useEdgesState([]);
+  const [edges, setEdges, onEdgesChange] = useEdgesState([]);
   const [selectedNode, setSelectedNode] = useState<Node | null>(null);
   const [connectorMetadata, setConnectorMetadata] = useState<any[]>([]);
   const [voiceProfiles, setVoiceProfiles] = useState<any[]>([]);
@@ -135,74 +202,6 @@ export default function EnhancedAgentBuilder() {
   const [showCodePanel, setShowCodePanel] = useState(false);
   const [generatedCode, setGeneratedCode] = useState("");
   const [selectedNodeCode, setSelectedNodeCode] = useState("");
-
-  const PremiumEdge = ({
-    id,
-    sourceX,
-    sourceY,
-    targetX,
-    targetY,
-    sourcePosition,
-    targetPosition,
-  }: any) => {
-    const [edgePath, labelX, labelY] = getSmoothStepPath({
-      sourceX,
-      sourceY,
-      targetX,
-      targetY,
-      sourcePosition,
-      targetPosition,
-      borderRadius: 12
-    });
-    const gradId = `grad-${id}`;
-    const pathId = `path-${id}`;
-    const arrowId = `arrow-${id}`;
-    return (
-      <g filter="url(#shadow)">
-        <defs>
-          <linearGradient id={gradId} x1="0%" y1="0%" x2="100%" y2="0%">
-            <stop offset="0%" stopColor="#06b6d4" />
-            <stop offset="50%" stopColor="#f59e0b" />
-            <stop offset="100%" stopColor="#60a5fa" />
-          </linearGradient>
-          <filter id="shadow" x="-50%" y="-50%" width="200%" height="200%">
-            <feDropShadow dx="0" dy="0" stdDeviation="2" floodColor="rgba(245,158,11,0.25)" />
-          </filter>
-          <marker id={arrowId} viewBox="0 0 10 10" refX="10" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
-            <path d="M 0 0 L 10 5 L 0 10 z" fill="#60a5fa" opacity="0.9" />
-          </marker>
-        </defs>
-        <style>
-          {`@keyframes edgeDash { to { stroke-dashoffset: -240; } }
-            .edge-dash-${id} { stroke-dasharray: 6 10; animation: edgeDash 2.4s linear infinite; }`}
-        </style>
-        <path id={pathId} d={edgePath} stroke={`url(#${gradId})`} strokeWidth="2.5" fill="none" opacity="0.95" markerEnd={`url(#${arrowId})`} />
-        <path d={edgePath} className={`edge-dash-${id}`} stroke="#22d3ee" fill="none" strokeWidth={1.5} markerEnd={`url(#${arrowId})`} />
-        <circle r="2.2" fill="#22d3ee">
-          <animateMotion dur="2s" repeatCount="indefinite">
-            <mpath href={`#${pathId}`} />
-          </animateMotion>
-        </circle>
-        <circle r="2" fill="#f59e0b" opacity="0.9">
-          <animateMotion dur="3.2s" repeatCount="indefinite">
-            <mpath href={`#${pathId}`} />
-          </animateMotion>
-        </circle>
-        <circle r="1.8" fill="#60a5fa" opacity="0.9">
-          <animateMotion dur="1.6s" repeatCount="indefinite">
-            <mpath href={`#${pathId}`} />
-          </animateMotion>
-        </circle>
-        <EdgeLabelRenderer>
-          <div style={{ transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)` }} className="pointer-events-none text-[10px] font-bold tracking-widest uppercase text-cyan-300 bg-black/40 px-1.5 py-0.5 rounded border border-cyan-500/30 shadow-[0_0_10px_rgba(6,182,212,0.2)]">
-            Data Flow
-          </div>
-        </EdgeLabelRenderer>
-      </g>
-    );
-  };
-
-  const edgeTypes = { premium: PremiumEdge };
 
   useEffect(() => {
     setActiveTab("Basic");
@@ -238,6 +237,8 @@ export default function EnhancedAgentBuilder() {
   const [searchQuery, setSearchQuery] = useState("");
   const [minimapInteractive, setMinimapInteractive] = useState(false);
   const [editorTheme, setEditorTheme] = useState("vs-dark");
+  const memoNodeTypes = useMemo(() => nodeTypes, []);
+  const memoEdgeTypes = useMemo(() => edgeTypes, []);
 
   useEffect(() => {
     if (!isAuthenticated) {
@@ -547,7 +548,7 @@ export default function EnhancedAgentBuilder() {
     );
   }
 
-  const nodeTypes = [
+  const nodeTypeOptions = [
     { type: "start", label: "Start", color: nodeTypeColors.start },
     { type: "llm", label: "LLM", color: nodeTypeColors.llm },
     { type: "entity", label: "Entity", color: nodeTypeColors.entity },
@@ -686,7 +687,7 @@ export default function EnhancedAgentBuilder() {
           </div>
 
           <div className="space-y-2">
-            {nodeTypes
+            {nodeTypeOptions
               .filter(nt => nt.label.toLowerCase().includes(searchQuery.toLowerCase()))
               .map((nt) => (
                 <button
@@ -699,7 +700,7 @@ export default function EnhancedAgentBuilder() {
                   {nt.label}
                 </button>
             ))}
-            {nodeTypes.filter(nt => nt.label.toLowerCase().includes(searchQuery.toLowerCase())).length === 0 && (
+            {nodeTypeOptions.filter(nt => nt.label.toLowerCase().includes(searchQuery.toLowerCase())).length === 0 && (
                 <div className="text-center py-8 text-white/30 text-sm italic">
                     No nodes found
                 </div>
@@ -765,11 +766,11 @@ export default function EnhancedAgentBuilder() {
             nodes={nodes}
             edges={edges}
             onNodesChange={onNodesChange}
-            onEdgesChange={setEdges}
+            onEdgesChange={onEdgesChange}
             onConnect={onConnect}
             onNodeClick={handleNodeClick}
-            nodeTypes={nodeTypes}
-            edgeTypes={edgeTypes}
+            nodeTypes={memoNodeTypes}
+            edgeTypes={memoEdgeTypes}
             defaultEdgeOptions={{
               type: 'premium',
               animated: true,
