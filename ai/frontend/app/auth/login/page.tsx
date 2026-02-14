@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { login, googleLogin } from "@/services/api";
@@ -8,7 +8,7 @@ import { useAuthStore } from "@/store/authStore";
 import { useGoogleLogin } from '@react-oauth/google';
 import OtpVerificationModal from "@/components/OtpVerificationModal";
 
-export default function LoginPage() {
+function LoginContent() {
   const router = useRouter();
   const setAuth = useAuthStore((state) => state.setAuth);
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
@@ -298,5 +298,13 @@ export default function LoginPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense>
+      <LoginContent />
+    </Suspense>
   );
 }
