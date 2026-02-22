@@ -12,7 +12,7 @@ export default function AIForWorkService() {
   const [analysisResult, setAnalysisResult] = useState<string | null>(null);
   const [researchQuery, setResearchQuery] = useState("");
 
-  const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "http://127.0.0.1:8000";
+  const API_BASE = process.env.NEXT_PUBLIC_API_URL;
 
   const handleResearch = async () => {
     if (!researchQuery.trim() || !token) {
@@ -183,4 +183,3 @@ export default function AIForWorkService() {
     </section>
   );
 }
-

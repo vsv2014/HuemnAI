@@ -427,7 +427,7 @@ export default function AgentBuilderPage() {
     // Fetch LLM status on mount
     (async () => {
       try {
-        const res = await fetch("http://localhost:8000/api/llm/status");
+        const res = await fetch(`${API_BASE}/api/llm/status`);
         const data = await res.json();
         setLlmStatus(data);
       } catch {}
@@ -483,7 +483,7 @@ export default function AgentBuilderPage() {
     };
   }, [hoveringDivider, split]);
 
-  const API_BASE = (process.env.NEXT_PUBLIC_API_BASE as string) || "http://localhost:8000";
+  const API_BASE = process.env.NEXT_PUBLIC_API_URL as string;
   const WS_BASE = API_BASE.replace(/^http/i, "ws");
   const isGreeting = (t: string) => {
     const p = (t || "").trim().toLowerCase();
@@ -754,7 +754,7 @@ export default function AgentBuilderPage() {
   const handleConfirmBuild = async () => {
     if (!sessionId) return;
     try {
-      const res = await fetch("http://localhost:8000/api/orchestrator/clarify", {
+      const res = await fetch(`${API_BASE}/api/orchestrator/clarify`, {
         method: "POST",
         headers: buildHeaders(),
         body: JSON.stringify({ session_id: sessionId, answers }),
@@ -805,7 +805,7 @@ export default function AgentBuilderPage() {
         toast.error("Enter a valid payment amount");
         return;
       }
-      const res = await fetch("http://localhost:8000/api/orchestrator/payment/charge", {
+      const res = await fetch(`${API_BASE}/api/orchestrator/payment/charge`, {
         method: "POST",
         headers: buildHeaders(),
         body: JSON.stringify({ session_id: sessionId, amount, currency, method, customer_name, phone_number }),
@@ -831,7 +831,7 @@ export default function AgentBuilderPage() {
     form.append("session_id", sessionId);
     Array.from(files).forEach((f) => form.append("files", f));
     try {
-      const res = await fetch("http://localhost:8000/api/orchestrator/media/upload", {
+      const res = await fetch(`${API_BASE}/api/orchestrator/media/upload`, {
         method: "POST",
         headers: buildHeaders(false),
         body: form
@@ -840,7 +840,7 @@ export default function AgentBuilderPage() {
       if (res.ok) {
         const count = (data.assets?.length || 0);
         toast.success(`Uploaded ${count} assets`, { style: { background: '#111', color: '#22c55e' } });
-        const previews = (data.assets || []).map((a: any) => ({ name: a.name, url: `http://localhost:8000${a.url}`, type: a.content_type || "" }));
+        const previews = (data.assets || []).map((a: any) => ({ name: a.name, url: `${API_BASE}${a.url}`, type: a.content_type || "" }));
         setMediaPreviews((prev) => [...prev, ...previews]);
         setExecutionResult((prev) => ({ ...(prev || {}), logs: [...(prev?.logs || []), `Assets uploaded: ${files.length}`] }));
       } else {
@@ -855,7 +855,7 @@ export default function AgentBuilderPage() {
   useEffect(() => {
     if (!sessionId) return;
     try {
-      const url = `ws://localhost:8000/api/orchestrator/console/${sessionId}`;
+      const url = `${WS_BASE}/api/orchestrator/console/${sessionId}`;
       const ws = new WebSocket(url);
       wsRef.current = ws;
       ws.onmessage = (evt) => {
@@ -1354,7 +1354,7 @@ export default function AgentBuilderPage() {
                   }
                   setSessionId(sid);
                   try {
-                    const ws = new WebSocket(`ws://localhost:8000/api/sync/${sid}`);
+                    const ws = new WebSocket(`${WS_BASE}/api/sync/${sid}`);
                     wsSyncRef.current = ws;
                     ws.onmessage = (evt) => {
                       try {

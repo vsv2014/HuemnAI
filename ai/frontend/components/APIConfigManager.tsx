@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "http://127.0.0.1:8000";
+const API_BASE = process.env.NEXT_PUBLIC_API_URL;
 
 const PROVIDER_TYPE_LABELS: Record<string, string> = {
   llm: "LLM Providers",
@@ -299,7 +299,7 @@ export default function APIConfigManager() {
             <li>• Backend server needs to be restarted to load new routes</li>
             <li>• API endpoint is not accessible</li>
           </ul>
-          <p className="text-sm mb-4">Please ensure the backend server is running on port 8000 and has been restarted.</p>
+          <p className="text-sm mb-4">Please ensure the backend server is running on port 8001 and has been restarted.</p>
           <button
             onClick={loadProviders}
             className="mt-4 px-4 py-2 rounded-lg bg-blue-500/20 hover:bg-blue-500/30 text-blue-300"

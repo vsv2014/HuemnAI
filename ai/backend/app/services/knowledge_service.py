@@ -1,6 +1,7 @@
 from typing import List, Dict, Tuple, Optional
 from threading import Thread
 import time
+import hashlib
 import logging
 from app.services.connectors import jira, zendesk, salesforce
 from app.services.embeddings_service import get_embedding, cosine_similarity
@@ -416,6 +417,44 @@ Response:"""
             conversation_context += f"- {role}: {text}\n"
         conversation_context += "\n"
     
+    style_options = [
+        {
+            "name": "structured",
+            "instruction": "Use a structured format with a brief intro and numbered steps. Keep tone professional.",
+            "format": "Title: <short title>\\nSummary: <1-2 sentences>\\nSteps:\\n1. ...\\n2. ...\\n3. ..."
+        },
+        {
+            "name": "checklist",
+            "instruction": "Use a checklist format with short, punchy items and a quick takeaway line.",
+            "format": "Takeaway: <1 sentence>\\nChecklist:\\n- ...\\n- ...\\n- ..."
+        },
+        {
+            "name": "creative",
+            "instruction": "Use a creative, friendly tone with a metaphor, then provide practical steps.",
+            "format": "Metaphor: <1 sentence>\\nAction Plan:\\n1. ...\\n2. ...\\n3. ...\\nQuick Win: <1 sentence>"
+        },
+        {
+            "name": "qa",
+            "instruction": "Use a quick Q&A format with 3 short Q/A pairs, then steps.",
+            "format": "Q1: ...\\nA1: ...\\nQ2: ...\\nA2: ...\\nQ3: ...\\nA3: ...\\nSteps:\\n1. ...\\n2. ...\\n3. ..."
+        }
+    ]
+    query_key = (query or "").lower()
+    preferred_style = None
+    if "creative" in query_key:
+        preferred_style = "creative"
+    elif "template" in query_key or "format" in query_key:
+        preferred_style = "structured"
+    elif "checklist" in query_key:
+        preferred_style = "checklist"
+    elif "q&a" in query_key or "qa" in query_key:
+        preferred_style = "qa"
+    if preferred_style:
+        selected_style = next((s for s in style_options if s["name"] == preferred_style), style_options[0])
+    else:
+        style_index = int(hashlib.md5(query_key.encode("utf-8")).hexdigest(), 16) % len(style_options)
+        selected_style = style_options[style_index]
+
     # Generate unique, contextual solution using LLM with better prompt
     prompt = f"""You are a knowledgeable customer service assistant. Analyze the following past tickets and provide a unique, helpful solution for this specific query.
 
@@ -425,11 +464,13 @@ User's Current Query: "{query}"
 
 Instructions:
 1. Analyze the query and match it to relevant past tickets/knowledge.
-2. Provide a clear, step-by-step solution based on what worked in similar cases.
-3. If multiple items are relevant, synthesize the best approach.
-4. Be specific and actionable - don't just repeat generic advice.
-5. CITE YOUR SOURCES: When using information from a specific context item, append its index number like [1], [2] at the end of the sentence.
-6. If the query is different from past tickets, acknowledge this and provide general guidance.
+2. Provide a solution using the following style: {selected_style["name"]}.
+3. Style guidance: {selected_style["instruction"]}
+4. Target format: {selected_style["format"]}
+5. If multiple items are relevant, synthesize the best approach.
+6. Be specific and actionable - don't just repeat generic advice.
+7. CITE YOUR SOURCES: When using information from a specific context item, append its index number like [1], [2] at the end of the sentence.
+8. If the query is different from past tickets, acknowledge this and provide general guidance.
 
 At the very end of your response, strictly following the separator "---FOLLOW_UP---", provide 3 short, relevant follow-up questions the user might ask next.
 Format:

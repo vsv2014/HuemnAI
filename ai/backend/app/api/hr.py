@@ -1,12 +1,13 @@
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from typing import List, Optional
-from app.services import hr_service
+from app.services import hr_service, email_service
 from app.api.auth import get_current_user
 from app.db.models.subscription import UserAccount
 from app.db.session import get_db
 from app.utils.subscription import consume_tool_tokens
 from sqlalchemy.orm import Session
+from app.db.models.hr import HREmail
 
 router = APIRouter()
 
@@ -30,6 +31,9 @@ class PostEmailPayload(BaseModel):
     content: str
     email_address: Optional[str] = None
     type: Optional[str] = "activity"
+
+class SendHREmailRequest(BaseModel):
+    google_access_token: Optional[str] = None
 
 @router.get("/jobs")
 async def get_jobs(q: Optional[str] = None):
@@ -75,6 +79,33 @@ async def post_email(payload: PostEmailPayload):
         payload.email_address, 
         payload.type
     )
+
+@router.post("/emails/{email_id}/send")
+async def send_hr_email(
+    email_id: int,
+    payload: SendHREmailRequest | None = None,
+    db: Session = Depends(get_db),
+):
+    """Send an HR announcement email for a specific record."""
+    email = db.query(HREmail).filter(HREmail.id == email_id).first()
+    if not email:
+        raise HTTPException(status_code=404, detail="Email not found")
+    if not email.email_address:
+        raise HTTPException(status_code=400, detail="No email address configured for this announcement")
+
+    subject = email.title
+    if email.type:
+        subject = f"[HR {email.type.capitalize()}] {email.title}"
+
+    sent = await email_service.send_hr_announcement_email(
+        email.email_address,
+        subject,
+        email.content,
+        google_access_token=payload.google_access_token if payload else None,
+    )
+    if not sent:
+        raise HTTPException(status_code=500, detail="Failed to send email")
+    return {"success": True}
 
 @router.post("/")
 async def hr_chat(

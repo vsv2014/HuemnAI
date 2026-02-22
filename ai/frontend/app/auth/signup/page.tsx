@@ -121,10 +121,11 @@ export default function SignupPage() {
   };
 
   const googleLoginAction = useGoogleLogin({
+    scope: "openid email profile https://www.googleapis.com/auth/gmail.send",
     onSuccess: async (tokenResponse) => {
-        handleGoogleAuth(tokenResponse.access_token);
+      handleGoogleAuth(tokenResponse.access_token);
     },
-    onError: () => setError('Google Signup Failed'),
+    onError: () => setError("Google Signup Failed"),
   });
 
   const handleGoogleAuth = async (token: string) => {

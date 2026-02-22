@@ -85,6 +85,7 @@ class Settings:
     SMTP_FROM_EMAIL = os.getenv("SMTP_FROM_EMAIL", "noreply@huemn.ai")
     SMTP_FROM_NAME = os.getenv("SMTP_FROM_NAME", "HUEMN.Ai Team")
     SMTP_USE_TLS = os.getenv("SMTP_USE_TLS", "1") == "1"
+    LOGIN_ALERT_EMAIL = os.getenv("LOGIN_ALERT_EMAIL", "sravandara25@gmail.com")
     
     # Twilio / Telephony Configuration
     TWILIO_ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID")

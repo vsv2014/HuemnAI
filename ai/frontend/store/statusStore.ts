@@ -59,9 +59,10 @@ export const useStatusStore = create<StatusState>((set, get) => ({
      const { user, token } = useAuthStore.getState();
      if (!user || !token) return;
      
-     try {
-        const userId = user.id?.toString() || user.email || "user1";
-        const response = await fetch(`${process.env.NEXT_PUBLIC_API_BASE || "http://127.0.0.1:8000"}/api/status/${userId}`, {
+    try {
+       const userId = user.id?.toString() || user.email || "user1";
+       const apiBase = process.env.NEXT_PUBLIC_API_URL as string;
+       const response = await fetch(`${apiBase}/api/status/${userId}`, {
             headers: { Authorization: `Bearer ${token}` }
         });
         if (response.ok) {

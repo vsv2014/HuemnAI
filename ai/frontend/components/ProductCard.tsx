@@ -20,7 +20,7 @@ export default function ProductCard({
   const { isAuthenticated, subscriptionStatus, token, subscribedTools } = useAuthStore();
   const ref = useRef<HTMLDivElement | null>(null);
   const [toolTokens, setToolTokens] = useState<{tokens_remaining: number, tokens_total: number} | null>(null);
-  const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "http://127.0.0.1:8000";
+  const API_BASE = process.env.NEXT_PUBLIC_API_URL;
 
   // Get tool name from slug
   const getToolName = () => {

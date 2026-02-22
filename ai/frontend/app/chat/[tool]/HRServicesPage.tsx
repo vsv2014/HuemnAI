@@ -1,19 +1,33 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useAuthStore } from "@/store/authStore";
 import ConnectorConfig from "@/components/ConnectorConfig";
 import ConnectorStatusDropdown from "@/components/ConnectorStatusDropdown";
-import { getJobs, logSearch, getLiveSearches, postJob, applyForJob, getEmails, postEmail } from "@/services/hrApi";
+import { getJobs, logSearch, getLiveSearches, postJob, applyForJob, getEmails, postEmail, sendHREmail } from "@/services/hrApi";
 import { getConnectorConfigs } from "@/services/api";
 import ToolSwitcher from "@/components/ToolSwitcher";
-import { X, Upload, CheckCircle, Search, Briefcase, MapPin, Clock, Mail, Plus, Star, ArrowRight } from "lucide-react";
+import { X, Upload, CheckCircle, Search, Briefcase, MapPin, Clock, Mail, Plus, Star, ArrowRight, FileText, Save, Trash2, Paperclip, Send } from "lucide-react";
 
 interface HRServicesPageProps {
   toolName: string;
   toolId: string;
+}
+
+interface HRDoc {
+  id: string;
+  title: string;
+  content: string;
+  updated_at: string;
+  attachments?: Array<{
+    id: string;
+    name: string;
+    type: string;
+    size: number;
+    dataUrl: string;
+  }>;
 }
 
 const HR_CONNECTORS = [
@@ -22,6 +36,7 @@ const HR_CONNECTORS = [
   { key: "asana", label: "Asana" },
   { key: "monday", label: "Monday.com" },
   { key: "notion", label: "Notion" },
+  { key: "naukri", label: "Naukri" },
 ];
 
 export default function HRServicesPage({ toolName, toolId }: HRServicesPageProps) {
@@ -45,11 +60,26 @@ export default function HRServicesPage({ toolName, toolId }: HRServicesPageProps
   const [liveSearches, setLiveSearches] = useState<any[]>([]);
   const [showPostJob, setShowPostJob] = useState(false);
   const [newJob, setNewJob] = useState({ title: "", description: "", requirements: "" });
+  const [docs, setDocs] = useState<HRDoc[]>([]);
+  const [activeDocId, setActiveDocId] = useState<string | null>(null);
+  const [docTitle, setDocTitle] = useState("");
+  const [docContent, setDocContent] = useState("");
+  const [docUploadError, setDocUploadError] = useState("");
+  const docUploadRef = useRef<HTMLInputElement | null>(null);
+  const [connectTarget, setConnectTarget] = useState<any | null>(null);
+  const [showConnectModal, setShowConnectModal] = useState(false);
+  const [selectedPlatform, setSelectedPlatform] = useState("");
+  const [welcomeGreeting, setWelcomeGreeting] = useState("");
+  const [welcomeMessage, setWelcomeMessage] = useState("");
+  const [welcomeEmail, setWelcomeEmail] = useState("");
+  const [connectStatus, setConnectStatus] = useState<Record<string, { platform: string; greeting: string; message: string; email?: string }>>({});
   
   // Email/Announcement State
   const [emails, setEmails] = useState<any[]>([]);
   const [showPostEmail, setShowPostEmail] = useState(false);
   const [newEmail, setNewEmail] = useState({ title: "", content: "", email_address: "", type: "activity" });
+  const [primaryHREmail, setPrimaryHREmail] = useState("");
+  const [sendingEmailId, setSendingEmailId] = useState<number | null>(null);
 
   useEffect(() => {
     if (token) {
@@ -64,6 +94,36 @@ export default function HRServicesPage({ toolName, toolId }: HRServicesPageProps
       }
     }
   }, [mode, token]);
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const stored = window.localStorage.getItem("hr_recruiter_docs");
+      if (stored) {
+        try {
+          const parsed = JSON.parse(stored) as HRDoc[];
+          setDocs(parsed);
+        } catch {
+          setDocs([]);
+        }
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const stored = window.localStorage.getItem("hr_primary_email");
+      if (stored) {
+        setPrimaryHREmail(stored);
+        return;
+      }
+    }
+    if (user?.email) {
+      setPrimaryHREmail(user.email);
+      if (typeof window !== "undefined") {
+        window.localStorage.setItem("hr_primary_email", user.email);
+      }
+    }
+  }, [user]);
 
   const loadConnectorStatus = async () => {
     if (!token) return;
@@ -157,6 +217,212 @@ export default function HRServicesPage({ toolName, toolId }: HRServicesPageProps
       setNewEmail({ title: "", content: "", email_address: "", type: "activity" });
       fetchEmails();
     }
+  };
+
+  const handleTogglePostEmail = () => {
+    const next = !showPostEmail;
+    setShowPostEmail(next);
+    if (next) {
+      setNewEmail((prev) => ({
+        ...prev,
+        email_address: prev.email_address || primaryHREmail
+      }));
+    }
+  };
+
+  const handleSavePrimaryEmail = () => {
+    const trimmed = primaryHREmail.trim();
+    if (typeof window !== "undefined") {
+      if (trimmed) {
+        window.localStorage.setItem("hr_primary_email", trimmed);
+        setPrimaryHREmail(trimmed);
+      } else {
+        window.localStorage.removeItem("hr_primary_email");
+        setPrimaryHREmail("");
+      }
+    }
+  };
+
+  const handleSendAnnouncementEmail = async (emailId: number) => {
+    if (!token) return;
+    const googleAccessToken = (user as any)?.google_access_token as string | undefined;
+    setSendingEmailId(emailId);
+    try {
+      const res = await sendHREmail(emailId, token, googleAccessToken);
+      if (res && res.success) {
+        alert("Email sent successfully.");
+      } else {
+        alert("Failed to send email. Please check email settings.");
+      }
+    } catch {
+      alert("Failed to send email. Please check email settings.");
+    } finally {
+      setSendingEmailId(null);
+    }
+  };
+
+  const persistDocs = (nextDocs: HRDoc[]) => {
+    setDocs(nextDocs);
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem("hr_recruiter_docs", JSON.stringify(nextDocs));
+    }
+  };
+
+  const handleSaveDoc = () => {
+    const trimmedTitle = docTitle.trim();
+    const trimmedContent = docContent.trim();
+    if (!trimmedTitle && !trimmedContent) return;
+    const now = new Date().toISOString();
+    if (activeDocId) {
+      const updated = docs.map((doc) =>
+        doc.id === activeDocId
+          ? { ...doc, title: trimmedTitle || "Untitled", content: trimmedContent, updated_at: now }
+          : doc
+      );
+      persistDocs(updated);
+      return;
+    }
+    const newDoc: HRDoc = {
+      id: `${Date.now()}`,
+      title: trimmedTitle || "Untitled",
+      content: trimmedContent,
+      updated_at: now,
+      attachments: []
+    };
+    persistDocs([newDoc, ...docs]);
+    setActiveDocId(newDoc.id);
+  };
+
+  const handleNewDoc = () => {
+    setActiveDocId(null);
+    setDocTitle("");
+    setDocContent("");
+  };
+
+  const handleSelectDoc = (doc: HRDoc) => {
+    setActiveDocId(doc.id);
+    setDocTitle(doc.title);
+    setDocContent(doc.content);
+  };
+
+  const handleDeleteDoc = (docId: string) => {
+    const filtered = docs.filter((doc) => doc.id !== docId);
+    persistDocs(filtered);
+    if (activeDocId === docId) {
+      handleNewDoc();
+    }
+  };
+
+  const activeDoc = activeDocId ? docs.find((doc) => doc.id === activeDocId) || null : null;
+
+  const readFileAsDataUrl = (file: File) =>
+    new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result || ""));
+      reader.onerror = () => reject(new Error("file_read_failed"));
+      reader.readAsDataURL(file);
+    });
+
+  const handleDocUpload = async (files: FileList | null) => {
+    if (!files || files.length === 0) return;
+    setDocUploadError("");
+    const maxBytes = 5 * 1024 * 1024;
+    let currentDocs = [...docs];
+    let currentActiveId = activeDocId;
+    for (const file of Array.from(files)) {
+      if (file.size > maxBytes) {
+        setDocUploadError("File too large. Max 5MB per file.");
+        continue;
+      }
+      try {
+        const dataUrl = await readFileAsDataUrl(file);
+        const attachment = {
+          id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+          name: file.name,
+          type: file.type || "application/octet-stream",
+          size: file.size,
+          dataUrl
+        };
+        const now = new Date().toISOString();
+        if (currentActiveId) {
+          currentDocs = currentDocs.map((doc) =>
+            doc.id === currentActiveId
+              ? {
+                  ...doc,
+                  title: doc.title || "Untitled",
+                  updated_at: now,
+                  attachments: [...(doc.attachments || []), attachment]
+                }
+              : doc
+          );
+        } else {
+          const newDoc: HRDoc = {
+            id: `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+            title: file.name,
+            content: "",
+            updated_at: now,
+            attachments: [attachment]
+          };
+          currentDocs = [newDoc, ...currentDocs];
+          currentActiveId = newDoc.id;
+        }
+      } catch {
+        setDocUploadError("Upload failed. Try another file.");
+      }
+    }
+    persistDocs(currentDocs);
+    if (currentActiveId && currentActiveId !== activeDocId) {
+      const newlyActive = currentDocs.find((doc) => doc.id === currentActiveId);
+      if (newlyActive) {
+        setActiveDocId(newlyActive.id);
+        setDocTitle(newlyActive.title);
+        setDocContent(newlyActive.content);
+      }
+    }
+    if (docUploadRef.current) {
+      docUploadRef.current.value = "";
+    }
+  };
+
+  const handleRemoveAttachment = (attachmentId: string) => {
+    if (!activeDocId) return;
+    const updated = docs.map((doc) =>
+      doc.id === activeDocId
+        ? { ...doc, attachments: (doc.attachments || []).filter((att) => att.id !== attachmentId) }
+        : doc
+    );
+    persistDocs(updated);
+  };
+
+  const connectOptions = [
+    { key: "linkedin", label: "LinkedIn", type: "connector" },
+    { key: "naukri", label: "Naukri", type: "connector" },
+    { key: "greenhouse", label: "Greenhouse", type: "connector" },
+    { key: "email", label: "Email Outreach", type: "manual" },
+    { key: "referral", label: "Referral Network", type: "manual" }
+  ];
+
+  const openConnectFlow = (search: any) => {
+    setConnectTarget(search);
+    setSelectedPlatform("");
+    setWelcomeGreeting(`Hi ${search.user || "there"},`);
+    setWelcomeMessage("We noticed your interest and would love to share a few roles that match your goals. Are you open to a quick chat?");
+    setWelcomeEmail(search.user || "");
+    setShowConnectModal(true);
+  };
+
+  const handleSendConnect = () => {
+    if (!connectTarget || !selectedPlatform || !welcomeMessage.trim()) return;
+    setConnectStatus((prev) => ({
+      ...prev,
+      [connectTarget.id]: {
+        platform: selectedPlatform,
+        greeting: welcomeGreeting.trim(),
+        message: welcomeMessage.trim(),
+        email: welcomeEmail.trim() || undefined
+      }
+    }));
+    setShowConnectModal(false);
   };
 
   return (
@@ -434,9 +700,18 @@ export default function HRServicesPage({ toolName, toolId }: HRServicesPageProps
                           </div>
                           <div className="flex items-center gap-4">
                             <span className="text-xs text-white/30">{search.time_ago}</span>
-                            <button className="text-xs bg-purple-500/20 text-purple-300 px-3 py-1.5 rounded hover:bg-purple-500 hover:text-white transition-colors">
-                              Connect
-                            </button>
+                            {connectStatus[search.id] ? (
+                              <div className="text-xs px-3 py-1.5 rounded bg-green-500/10 text-green-300 border border-green-500/20">
+                                Connected · {connectStatus[search.id].platform}
+                              </div>
+                            ) : (
+                              <button
+                                onClick={() => openConnectFlow(search)}
+                                className="text-xs bg-purple-500/20 text-purple-300 px-3 py-1.5 rounded hover:bg-purple-500 hover:text-white transition-colors"
+                              >
+                                Connect
+                              </button>
+                            )}
                           </div>
                         </div>
                       ))
@@ -503,6 +778,156 @@ export default function HRServicesPage({ toolName, toolId }: HRServicesPageProps
                       </div>
                     )}
 
+                    <div className="bg-[#1a1d24]/80 backdrop-blur-md border border-white/10 rounded-2xl p-6 shadow-xl min-h-[400px]">
+                      <div className="flex items-center justify-between mb-4">
+                        <h3 className="font-bold text-lg flex items-center gap-2">
+                          <div className="p-1.5 bg-purple-500/20 rounded-lg">
+                            <FileText size={18} className="text-purple-300" />
+                          </div>
+                          Recruiter Docs
+                        </h3>
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="file"
+                            ref={docUploadRef}
+                            multiple
+                            onChange={(e) => handleDocUpload(e.target.files)}
+                            className="hidden"
+                            accept=".pdf,.doc,.docx,.txt,.md,.rtf,.png,.jpg,.jpeg"
+                          />
+                          <button
+                            onClick={() => docUploadRef.current?.click()}
+                            className="text-xs px-2.5 py-1.5 rounded-md bg-white/5 hover:bg-white/10 border border-white/10 flex items-center gap-1.5"
+                          >
+                            <Paperclip size={14} />
+                            Upload
+                          </button>
+                          <button
+                            onClick={handleNewDoc}
+                            className="text-xs px-2.5 py-1.5 rounded-md bg-white/5 hover:bg-white/10 border border-white/10"
+                          >
+                            New
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="space-y-3">
+                        <input
+                          value={docTitle}
+                          onChange={(e) => setDocTitle(e.target.value)}
+                          placeholder="Document title"
+                          className="w-full bg-black/40 border border-white/10 rounded-lg px-4 py-2.5 text-sm text-white focus:ring-2 focus:ring-purple-500/50 focus:border-transparent outline-none transition-all"
+                        />
+                        <textarea
+                          value={docContent}
+                          onChange={(e) => setDocContent(e.target.value)}
+                          placeholder="Write notes, candidate details, interview feedback..."
+                          className="w-full bg-black/40 border border-white/10 rounded-lg px-4 py-3 text-sm min-h-[120px] text-white focus:ring-2 focus:ring-purple-500/50 focus:border-transparent outline-none transition-all resize-none"
+                        />
+                        <button
+                          onClick={handleSaveDoc}
+                          className="w-full bg-gradient-to-r from-purple-600 to-purple-500 hover:from-purple-500 hover:to-purple-400 py-2.5 rounded-lg text-sm font-medium shadow-lg shadow-purple-500/25 transition-all flex items-center justify-center gap-2"
+                        >
+                          <Save size={16} />
+                          Save Document
+                        </button>
+                        {docUploadError && (
+                          <div className="text-xs text-red-300 bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2">
+                            {docUploadError}
+                          </div>
+                        )}
+                        {activeDoc?.attachments && activeDoc.attachments.length > 0 && (
+                          <div className="space-y-2 border border-white/10 rounded-lg p-3 bg-black/30">
+                            <div className="text-xs text-white/50">Attachments</div>
+                            {activeDoc.attachments.map((att) => (
+                              <div key={att.id} className="flex items-center justify-between gap-2 text-xs bg-white/5 rounded-lg px-3 py-2">
+                                <a href={att.dataUrl} download={att.name} className="text-purple-300 hover:text-purple-200 truncate">
+                                  {att.name}
+                                </a>
+                                <button
+                                  onClick={() => handleRemoveAttachment(att.id)}
+                                  className="text-white/40 hover:text-red-300"
+                                >
+                                  <Trash2 size={14} />
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="mt-5 space-y-2 max-h-[240px] overflow-y-auto pr-1 -mr-2 scrollbar-thin scrollbar-thumb-white/10">
+                        {docs.length > 0 ? (
+                          docs.map((doc) => (
+                            <button
+                              key={doc.id}
+                              onClick={() => handleSelectDoc(doc)}
+                              className={`w-full text-left border rounded-lg px-3 py-2.5 transition-all ${
+                                activeDocId === doc.id
+                                  ? "border-purple-500/60 bg-purple-500/10"
+                                  : "border-white/10 bg-black/30 hover:border-purple-500/30"
+                              }`}
+                            >
+                              <div className="flex items-start justify-between gap-3">
+                                <div>
+                                  <div className="text-sm font-semibold text-white/90 line-clamp-1">{doc.title}</div>
+                                  <div className="text-[11px] text-white/40 mt-1">{new Date(doc.updated_at).toLocaleString()}</div>
+                                </div>
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleDeleteDoc(doc.id);
+                                  }}
+                                  className="p-1.5 rounded-md text-white/40 hover:text-red-300 hover:bg-red-500/10"
+                                  title="Delete"
+                                >
+                                  <Trash2 size={14} />
+                                </button>
+                              </div>
+                            </button>
+                          ))
+                        ) : (
+                          <div className="flex flex-col items-center justify-center py-10 text-center border-2 border-dashed border-white/5 rounded-xl bg-white/5">
+                            <div className="w-12 h-12 rounded-full bg-white/5 flex items-center justify-center mb-3 text-white/20">
+                              <FileText size={20} />
+                            </div>
+                            <p className="text-white/40 text-sm font-medium">No docs yet</p>
+                            <p className="text-white/20 text-xs mt-1">Create a new doc to store recruiter notes</p>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="bg-[#1a1d24]/80 backdrop-blur-md border border-white/10 rounded-2xl p-5 shadow-xl">
+                      <div className="flex items-center justify-between mb-3">
+                        <h3 className="font-bold text-sm flex items-center gap-2">
+                          <div className="p-1.5 bg-blue-500/20 rounded-lg">
+                            <Mail size={16} className="text-blue-400" />
+                          </div>
+                          HR Email Integration
+                        </h3>
+                      </div>
+                      <p className="text-xs text-white/40 mb-3">
+                        Add the shared HR inbox to prefill announcements with the right email.
+                      </p>
+                      <div className="flex gap-2">
+                        <input
+                          type="email"
+                          value={primaryHREmail}
+                          onChange={(e) => setPrimaryHREmail(e.target.value)}
+                          placeholder="hr@company.com"
+                          className="flex-1 bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-white focus:ring-2 focus:ring-blue-500/50 focus:border-transparent outline-none transition-all"
+                        />
+                        <button
+                          type="button"
+                          onClick={handleSavePrimaryEmail}
+                          className="px-3 py-2 text-xs bg-blue-600 hover:bg-blue-500 rounded-lg font-medium transition-colors"
+                        >
+                          Save
+                        </button>
+                      </div>
+                    </div>
+
                     {/* Important Emails & Announcements */}
                     <div className="bg-[#1a1d24]/80 backdrop-blur-md border border-white/10 rounded-2xl p-6 shadow-xl min-h-[400px]">
                          <div className="flex items-center justify-between mb-6">
@@ -513,7 +938,7 @@ export default function HRServicesPage({ toolName, toolId }: HRServicesPageProps
                                  Team Announcements
                              </h3>
                              <button 
-                                 onClick={() => setShowPostEmail(!showPostEmail)} 
+                                 onClick={handleTogglePostEmail} 
                                  className={`p-2 rounded-lg transition-all ${showPostEmail ? 'bg-red-500/20 text-red-400 hover:bg-red-500/30' : 'bg-blue-600 text-white hover:bg-blue-500 hover:shadow-lg shadow-blue-500/20'}`}
                                  title={showPostEmail ? "Cancel" : "Post Announcement"}
                              >
@@ -533,7 +958,7 @@ export default function HRServicesPage({ toolName, toolId }: HRServicesPageProps
                                  />
                                  <div className="grid grid-cols-2 gap-3">
                                      <input 
-                                         placeholder="Email (Optional)" 
+                                         placeholder="HR email (Optional)" 
                                          className="w-full bg-black/40 border border-white/10 rounded-lg px-4 py-3 text-sm text-white focus:ring-2 focus:ring-blue-500/50 focus:border-transparent outline-none transition-all"
                                          value={newEmail.email_address}
                                          onChange={e => setNewEmail({...newEmail, email_address: e.target.value})}
@@ -592,17 +1017,30 @@ export default function HRServicesPage({ toolName, toolId }: HRServicesPageProps
                                              }`}>{email.type}</span>
                                          </div>
                                          <p className="text-xs text-white/60 mb-3 leading-relaxed">{email.content}</p>
-                                         <div className="flex items-center justify-between pt-2 border-t border-white/5">
-                                             {email.email_address ? (
-                                                 <div className="flex items-center gap-1.5 text-[10px] text-blue-300 bg-blue-500/10 px-2 py-1 rounded">
-                                                     <Mail size={10} />
-                                                     {email.email_address}
-                                                 </div>
-                                             ) : <div/>}
-                                             <div className="text-[10px] text-white/30 font-medium">
-                                                 {new Date(email.created_at).toLocaleDateString()}
-                                             </div>
-                                         </div>
+                                        <div className="flex items-center justify-between pt-2 border-t border-white/5">
+                                            {email.email_address ? (
+                                                <div className="flex items-center gap-1.5 text-[10px] text-blue-300 bg-blue-500/10 px-2 py-1 rounded">
+                                                    <Mail size={10} />
+                                                    {email.email_address}
+                                                </div>
+                                            ) : (
+                                                <div />
+                                            )}
+                                            <div className="flex items-center gap-2">
+                                                <button
+                                                    type="button"
+                                                    onClick={() => handleSendAnnouncementEmail(email.id)}
+                                                    disabled={sendingEmailId === email.id || !email.email_address}
+                                                    className="flex items-center gap-1.5 text-[10px] px-2 py-1 rounded bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                                                >
+                                                    <Send size={10} />
+                                                    {sendingEmailId === email.id ? "Sending..." : "Send email"}
+                                                </button>
+                                                <div className="text-[10px] text-white/30 font-medium">
+                                                    {new Date(email.created_at).toLocaleDateString()}
+                                                </div>
+                                            </div>
+                                        </div>
                                      </div>
                                  )) : (
                                      <div className="flex flex-col items-center justify-center py-12 text-center border-2 border-dashed border-white/5 rounded-xl bg-white/5">
@@ -627,6 +1065,96 @@ export default function HRServicesPage({ toolName, toolId }: HRServicesPageProps
           )}
         </div>
       </main>
+
+      {showConnectModal && connectTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+          <div className="bg-[#1a1d24] w-full max-w-3xl rounded-2xl border border-white/10 shadow-2xl overflow-hidden">
+            <div className="p-5 border-b border-white/10 flex items-center justify-between">
+              <div>
+                <div className="text-lg font-semibold">Connect with candidate</div>
+                <div className="text-xs text-white/50">Search: {connectTarget.query}</div>
+              </div>
+              <button onClick={() => setShowConnectModal(false)} className="p-2 hover:bg-white/10 rounded-full transition-colors">
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="p-5 grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <div className="space-y-3">
+                <div className="text-xs text-white/50 uppercase tracking-wide">Choose a platform</div>
+                <div className="space-y-2">
+                  {connectOptions.map((option) => {
+                    const isConfigured = option.type === "connector" ? Boolean(configuredMap[option.key]) : true;
+                    const isSelected = selectedPlatform === option.label;
+                    return (
+                      <button
+                        key={option.key}
+                        onClick={() => setSelectedPlatform(option.label)}
+                        className={`w-full text-left px-4 py-3 rounded-lg border transition-all ${
+                          isSelected
+                            ? "border-purple-500/60 bg-purple-500/10"
+                            : "border-white/10 bg-white/5 hover:border-purple-500/40"
+                        }`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <div className="font-medium text-sm">{option.label}</div>
+                          <span className={`text-[10px] px-2 py-0.5 rounded-full border ${
+                            option.type === "connector"
+                              ? isConfigured
+                                ? "text-green-300 border-green-500/30 bg-green-500/10"
+                                : "text-amber-300 border-amber-500/30 bg-amber-500/10"
+                              : "text-blue-300 border-blue-500/30 bg-blue-500/10"
+                          }`}>
+                            {option.type === "connector" ? (isConfigured ? "Configured" : "Setup needed") : "Manual"}
+                          </span>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div className="space-y-4">
+                <div className="text-xs text-white/50 uppercase tracking-wide">Welcome message</div>
+                <input
+                  value={welcomeGreeting}
+                  onChange={(e) => setWelcomeGreeting(e.target.value)}
+                  className="w-full bg-black/40 border border-white/10 rounded-lg px-4 py-2.5 text-sm text-white focus:ring-2 focus:ring-purple-500/50 focus:border-transparent outline-none transition-all"
+                  placeholder="Greeting"
+                />
+                <textarea
+                  value={welcomeMessage}
+                  onChange={(e) => setWelcomeMessage(e.target.value)}
+                  className="w-full bg-black/40 border border-white/10 rounded-lg px-4 py-3 text-sm min-h-[140px] text-white focus:ring-2 focus:ring-purple-500/50 focus:border-transparent outline-none transition-all resize-none"
+                  placeholder="Write a welcome message asking about interest..."
+                />
+                <input
+                  value={welcomeEmail}
+                  onChange={(e) => setWelcomeEmail(e.target.value)}
+                  className="w-full bg-black/40 border border-white/10 rounded-lg px-4 py-2.5 text-sm text-white focus:ring-2 focus:ring-purple-500/50 focus:border-transparent outline-none transition-all"
+                  placeholder="Candidate email (optional)"
+                />
+                <div className="flex justify-end gap-3">
+                  <button
+                    onClick={() => setShowConnectModal(false)}
+                    className="px-4 py-2 text-sm hover:bg-white/10 rounded-lg"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleSendConnect}
+                    disabled={!selectedPlatform || !welcomeMessage.trim()}
+                    className="px-5 py-2 bg-purple-600 hover:bg-purple-500 text-white rounded-lg text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                  >
+                    <Send size={14} />
+                    Send Welcome
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Job Details Modal */}
       {selectedJob && (

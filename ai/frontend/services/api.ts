@@ -1,8 +1,17 @@
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE || 'http://localhost:8000';
+const API_BASE = process.env.NEXT_PUBLIC_API_URL;
 
-async function safeFetch(url: string, options?: RequestInit) {
+type SafeFetchOptions = RequestInit & { timeoutMs?: number };
+
+async function safeFetch(url: string, options?: SafeFetchOptions) {
   try {
-    const response = await fetch(url, options);
+    const timeoutMs = options?.timeoutMs;
+    const { timeoutMs: _timeoutMs, ...fetchOptions } = options || {};
+    const controller = timeoutMs ? new AbortController() : undefined;
+    const timeoutId = timeoutMs ? setTimeout(() => controller.abort(), timeoutMs) : undefined;
+    const response = await fetch(url, { ...fetchOptions, signal: controller?.signal });
+    if (timeoutId) {
+      clearTimeout(timeoutId);
+    }
     if (!response.ok) {
         try {
             const errorData = await response.json();
@@ -24,6 +33,9 @@ async function safeFetch(url: string, options?: RequestInit) {
     const data = await response.json();
     return data;
   } catch (error) {
+    if ((error as any)?.name === "AbortError") {
+      return { error: "Request timed out" };
+    }
     console.error("Fetch error:", error);
     return { error: "Network error", details: error };
   }
@@ -340,10 +352,27 @@ export async function generateFlowFromPrompt(agentId: string | number, prompt: s
   });
 }
 
-export async function getAgentConversation(sessionId: string, token: string) {
-  if (!token) return { error: "No authentication token" };
+export async function getAgentConversation(sessionId: string, token?: string) {
+  const headers: Record<string, string> = {};
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
+  }
   return safeFetch(`${API_BASE}/api/agents/conversations/${sessionId}`, {
-    headers: { "Authorization": `Bearer ${token}` }
+    headers
+  });
+}
+
+export async function addAgentConversationMessage(sessionId: string, role: string, content: string, token?: string) {
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json"
+  };
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
+  }
+  return safeFetch(`${API_BASE}/api/agents/conversations/${sessionId}/messages`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ role, content })
   });
 }
 
@@ -846,11 +875,12 @@ export async function syncHuemnVoices(token: string) {
   });
 }
 
-export async function cloneVoice(name: string, description: string, files: File[], token: string) {
+export async function cloneVoice(name: string, description: string, greetingScript: string, files: File[], token: string) {
   if (!token) return { error: "No authentication token" };
   const formData = new FormData();
   formData.append("name", name);
   if (description) formData.append("description", description);
+  if (greetingScript) formData.append("greeting_script", greetingScript);
   files.forEach((file) => formData.append("files", file));
 
   return safeFetch(`${API_BASE}/api/voice/clone`, {
@@ -859,13 +889,14 @@ export async function cloneVoice(name: string, description: string, files: File[
       "Authorization": `Bearer ${token}`,
       // Content-Type header handled automatically by FormData
     },
-    body: formData
+    body: formData,
+    timeoutMs: 300000 // 5 minutes for local TTS processing
   });
 }
 
 export async function uploadKnowledgeDocument(formData: FormData, token: string) {
     if (!token) return { error: "No authentication token" };
-    return safeFetch(`${API_BASE}/api/knowledge/upload`, {
+    return safeFetch(`${API_BASE}/api/knowledge/sources/upload`, {
       method: "POST",
       headers: {
         "Authorization": `Bearer ${token}`
@@ -889,7 +920,8 @@ export async function handleCustomerIssue(
   connectorType?: string,
   conversationHistory?: Array<{ role: string; text: string; data?: any }>,
   userId?: string,
-  attachments?: string[]
+  attachments?: string[],
+  sessionId?: string
 ) {
   if (!token) return { error: "No authentication token" };
   const payload = {
@@ -897,7 +929,8 @@ export async function handleCustomerIssue(
     message: issue,
     connector_type: connectorType,
     conversation_history: conversationHistory || [],
-    attachments: attachments || []
+    attachments: attachments || [],
+    session_id: sessionId
   };
   return safeFetch(`${API_BASE}/api/chat/handle`, {
     method: "POST",
@@ -921,15 +954,15 @@ export async function queryKnowledge(query: string, token: string, conversationH
   });
 }
 
-export async function chatWithKnowledge(message: string, history: any[], token: string) {
+export async function chatWithKnowledge(message: string, token: string, conversationId?: number | null) {
     if (!token) return { error: "No authentication token" };
-    return safeFetch(`${API_BASE}/api/chat/knowledge`, {
+    return safeFetch(`${API_BASE}/api/conversations/chat`, {
       method: "POST",
       headers: {
         "Authorization": `Bearer ${token}`,
         "Content-Type": "application/json"
       },
-      body: JSON.stringify({ message, history })
+      body: JSON.stringify({ message, conversation_id: conversationId || undefined })
     });
 }
 

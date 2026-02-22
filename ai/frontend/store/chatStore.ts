@@ -7,6 +7,7 @@ import {
   updateAgentStatus,
   recordActivity,
   getAgentConversation,
+  addAgentConversationMessage,
 } from "@/services/api";
 import { TOOLS } from "@/config/tools";
 
@@ -66,8 +67,22 @@ function detectTicketIntent(text: string): { needs_ticket: boolean; needs_agent:
   };
 }
 
+function parseAgentChannelChoice(text: string): "chat" | "call" | null {
+  const normalized = text.trim().toLowerCase();
+  if (normalized.includes("chat") || normalized.includes("live chat")) return "chat";
+  if (normalized.includes("call") || normalized.includes("phone")) return "call";
+  return null;
+}
+
+const agentChannelOptions = {
+  options: [
+    { label: "Live chat", value: "live chat" },
+    { label: "Call", value: "call" }
+  ]
+};
+
 export interface Message {
-  role: "user" | "assistant" | "system";
+  role: "user" | "assistant" | "system" | "agent";
   text: string;
   data?: any;
 }
@@ -79,10 +94,13 @@ interface ChatState {
   conversationHistory: Array<{ role: string; text: string; data?: any }>;
   sessionId?: string;
   agentId?: number;
+  agentConnected: boolean;
+  pendingAgentChannelChoice: boolean;
+  pendingAgentRequestText?: string;
 
   setTool: (tool: string) => void;
   setSessionInfo: (sessionId: string, agentId?: number) => void;
-  fetchHistory: (sessionId: string) => Promise<void>;
+  fetchHistory: (sessionId: string, silent?: boolean) => Promise<void>;
   sendMessage: (text: string) => Promise<void>;
   reset: () => void;
 }
@@ -118,41 +136,63 @@ export const useChatStore = create<ChatState>((set, get) => ({
   conversationHistory: [],
   sessionId: undefined,
   agentId: undefined,
+  agentConnected: false,
+  pendingAgentChannelChoice: false,
+  pendingAgentRequestText: undefined,
 
-  setTool: (tool) => set({ tool, messages: [], conversationHistory: [] }),
+  setTool: (tool) => set({ tool, messages: [], conversationHistory: [], agentConnected: false, pendingAgentChannelChoice: false, pendingAgentRequestText: undefined }),
   
   setSessionInfo: (sessionId, agentId) => set({ sessionId, agentId }),
 
-  fetchHistory: async (sessionId) => {
+  fetchHistory: async (sessionId, silent = false) => {
     const token = useAuthStore.getState().token || "";
-    if (!sessionId || !token) return;
+    if (!sessionId) return;
 
     try {
-      set({ loading: true });
-      const result = await getAgentConversation(sessionId, token);
+      if (!silent) {
+        set({ loading: true });
+      }
+      const result = await getAgentConversation(sessionId, token || undefined);
       
       if (result && result.messages) {
         const history = result.messages.map((msg: any) => ({
           role: msg.role,
           text: msg.content
         }));
-        
-        set({
-          messages: history,
-          conversationHistory: history,
-          loading: false
-        });
+        const agentConnected = Boolean(
+          result.context?.agent_joined || 
+          result.context?.agent_connected ||
+          history.some((msg: any) => msg.role === "agent")
+        );
+
+        if (agentConnected) {
+          set((state) => ({
+            messages: history,
+            conversationHistory: history,
+            agentConnected,
+            ...(silent ? {} : { loading: false })
+          }));
+        } else {
+          set((state) => ({
+            agentConnected,
+            ...(silent ? {} : { loading: false })
+          }));
+        }
       } else {
-        set({ loading: false });
+        if (!silent) {
+          set({ loading: false });
+        }
       }
     } catch (error) {
       console.error("Failed to fetch conversation history:", error);
-      set({ loading: false });
+      if (!silent) {
+        set({ loading: false });
+      }
     }
   },
 
   sendMessage: async (text) => {
-    const { tool, conversationHistory, sessionId, agentId } = get();
+    const { tool, conversationHistory, sessionId, agentId, pendingAgentChannelChoice, pendingAgentRequestText, agentConnected } = get();
     
     // Add user message
     set((s) => ({
@@ -164,20 +204,71 @@ export const useChatStore = create<ChatState>((set, get) => ({
     const token = useAuthStore.getState().token || "";
     const user = useAuthStore.getState().user;
     const userId = user?.id || "user1";
+    const resolvedSessionId = sessionId || `chat_${userId}_${Date.now()}`;
+    if (!sessionId) {
+      set({ sessionId: resolvedSessionId });
+    }
     let result: any;
     let assistantMessage: string = "";
+    let shouldAppendAssistant = true;
 
     try {
       switch (tool) {
         case TOOLS.CUSTOMER_SERVICE:
-          // Ticketing Tool - handles troubleshooting and ticket creation
-          result = await handleCustomerIssue(
-            text,
-            token,
-            undefined,
-            conversationHistory,
-            String(userId)
-          );
+          if (agentConnected && !pendingAgentChannelChoice) {
+            await addAgentConversationMessage(resolvedSessionId, "user", text, token);
+            set({ loading: false });
+            shouldAppendAssistant = false;
+            break;
+          }
+          if (pendingAgentChannelChoice) {
+            const choice = parseAgentChannelChoice(text);
+            if (!choice) {
+              assistantMessage = "Do you want to connect via live chat or call? Reply with “live chat” or “call”.";
+              set((s) => ({
+                messages: [...s.messages, { role: "assistant", text: assistantMessage, data: agentChannelOptions }],
+                conversationHistory: [...s.conversationHistory, { role: "assistant", text: assistantMessage, data: agentChannelOptions }],
+                loading: false
+              }));
+              shouldAppendAssistant = false;
+              break;
+            }
+            set({ pendingAgentChannelChoice: false, pendingAgentRequestText: undefined });
+            const requestText = pendingAgentRequestText || text;
+            const connectorType = choice === "call" ? "call" : undefined;
+            result = await handleCustomerIssue(
+              requestText,
+              token,
+              connectorType,
+              conversationHistory,
+              String(userId),
+              undefined,
+              resolvedSessionId
+            );
+          } else {
+            const intent = detectTicketIntent(text);
+            if (intent.needs_agent && !agentConnected) {
+              assistantMessage = "Do you want to connect via live chat or call?";
+              set({ pendingAgentChannelChoice: true, pendingAgentRequestText: text });
+              set((s) => ({
+                messages: [...s.messages, { role: "assistant", text: assistantMessage, data: agentChannelOptions }],
+                conversationHistory: [...s.conversationHistory, { role: "assistant", text: assistantMessage, data: agentChannelOptions }],
+                loading: false
+              }));
+              shouldAppendAssistant = false;
+              break;
+            }
+            // Ticketing Tool - handles troubleshooting and ticket creation
+            result = await handleCustomerIssue(
+              text,
+              token,
+              undefined,
+              conversationHistory,
+              String(userId),
+              undefined,
+              resolvedSessionId
+            );
+          }
           
           if (result.type === "GREETING") {
             // Friendly greeting response
@@ -233,6 +324,16 @@ export const useChatStore = create<ChatState>((set, get) => ({
           // FIRST: Check frontend-side if user wants to create ticket or connect to agent
           const knowledgeIntent = detectTicketIntent(text);
           if (knowledgeIntent.should_route) {
+            if (knowledgeIntent.needs_agent) {
+              assistantMessage = "Do you want to connect via live chat or call?";
+              set({ tool: TOOLS.CUSTOMER_SERVICE, pendingAgentChannelChoice: true, pendingAgentRequestText: text });
+              set((s) => ({
+                messages: [...s.messages, { role: "assistant", text: assistantMessage, data: agentChannelOptions }],
+                conversationHistory: [...s.conversationHistory, { role: "assistant", text: assistantMessage, data: agentChannelOptions }],
+                loading: false
+              }));
+              break;
+            }
             // Immediately route to Customer Service
             assistantMessage = "I understand you'd like to create a ticket or connect with an agent. Let me transfer you to our Customer Service team...";
             
@@ -246,7 +347,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
                 token,
                 undefined,
                 conversationHistory,
-                String(userId)
+                String(userId),
+                undefined,
+                resolvedSessionId
               );
               
               // Add the Customer Service response
@@ -266,6 +369,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
                 loading: false
               }));
             }, 300);
+            shouldAppendAssistant = false;
             
             break;
           }
@@ -286,7 +390,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
                 token,
                 undefined,
                 conversationHistory,
-                String(userId)
+                String(userId),
+                undefined,
+                resolvedSessionId
               );
               
               // Add the Customer Service response
@@ -333,6 +439,17 @@ export const useChatStore = create<ChatState>((set, get) => ({
           // Check if user wants to create ticket or connect to agent
           const hrIntent = detectTicketIntent(text);
           if (hrIntent.should_route) {
+            if (hrIntent.needs_agent) {
+              assistantMessage = "Do you want to connect via live chat or call?";
+              set({ tool: TOOLS.CUSTOMER_SERVICE, pendingAgentChannelChoice: true, pendingAgentRequestText: text });
+              set((s) => ({
+                messages: [...s.messages, { role: "assistant", text: assistantMessage, data: agentChannelOptions }],
+                conversationHistory: [...s.conversationHistory, { role: "assistant", text: assistantMessage, data: agentChannelOptions }],
+                loading: false
+              }));
+              shouldAppendAssistant = false;
+              break;
+            }
             assistantMessage = "I understand you'd like to create a ticket or connect with an agent. Let me transfer you to our Customer Service team...";
             set({ tool: TOOLS.CUSTOMER_SERVICE });
             setTimeout(async () => {
@@ -353,6 +470,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
                 loading: false
               }));
             }, 500);
+            shouldAppendAssistant = false;
             break;
           }
           
@@ -381,10 +499,29 @@ export const useChatStore = create<ChatState>((set, get) => ({
           // Check if user wants to create ticket or connect to agent
           const statusIntent = detectTicketIntent(text);
           if (statusIntent.should_route) {
+            if (statusIntent.needs_agent) {
+              assistantMessage = "Do you want to connect via live chat or call?";
+              set({ tool: TOOLS.CUSTOMER_SERVICE, pendingAgentChannelChoice: true, pendingAgentRequestText: text });
+              set((s) => ({
+                messages: [...s.messages, { role: "assistant", text: assistantMessage, data: agentChannelOptions }],
+                conversationHistory: [...s.conversationHistory, { role: "assistant", text: assistantMessage, data: agentChannelOptions }],
+                loading: false
+              }));
+              shouldAppendAssistant = false;
+              break;
+            }
             assistantMessage = "I understand you'd like to create a ticket or connect with an agent. Let me transfer you to our Customer Service team...";
             set({ tool: TOOLS.CUSTOMER_SERVICE });
             setTimeout(async () => {
-              const customerServiceResult = await handleCustomerIssue(text, "user1", undefined, conversationHistory, String(userId));
+              const customerServiceResult = await handleCustomerIssue(
+                text,
+                "user1",
+                undefined,
+                conversationHistory,
+                String(userId),
+                undefined,
+                resolvedSessionId
+              );
               set((s) => ({
                 messages: [
                   ...s.messages,
@@ -401,6 +538,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
                 loading: false
               }));
             }, 500);
+            shouldAppendAssistant = false;
             break;
           }
           
@@ -430,6 +568,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
       result = { error: error.message };
     }
 
+    if (!shouldAppendAssistant) {
+      return;
+    }
+
     // Add assistant response
     set((s) => ({
       loading: false,
@@ -448,5 +590,12 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }));
   },
 
-  reset: () => set({ messages: [], loading: false, conversationHistory: [] }),
+  reset: () => set({ 
+    messages: [], 
+    loading: false, 
+    conversationHistory: [],
+    agentConnected: false,
+    pendingAgentChannelChoice: false,
+    pendingAgentRequestText: undefined
+  }),
 }));

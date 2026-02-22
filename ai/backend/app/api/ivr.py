@@ -63,6 +63,7 @@ async def handle_incoming_call(
                     agent_id = int(agent_id_param)
                 except (ValueError, TypeError):
                     agent_id = None
+        agent_mode = request.query_params.get("mode") == "agent"
         
         logger.info(f"Incoming call: CallSid={call_sid}, From={from_number}, To={to_number}, Status={call_status}, Digits={digits}, AgentID={agent_id}")
         
@@ -137,6 +138,12 @@ async def handle_incoming_call(
             db.add(conversation)
             db.commit()
             db.refresh(conversation)
+        else:
+            context_data = conversation.context or {}
+            if agent_mode and not context_data.get("voice_masking"):
+                context_data["voice_masking"] = True
+                conversation.context = context_data
+                db.commit()
         
         # Process input (DTMF digits or speech)
         user_input = None
@@ -144,6 +151,10 @@ async def handle_incoming_call(
             user_input = digits
         elif speech_result:
             user_input = speech_result
+
+        context_data = conversation.context or {}
+        voice_masking = bool(context_data.get("voice_masking")) or agent_mode
+        context_voice_id = context_data.get("ivr_voice_id") or context_data.get("voice_id")
 
         # Broadcast user input to transcript
         if user_input and session_id:
@@ -153,15 +164,27 @@ async def handle_incoming_call(
                  "timestamp": datetime.utcnow().isoformat(),
                  "type": "transcript"
              })
+
+        if voice_masking and agent_mode and not user_input:
+            api_base = settings.API_BASE_URL
+            action_url = f"{api_base}/api/ivr/call-handler?agent_id={agent_id}&session_id={session_id}&mode=agent"
+            twiml = telephony_service.generate_ivr_twiml(
+                "",
+                gather_input=True,
+                num_digits=1,
+                action_url=action_url,
+                timeout=10,
+                voice_id=context_voice_id
+            )
+            return Response(content=twiml, media_type="application/xml")
         
         # If this is the initial call (no input yet), play welcome message
         if not user_input and call_status == "ringing":
             welcome_message = agent.welcome_message or "Welcome. How can I help you today?"
             
             # Check for configured voice
-            voice_id = None
-            if agent.settings:
-                # Try to get voice_id from settings
+            voice_id = context_voice_id
+            if voice_id is None and agent.settings:
                 if isinstance(agent.settings, dict):
                      voice_id = agent.settings.get("voice_id")
                 elif isinstance(agent.settings, str):
@@ -201,6 +224,24 @@ async def handle_incoming_call(
             )
             db.add(user_message)
             db.commit()
+
+            if voice_masking and agent_mode:
+                context_data = conversation.context or {}
+                context_data["last_user_message"] = user_input
+                conversation.context = context_data
+                db.commit()
+
+                api_base = settings.API_BASE_URL
+                action_url = f"{api_base}/api/ivr/call-handler?agent_id={agent_id}&session_id={session_id}&mode=agent"
+                twiml = telephony_service.generate_ivr_twiml(
+                    "",
+                    gather_input=True,
+                    num_digits=1,
+                    action_url=action_url,
+                    timeout=10,
+                    voice_id=context_voice_id
+                )
+                return Response(content=twiml, media_type="application/xml")
             
             # Execute Agent Logic
             executor = AgentExecutor(db=db, background_tasks=background_tasks)
@@ -229,8 +270,8 @@ async def handle_incoming_call(
                  })
             
             # Check for configured voice
-            voice_id = None
-            if agent.settings:
+            voice_id = metadata.get("ivr", {}).get("voice_id") or context_voice_id
+            if voice_id is None and agent.settings:
                 if isinstance(agent.settings, dict):
                      voice_id = agent.settings.get("voice_id")
                 elif isinstance(agent.settings, str):
@@ -246,13 +287,19 @@ async def handle_incoming_call(
                 queue_name = metadata.get("queue_name", "default")
                 
                 # Basic Enqueue TwiML with Voice Support
-                say_attributes = ""
                 if voice_id:
-                     say_attributes = f' voice="{voice_id}"'
-                     
-                twiml_response = f"""<?xml version="1.0" encoding="UTF-8"?>
+                    api_base = settings.API_BASE_URL
+                    encoded_message = urllib.parse.quote(response_text or "")
+                    play_url = f"{api_base}/api/voice/twilio-speak?text={encoded_message}&voice_id={voice_id}"
+                    twiml_response = f"""<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-    <Say{say_attributes}>{response_text}</Say>
+    <Play>{play_url}</Play>
+    <Enqueue>{queue_name}</Enqueue>
+</Response>"""
+                else:
+                    twiml_response = f"""<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+    <Say>{response_text}</Say>
     <Enqueue>{queue_name}</Enqueue>
 </Response>"""
                 return Response(content=twiml_response, media_type="application/xml")
@@ -409,3 +456,75 @@ async def return_call_to_bot(
 
     result = telephony_service.redirect_call(call_sid, url)
     return result
+
+@router.post("/calls/{call_sid}/agent-say")
+async def agent_say_on_call(
+    call_sid: str,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: UserAccount = Depends(get_current_user)
+):
+    if not telephony_service.is_available():
+         return {"success": False, "error": "Telephony service not configured"}
+    try:
+        data = await request.json()
+        message = data.get("message")
+        voice_id = data.get("voice_id")
+        session_id = data.get("session_id")
+        agent_id = data.get("agent_id")
+
+        if not message:
+            raise HTTPException(status_code=400, detail="Missing message")
+
+        conversation = None
+        if session_id:
+            conversation = db.query(AgentConversation).filter(
+                AgentConversation.session_id == session_id,
+                AgentConversation.is_active == True
+            ).first()
+
+        if conversation:
+            db.add(AgentMessage(
+                conversation_id=conversation.id,
+                role="agent",
+                content=message,
+                message_metadata={"source": "masked_voice"}
+            ))
+            context_data = conversation.context or {}
+            context_data["last_agent_message"] = message
+            if voice_id:
+                context_data["ivr_voice_id"] = voice_id
+            conversation.context = context_data
+            db.commit()
+
+        if session_id:
+            await transcript_manager.broadcast(session_id, {
+                "role": "agent",
+                "content": message,
+                "timestamp": datetime.utcnow().isoformat(),
+                "type": "transcript"
+            })
+
+        api_base = settings.API_BASE_URL
+        action_url = f"{api_base}/api/ivr/call-handler"
+        if agent_id:
+            action_url += f"?agent_id={agent_id}"
+        if session_id:
+            separator = "&" if "?" in action_url else "?"
+            action_url += f"{separator}session_id={session_id}&mode=agent"
+
+        twiml = telephony_service.generate_ivr_twiml(
+            message,
+            gather_input=True,
+            num_digits=1,
+            action_url=action_url,
+            timeout=10,
+            voice_id=voice_id
+        )
+        result = telephony_service.update_call_twiml(call_sid, twiml)
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error sending masked agent message: {str(e)}")
+        return {"success": False, "error": str(e)}

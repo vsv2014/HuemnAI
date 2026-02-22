@@ -18,10 +18,11 @@ interface TicketFlowState {
 }
 
 export default function CustomerServiceChat() {
-  const { messages, sendMessage, loading, tool, sessionId, agentId, fetchHistory } = useChatStore();
+  const { messages, sendMessage, loading, tool, sessionId, agentId, fetchHistory, agentConnected } = useChatStore();
   const { token } = useAuthStore();
   const [input, setInput] = useState("");
   const [ticketFlow, setTicketFlow] = useState<TicketFlowState>({ isActive: false });
+  const agentRequestPending = messages.some((m) => m.data?.type === "AGENT_REQUESTED");
   
   // Load conversation history
   useEffect(() => {
@@ -29,6 +30,14 @@ export default function CustomerServiceChat() {
       fetchHistory(sessionId);
     }
   }, [sessionId, fetchHistory]);
+
+  useEffect(() => {
+    if (!sessionId || (!agentConnected && !agentRequestPending)) return;
+    const interval = setInterval(() => {
+      fetchHistory(sessionId, true);
+    }, 3000);
+    return () => clearInterval(interval);
+  }, [sessionId, fetchHistory, agentConnected, agentRequestPending]);
   const [showPrioritySelector, setShowPrioritySelector] = useState(false);
   const [selectedPriority, setSelectedPriority] = useState<string>("");
   const [isUploading, setIsUploading] = useState(false);
@@ -432,6 +441,27 @@ export default function CustomerServiceChat() {
       <div className="absolute top-0 left-1/4 w-96 h-96 bg-purple-500/10 rounded-full blur-[100px] pointer-events-none" />
       <div className="absolute bottom-0 right-1/4 w-96 h-96 bg-blue-500/10 rounded-full blur-[100px] pointer-events-none" />
 
+      {agentConnected && (
+        <div className="mb-4 p-5 rounded-2xl bg-white/5 border border-white/10 backdrop-blur-xl shadow-xl overflow-hidden relative group">
+          <div className="absolute inset-0 bg-gradient-to-r from-emerald-500/5 to-blue-500/5 group-hover:opacity-100 transition-opacity duration-500" />
+          <div className="relative z-10 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="relative">
+                <div className="w-3 h-3 rounded-full bg-emerald-400 animate-pulse shadow-[0_0_10px_rgba(52,211,153,0.5)]"></div>
+                <div className="absolute inset-0 w-3 h-3 rounded-full bg-emerald-400 animate-ping opacity-20"></div>
+              </div>
+              <div>
+                <span className="block text-sm font-bold text-white tracking-wide">CONNECTED TO LIVE AGENT</span>
+                <span className="text-xs text-white/50">You can chat directly with the agent now</span>
+              </div>
+            </div>
+            <span className="px-3 py-1.5 rounded-full text-xs font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+              Live
+            </span>
+          </div>
+        </div>
+      )}
+
       {/* Header with Ticket Flow Status */}
       {ticketFlow.isActive && (
         <div className="mb-4 p-5 rounded-2xl bg-white/5 border border-white/10 backdrop-blur-xl shadow-xl overflow-hidden relative group">
@@ -764,4 +794,3 @@ export default function CustomerServiceChat() {
     </div>
   );
 }
-

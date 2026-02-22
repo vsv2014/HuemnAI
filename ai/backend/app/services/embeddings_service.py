@@ -9,6 +9,7 @@ except Exception:
 
 def get_embedding(text: str) -> List[float]:
     """Return an embedding vector for text using OpenAI embeddings if available, else a simple hash-based vector."""
+    text = text[:8000] if text else ""
     # Try to get from user configuration first (OpenAI for embeddings)
     from app.services.config_service import get_llm_config
     config = get_llm_config("openai")  # Embeddings require OpenAI
@@ -29,7 +30,7 @@ def get_embedding(text: str) -> List[float]:
         try:
             # Try new OpenAI API (v1.0+)
             from openai import OpenAI
-            client = OpenAI(api_key=api_key)
+            client = OpenAI(api_key=api_key, timeout=20)
             model = embedding_model
             resp = client.embeddings.create(input=text, model=model)
             return resp.data[0].embedding
@@ -38,7 +39,7 @@ def get_embedding(text: str) -> List[float]:
             try:
                 openai.api_key = os.getenv("OPENAI_API_KEY")
                 model = os.getenv("OPENAI_EMBEDDING_MODEL", "text-embedding-3-small")
-                resp = openai.Embedding.create(input=text, model=model)
+                resp = openai.Embedding.create(input=text, model=model, request_timeout=20)
                 return resp["data"][0]["embedding"]
             except Exception as e:
                 logger = __import__("logging").getLogger(__name__)

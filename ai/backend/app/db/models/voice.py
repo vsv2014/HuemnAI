@@ -31,6 +31,9 @@ class VoiceProfile(Base):
     # Assets
     sample_url = Column(String(500), nullable=True)
     avatar_url = Column(String(500), nullable=True)
+    greeting_audio_url = Column(String(500), nullable=True)
+
+    greeting_script = Column(Text, nullable=True)
     
     # Ownership & Visibility
     is_public = Column(Boolean, default=False) # System voices are public
@@ -48,6 +51,7 @@ class VoiceProfile(Base):
             "description": self.description,
             "provider": self.provider,
             "provider_voice_id": self.provider_voice_id,
+            "voice_id": self.provider_voice_id,
             "model_id": self.model_id,
             "category": self.category,
             "gender": self.gender,
@@ -61,6 +65,8 @@ class VoiceProfile(Base):
             },
             "sample_url": self.sample_url,
             "avatar_url": self.avatar_url,
+            "greeting_script": self.greeting_script,
+            "greeting_audio_url": self.greeting_audio_url,
             "is_public": self.is_public,
             "is_cloned": self.is_cloned,
             "user_id": self.user_id,

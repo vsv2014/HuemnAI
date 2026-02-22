@@ -204,6 +204,15 @@ def detect_ticket_intent_multilang(text: str) -> Dict:
     """
     detected_lang = detect_language(text)
     text_lower = text.lower()
+
+    greetings = ["hi", "hello", "hey", "good morning", "good afternoon", "good evening"]
+    if any(greeting in text_lower for greeting in greetings):
+        return {
+            "needs_ticket": False,
+            "needs_agent": False,
+            "should_route": False,
+            "detected_language": detected_lang
+        }
     
     # Get keywords for detected language
     lang_keywords = LANGUAGE_KEYWORDS.get(detected_lang, LANGUAGE_KEYWORDS["en"])

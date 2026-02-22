@@ -200,6 +200,7 @@ class TelephonyService:
         # Determine if we use HuemnVoice (Play) or Twilio (Say)
         use_huemn_voice = voice_id is not None
         
+        message_text = (message or "").strip()
         if gather_input:
             gather = Gather(
                 num_digits=num_digits,
@@ -210,28 +211,28 @@ class TelephonyService:
                 speechTimeout="auto"
             )
             
-            if use_huemn_voice:
+            if message_text and use_huemn_voice:
                 import urllib.parse
                 api_base = os.getenv('API_BASE_URL', 'http://localhost:8001')
-                encoded_message = urllib.parse.quote(message)
+                encoded_message = urllib.parse.quote(message_text)
                 play_url = f"{api_base}/api/voice/twilio-speak?text={encoded_message}&voice_id={voice_id}"
                 gather.play(play_url)
-            else:
-                gather.say(message, voice="alice", language="en-US")
+            elif message_text:
+                gather.say(message_text, voice="alice", language="en-US")
                 
             response.append(gather)
         else:
-            if use_huemn_voice:
+            if message_text and use_huemn_voice:
                 import urllib.parse
                 api_base = os.getenv('API_BASE_URL', 'http://localhost:8001')
-                encoded_message = urllib.parse.quote(message)
+                encoded_message = urllib.parse.quote(message_text)
                 play_url = f"{api_base}/api/voice/twilio-speak?text={encoded_message}&voice_id={voice_id}"
                 response.play(play_url)
-            else:
-                response.say(message, voice="alice", language="en-US")
+            elif message_text:
+                response.say(message_text, voice="alice", language="en-US")
         
         # Fallback if no input
-        if gather_input:
+        if gather_input and message_text:
             response.say("We didn't receive your input. Please try again.", voice="alice", language="en-US")
             response.redirect(action_url or "")
         
@@ -476,6 +477,20 @@ class TelephonyService:
             }
         except Exception as e:
             logger.error(f"Error redirecting call: {str(e)}", exc_info=True)
+            return {"success": False, "error": str(e)}
+
+    def update_call_twiml(self, call_sid: str, twiml: str) -> Dict[str, Any]:
+        if not self.twilio_enabled:
+            return {"success": False, "error": "Twilio not configured"}
+        try:
+            call = self.twilio_client.calls(call_sid).update(twiml=twiml)
+            return {
+                "success": True,
+                "call_sid": call.sid,
+                "status": call.status
+            }
+        except Exception as e:
+            logger.error(f"Error updating call TwiML: {str(e)}", exc_info=True)
             return {"success": False, "error": str(e)}
 
     def get_call_status(self, call_sid: str) -> Dict[str, Any]:

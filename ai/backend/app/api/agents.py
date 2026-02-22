@@ -19,7 +19,7 @@ from app.db.models.agent import (
 from app.services.flow_generator import FlowGenerator
 from app.services.audit_service import log_audit_event
 from app.db.models.subscription import UserAccount
-from app.api.auth import get_current_user
+from app.api.auth import get_current_user, get_current_user_optional
 
 router = APIRouter()
 
@@ -254,6 +254,11 @@ class ConversationResponse(BaseModel):
     context: Optional[Dict[str, Any]] = None
     metadata: Optional[Dict[str, Any]] = None
     debug_trace: Optional[List[Dict[str, Any]]] = Field(default_factory=list)  # Default to empty list, not None
+
+
+class ConversationMessageRequest(BaseModel):
+    role: str
+    content: str
 
 
 class GenerateFlowRequest(BaseModel):
@@ -1110,6 +1115,10 @@ async def get_conversation(session_id: str, db: Session = Depends(get_db)):
     if not conversation:
         raise HTTPException(status_code=404, detail="Conversation not found")
     
+    ordered_messages = db.query(AgentMessage).filter(
+        AgentMessage.conversation_id == conversation.id
+    ).order_by(AgentMessage.created_at.asc(), AgentMessage.id.asc()).all()
+
     messages = [
         {
             "id": msg.id,
@@ -1117,7 +1126,7 @@ async def get_conversation(session_id: str, db: Session = Depends(get_db)):
             "content": msg.content,
             "created_at": msg.created_at.isoformat() if msg.created_at else None
         }
-        for msg in conversation.messages
+        for msg in ordered_messages
     ]
     
     return {
@@ -1126,6 +1135,55 @@ async def get_conversation(session_id: str, db: Session = Depends(get_db)):
         "context": conversation.context,
         "messages": messages,
         "created_at": conversation.created_at.isoformat() if conversation.created_at else None
+    }
+
+
+@router.post("/conversations/{session_id}/messages")
+async def add_conversation_message(
+    session_id: str,
+    payload: ConversationMessageRequest,
+    db: Session = Depends(get_db),
+    current_user: UserAccount | None = Depends(get_current_user_optional)
+):
+    conversation = db.query(AgentConversation).filter(
+        AgentConversation.session_id == session_id
+    ).first()
+    
+    if not conversation:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    
+    role = payload.role.lower()
+    if role == "agent":
+        normalized_role = "agent"
+    elif role == "assistant":
+        normalized_role = "assistant"
+    else:
+        normalized_role = "user"
+    
+    message = AgentMessage(
+        conversation_id=conversation.id,
+        role=normalized_role,
+        content=payload.content
+    )
+    db.add(message)
+    if normalized_role == "agent":
+        context = conversation.context or {}
+        if not context.get("agent_joined"):
+            context["agent_joined"] = True
+        if not context.get("agent_connected"):
+            context["agent_connected"] = True
+        conversation.context = context
+    db.commit()
+    db.refresh(message)
+    
+    return {
+        "success": True,
+        "message": {
+            "id": message.id,
+            "role": message.role,
+            "content": message.content,
+            "created_at": message.created_at.isoformat() if message.created_at else None
+        }
     }
 
 

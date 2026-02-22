@@ -74,7 +74,7 @@ export default function PricingPage() {
       }
     } catch (err: any) {
       console.error("Error loading plans:", err);
-      setError("Failed to load pricing plans. Please ensure the backend is running on port 8000.");
+      setError("Failed to load pricing plans. Please ensure the backend is running on port 8001.");
     } finally {
       setLoading(false);
     }

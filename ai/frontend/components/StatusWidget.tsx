@@ -32,7 +32,9 @@ export default function StatusWidget() {
   const { status: currentStatus, setStatus, fetchStatus, loading } = useStatusStore();
   const [isOpen, setIsOpen] = useState(false);
   const [subscribedTools, setSubscribedTools] = useState<SubscribedTool[]>([]);
+  const [dropdownStyle, setDropdownStyle] = useState<React.CSSProperties>({});
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     if (isAuthenticated && token) {
@@ -54,6 +56,34 @@ export default function StatusWidget() {
 
     return () => {
       document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, [isOpen]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const updatePosition = () => {
+      const button = buttonRef.current;
+      if (!button) return;
+      const rect = button.getBoundingClientRect();
+      const width = 320;
+      const maxHeight = Math.min(window.innerHeight * 0.7, 560);
+      const left = Math.max(8, Math.min(rect.right - width, window.innerWidth - width - 8));
+      let top = rect.bottom + 8;
+      if (top + maxHeight > window.innerHeight - 8) {
+        top = Math.max(8, rect.top - 8 - maxHeight);
+      }
+      setDropdownStyle({
+        position: "fixed",
+        top,
+        left,
+        width,
+        maxHeight
+      });
+    };
+    updatePosition();
+    window.addEventListener("resize", updatePosition);
+    return () => {
+      window.removeEventListener("resize", updatePosition);
     };
   }, [isOpen]);
 
@@ -94,6 +124,7 @@ export default function StatusWidget() {
     <div ref={dropdownRef} className="relative inline-block">
       {/* Widget Icon Button */}
       <button
+        ref={buttonRef}
         onClick={() => setIsOpen(!isOpen)}
         className="flex items-center gap-2 px-3 py-2 bg-white/10 hover:bg-white/20 border border-white/20 rounded-lg transition-all"
         style={{
@@ -114,7 +145,7 @@ export default function StatusWidget() {
 
       {/* Dropdown Menu */}
       {isOpen && (
-        <div className="absolute right-0 mt-2 w-80 bg-[#1a1f2e] border border-white/20 rounded-xl shadow-2xl z-50 overflow-hidden">
+        <div style={dropdownStyle} className="bg-[#1a1f2e] border border-white/20 rounded-xl shadow-2xl z-50 overflow-y-auto">
           {/* Header */}
           <div className="p-4 border-b border-white/10">
             <div className="flex items-center gap-3 mb-2">
@@ -134,7 +165,7 @@ export default function StatusWidget() {
               <div className="space-y-1">
                 {subscribedTools.map((tool, index) => (
                   <div
-                    key={tool.tool_name || `tool-${index}`}
+                    key={`${tool.tool_name || "tool"}-${index}`}
                     className="flex items-center gap-2 p-2 rounded-lg hover:bg-white/5 transition-colors"
                   >
                     <span className="text-xl">
@@ -260,4 +291,3 @@ function getToolIcon(toolType: string | undefined | null): string {
   const normalizedType = toolType.toLowerCase().replace(/[_-]/g, '_');
   return icons[normalizedType] || icons[toolType.toLowerCase()] || "🔗";
 }
-

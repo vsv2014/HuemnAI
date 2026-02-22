@@ -46,7 +46,7 @@ export default function AgentIntegratePage() {
   };
 
   const getEmbedCode = () => {
-    const apiBase = process.env.NEXT_PUBLIC_API_BASE || "http://127.0.0.1:8000";
+    const API_BASE = process.env.NEXT_PUBLIC_API_URL as string;
     const agentName = agent?.name || "AI Assistant";
     const welcomeMessage = agent?.welcome_message || "Hello! How can I help you today?";
     
@@ -54,7 +54,7 @@ export default function AgentIntegratePage() {
 <script>
 (function() {
   const AGENT_ID = ${agentId};
-  const API_BASE = "${apiBase}";
+  const API_BASE = "${API_BASE}";
   const AGENT_NAME = "${agentName}";
   const WELCOME_MESSAGE = "${welcomeMessage}";
   const WIDGET_CONFIG = ${JSON.stringify(widgetConfig)};
@@ -310,4 +310,3 @@ export default function AgentIntegratePage() {
     </ErrorBoundary>
   );
 }
-

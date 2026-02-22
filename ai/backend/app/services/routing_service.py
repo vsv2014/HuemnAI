@@ -1,5 +1,6 @@
 import json
 import logging
+import os
 import time
 from typing import Optional, List, Dict, Any, Tuple
 from app.core.redis import redis_client
@@ -61,6 +62,28 @@ class RoutingService:
             return False
 
     @staticmethod
+    async def get_call_data(session_id: str) -> Optional[Dict[str, Any]]:
+        try:
+            call_key = f"{RoutingService.CALL_PREFIX}{session_id}"
+            call_data = await redis_client.hgetall(call_key)
+            if not call_data:
+                return None
+            if "context" in call_data:
+                try:
+                    call_data["context"] = json.loads(call_data["context"])
+                except:
+                    pass
+            if "required_skills" in call_data:
+                try:
+                    call_data["required_skills"] = json.loads(call_data["required_skills"])
+                except:
+                    pass
+            return call_data
+        except Exception as e:
+            logger.error(f"Failed to load call data {session_id}: {e}")
+            return None
+
+    @staticmethod
     async def register_agent_presence(agent_id: str, status: str, skills: List[str], queues: List[str]):
         """
         Update agent presence and skills in Redis.
@@ -84,8 +107,7 @@ class RoutingService:
             logger.debug(f"Updated presence for agent {agent_id}: {status}")
         except Exception as e:
             logger.error(f"Failed to update agent presence: {e}")
-            # Do NOT re-raise, allow agent to function even if routing is down
-            # This is critical for dev environments without Redis
+            raise
 
 
     @staticmethod
@@ -155,6 +177,13 @@ class RoutingService:
             if not call_data:
                 logger.error(f"Call {session_id} not found")
                 return False
+            existing_status = call_data.get("status")
+            existing_agent = call_data.get("agent_id")
+            if existing_status == "assigned":
+                if existing_agent == agent_id:
+                    return True
+                logger.info(f"Call {session_id} already assigned to {existing_agent}")
+                return False
                 
             await redis_client.hset(call_key, mapping={"status": "assigned", "agent_id": agent_id, "assigned_at": time.time()})
             
@@ -173,19 +202,19 @@ class RoutingService:
             context_str = call_data.get("context", "{}")
             try:
                 context = json.loads(context_str)
-                ivr_call_sid = context.get("ivr_call_sid")
+                ivr_call_sid = context.get("ivr_call_sid") or context.get("call_sid")
+                voice_masking = bool(context.get("voice_masking"))
                 
                 if ivr_call_sid:
                     from app.services.telephony_service import telephony_service
-                    # Bridge to the agent's client identity (using agent_id)
-                    logger.info(f"Bridging call {ivr_call_sid} to agent {agent_id}")
-                    telephony_service.bridge_to_client(ivr_call_sid, agent_id, parameters={"session_id": session_id}, record=True)
-                elif "call_sid" in context:
-                     # Fallback to "call_sid" key if ivr_call_sid is not present
-                     ivr_call_sid = context["call_sid"]
-                     from app.services.telephony_service import telephony_service
-                     logger.info(f"Bridging call {ivr_call_sid} to agent {agent_id}")
-                     telephony_service.bridge_to_client(ivr_call_sid, agent_id, parameters={"session_id": session_id}, record=True)
+                    if voice_masking:
+                        api_base = os.getenv('API_BASE_URL', 'http://localhost:8001')
+                        url = f"{api_base}/api/ivr/call-handler?agent_id={agent_id}&session_id={session_id}&mode=agent"
+                        logger.info(f"Redirecting call {ivr_call_sid} to masked agent flow for {agent_id}")
+                        telephony_service.redirect_call(ivr_call_sid, url)
+                    else:
+                        logger.info(f"Bridging call {ivr_call_sid} to agent {agent_id}")
+                        telephony_service.bridge_to_client(ivr_call_sid, agent_id, parameters={"session_id": session_id}, record=True)
             except Exception as e:
                 logger.error(f"Failed to bridge voice call: {e}")
             
@@ -193,7 +222,7 @@ class RoutingService:
             return True
         except Exception as e:
             logger.error(f"Failed to assign call {session_id} to {agent_id}: {e}")
-            return False
+            raise
 
     @staticmethod
     async def get_queue_stats() -> Dict[str, Any]:
@@ -215,7 +244,7 @@ class RoutingService:
             return queues
         except Exception as e:
             logger.error(f"Failed to get queue stats: {e}")
-            return {}
+            raise
 
     @staticmethod
     async def get_queued_calls(queue_name: str = None) -> List[Dict[str, Any]]:
@@ -268,4 +297,4 @@ class RoutingService:
             return calls
         except Exception as e:
             logger.error(f"Failed to get queued calls: {e}")
-            return []
+            raise

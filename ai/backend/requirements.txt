@@ -5,8 +5,11 @@ sqlalchemy
 pydantic
 pydantic-settings
 pytest
+pytest-asyncio
 httpx
 requests
+imageio-ffmpeg
+TTS
 openai
 PyJWT
 email-validator
@@ -30,4 +33,3 @@ locust
 protobuf==5.29.6
 urllib3>=2.6.3
 pyasn1>=0.6.2
-

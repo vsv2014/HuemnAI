@@ -72,15 +72,13 @@ def verify_password(password: str, password_hash: str) -> bool:
     """Verify password"""
     return hash_password(password) == password_hash
 
-def create_jwt_token(user_id: int, email: str) -> str:
-    """Create JWT token with 24-hour expiry"""
-    login_time = datetime.utcnow()
-    
-    # Token expires after 24 hours
+def create_jwt_token(user: UserAccount) -> str:
+    """Create stable JWT token tied to account creation time"""
+    base_time = user.created_at or datetime.utcnow()
     payload = {
-        "user_id": user_id,
-        "email": email,
-        "exp": login_time + timedelta(hours=24)
+        "user_id": user.id,
+        "email": user.email,
+        "exp": base_time + timedelta(days=3650)
     }
     return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
 
@@ -304,7 +302,7 @@ async def signup(
     db.commit()
     
     # Create token
-    token = create_jwt_token(user.id, user.email)
+    token = create_jwt_token(user)
     
     # Calculate trial days remaining
     trial_days = (trial_end - datetime.utcnow()).days
@@ -411,11 +409,12 @@ async def login(
     } for sub in tool_subscriptions]
     
     # Create token (valid for 24h)
-    token = create_jwt_token(user.id, user.email)
+    token = create_jwt_token(user)
     
     # Send login notification in background
     ip_address = get_client_ip(http_request) if http_request else "unknown"
-    background_tasks.add_task(send_login_notification_email, user.name, user.email, ip_address)
+    user_agent = http_request.headers.get("user-agent", "") if http_request else ""
+    background_tasks.add_task(send_login_notification_email, user.email, ip_address, user_agent)
     
     return {
         "token": token,
@@ -548,11 +547,12 @@ async def google_login(
     } for sub in tool_subscriptions]
     
     # Create token
-    token = create_jwt_token(user.id, user.email)
+    token = create_jwt_token(user)
     
     # Send login notification in background
     ip_address = get_client_ip(http_request) if http_request else "unknown"
-    background_tasks.add_task(send_login_notification_email, user.name, user.email, ip_address)
+    user_agent = http_request.headers.get("user-agent", "") if http_request else ""
+    background_tasks.add_task(send_login_notification_email, user.email, ip_address, user_agent)
     
     return AuthResponse(
         token=token,
@@ -561,7 +561,8 @@ async def google_login(
             "email": user.email,
             "name": user.name,
             "role": user.role,
-            "subscription_status": user.subscription_status
+            "subscription_status": user.subscription_status,
+            "google_access_token": request.token,
         },
         subscription_status=user.subscription_status,
         trial_days_remaining=trial_days_remaining,

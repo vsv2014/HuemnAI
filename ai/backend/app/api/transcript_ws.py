@@ -3,6 +3,8 @@ from typing import Dict, List
 import json
 import logging
 import asyncio
+from app.db.session import SessionLocal
+from app.db.models.agent import AgentConversation, AgentMessage
 
 logger = logging.getLogger(__name__)
 
@@ -71,6 +73,22 @@ async def push_transcript_update(session_id: str, role: str, text: str, timestam
         "timestamp": timestamp
     }
     await manager.broadcast(session_id, message)
+
+    db = SessionLocal()
+    try:
+        conversation = db.query(AgentConversation).filter(
+            AgentConversation.session_id == session_id
+        ).first()
+        if conversation:
+            normalized_role = "assistant" if role in ["assistant", "agent"] else "user"
+            db.add(AgentMessage(
+                conversation_id=conversation.id,
+                role=normalized_role,
+                content=text
+            ))
+            db.commit()
+    finally:
+        db.close()
 
 # Simulation Endpoint (for testing)
 @router.post("/call/{session_id}/simulate-transcript")

@@ -1360,6 +1360,12 @@ class AgentExecutor:
         target_variable = config.get("variable")
         # entity_type = config.get("entity_type") # Used for validation if implemented
         ivr_props = config.get("ivr_properties", {})
+        ivr_voice_id = ivr_props.get("voice_id")
+        ivr_voice_settings = ivr_props.get("voice_settings")
+        if ivr_voice_id:
+            context["ivr_voice_id"] = ivr_voice_id
+        if ivr_voice_settings is not None:
+            context["ivr_voice_settings"] = ivr_voice_settings
         extraction_options = config.get("extraction_options", {})
         custom_tags = config.get("custom_tags", {})
         
@@ -2618,6 +2624,18 @@ Return only the intent name that best matches."""
                 }
 
         # 3. Enqueue call via RoutingService
+        config_data = node.config or {}
+        voice_id = config_data.get("voice_id") or context.get("ivr_voice_id")
+        voice_settings = config_data.get("voice_settings") or context.get("ivr_voice_settings")
+        mask_agent_voice = config_data.get("mask_agent_voice")
+        if mask_agent_voice is None:
+            mask_agent_voice = bool(voice_id)
+        if voice_id:
+            context["ivr_voice_id"] = voice_id
+        if voice_settings is not None:
+            context["ivr_voice_settings"] = voice_settings
+        context["voice_masking"] = mask_agent_voice
+
         success = await RoutingService.enqueue_call(session_id, config, context)
         
         if success:
@@ -2631,7 +2649,12 @@ Return only the intent name that best matches."""
                     "queue_name": config.queue_name,
                     "priority": config.priority,
                     "timeout_seconds": config.timeout_seconds,
-                    "timeout_action": config.timeout_action
+                    "timeout_action": config.timeout_action,
+                    "ivr": {
+                        "voice_id": voice_id,
+                        "voice_settings": voice_settings
+                    },
+                    "voice_masking": mask_agent_voice
                 }
             }
         else:
@@ -3090,16 +3113,10 @@ Return only the intent name that best matches."""
         config = node.config or {}
         
         # Initialize service
-        from app.services.huemn_voice_service import HuemnVoiceService
+        from app.services.huemn_voice_service import HuemnVoiceService, LocalVoiceService, resolve_local_sample_path
+        from app.db.models.voice import VoiceProfile
         service = HuemnVoiceService()
-        
-        if not service.is_available():
-            return {
-                "response": "Voice service not configured. Please check HuemnVoice API key.",
-                "next_node_id": None,
-                "context": context,
-                "metadata": {"error": "HuemnVoice API key missing"}
-            }
+        local_service = LocalVoiceService()
             
         # Resolve variables
         text = self._replace_variables(config.get("text", ""), context)
@@ -3116,16 +3133,54 @@ Return only the intent name that best matches."""
         # Check for streaming mode
         use_streaming = bool(config.get("stream", False))
         
-        # Voice Settings
+        profile = None
+        if self.db and voice_id:
+            profile = self.db.query(VoiceProfile).filter(VoiceProfile.provider_voice_id == voice_id).first()
+        provider = profile.provider if profile else "huemn"
+
         voice_settings = {
-            "stability": float(config.get("stability", 0.5)),
-            "similarity_boost": float(config.get("similarity_boost", 0.75)),
-            "style": float(config.get("style", 0.0)),
-            "use_speaker_boost": bool(config.get("use_speaker_boost", True))
+            "stability": 0.5,
+            "similarity_boost": 0.75,
+            "style": 0.0,
+            "use_speaker_boost": True
         }
-        model_id = config.get("model_id", "huemn_turbo_v2")
+        if profile:
+            voice_settings.update({
+                "stability": profile.stability,
+                "similarity_boost": profile.similarity_boost,
+                "style": profile.style,
+                "use_speaker_boost": profile.use_speaker_boost
+            })
+        if "stability" in config:
+            voice_settings["stability"] = float(config.get("stability"))
+        if "similarity_boost" in config:
+            voice_settings["similarity_boost"] = float(config.get("similarity_boost"))
+        if "style" in config:
+            voice_settings["style"] = float(config.get("style"))
+        if "use_speaker_boost" in config:
+            voice_settings["use_speaker_boost"] = bool(config.get("use_speaker_boost"))
+
+        model_id = config.get("model_id") or (profile.model_id if profile else None) or "huemn_turbo_v2"
+        if provider == "local":
+            model_id = "local"
 
         if use_streaming:
+            if provider == "local":
+                if not local_service.is_available():
+                    return {
+                        "response": "Local voice engine not configured. Install local TTS dependencies.",
+                        "next_node_id": None,
+                        "context": context,
+                        "metadata": {"error": "Local voice engine missing"}
+                    }
+            else:
+                if not service.is_available():
+                    return {
+                        "response": "Voice service not configured. Please check HuemnVoice API key.",
+                        "next_node_id": None,
+                        "context": context,
+                        "metadata": {"error": "HuemnVoice API key missing"}
+                    }
             # In streaming mode, return config for frontend to connect to WS
             from app.core.config import settings
             # Construct WS URL
@@ -3137,7 +3192,7 @@ Return only the intent name that best matches."""
                 "voice_enabled": True,
                 "is_voice": True,
                 "mode": "stream",
-                "provider": "huemn",
+                "provider": provider,
                 "ws_url": ws_url,
                 "voice_id": voice_id,
                 "model_id": model_id,
@@ -3169,13 +3224,38 @@ Return only the intent name that best matches."""
         filepath = os.path.join("uploads", filename)
         
         try:
-            audio_data = await service.text_to_speech(
-                text=text,
-                voice_id=voice_id,
-                model_id=model_id,
-                voice_settings=voice_settings,
-                output_format=config.get("output_format", "mp3_44100_128")
-            )
+            if provider == "local":
+                if not local_service.is_available():
+                    return {
+                        "response": "Local voice engine not configured. Install local TTS dependencies.",
+                        "next_node_id": None,
+                        "context": context,
+                        "metadata": {"error": "Local voice engine missing"}
+                    }
+                speaker_wav = resolve_local_sample_path(profile.sample_url if profile else None)
+                audio_data = await local_service.text_to_speech(
+                    text=text,
+                    voice_id=voice_id,
+                    model_id="local",
+                    voice_settings=voice_settings,
+                    output_format=config.get("output_format", "mp3_44100_128"),
+                    speaker_wav=speaker_wav
+                )
+            else:
+                if not service.is_available():
+                    return {
+                        "response": "Voice service not configured. Please check HuemnVoice API key.",
+                        "next_node_id": None,
+                        "context": context,
+                        "metadata": {"error": "HuemnVoice API key missing"}
+                    }
+                audio_data = await service.text_to_speech(
+                    text=text,
+                    voice_id=voice_id,
+                    model_id=model_id,
+                    voice_settings=voice_settings,
+                    output_format=config.get("output_format", "mp3_44100_128")
+                )
             
             if not audio_data:
                  return {
@@ -3208,7 +3288,7 @@ Return only the intent name that best matches."""
                     "text": text,
                     "voice_id": voice_id,
                     "is_voice": True,
-                    "provider": "huemn"
+                    "provider": provider
                 }
             }
         except Exception as e:

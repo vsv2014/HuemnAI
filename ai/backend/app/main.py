@@ -23,6 +23,7 @@ from app.db.session import ping_database
 from app.core.redis import redis_client
 from app.core.config import settings
 from app.core.logging import get_logger
+import os
 import sentry_sdk
 import time
 import uuid
@@ -59,9 +60,17 @@ app.include_router(ws_router)
 app.include_router(voice_ws_router)
 
 
+frontend_url = os.getenv("FRONTEND_URL", "http://localhost:3000")
+allowed_origins = {
+    frontend_url,
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    "http://0.0.0.0:3000",
+    "https://mobility-debate-toll-interim.trycloudflare.com",
+}
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=list(allowed_origins),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

@@ -106,6 +106,9 @@ class HandoffNodeConfig(BaseNodeConfig):
     handoff_message: str = Field("Please hold while I connect you to an agent...", description="Message to user before handoff")
     timeout_seconds: int = Field(300, description="Max time to wait in queue")
     timeout_action: str = Field("voicemail", description="Action on timeout: voicemail, callback, end_call")
+    voice_id: Optional[str] = Field(None, description="Voice ID to use for masked agent TTS")
+    voice_settings: Optional[Dict[str, Any]] = Field(None, description="Voice settings for masked agent TTS")
+    mask_agent_voice: Optional[bool] = Field(None, description="Whether to mask agent voice using TTS")
 
 class AiMultiAgentConfig(BaseNodeConfig):
     agent_ids: Optional[str] = Field(None, description="Comma-separated list of agent IDs")

@@ -266,7 +266,7 @@ async def upload_document(
         source_type_map = {
             '.pdf': SourceType.PDF,
             '.docx': SourceType.DOCX,
-            '.doc': SourceType.DOC,
+            '.doc': SourceType.DOCUMENT,
             '.txt': SourceType.TXT,
             '.md': SourceType.MD,
             '.html': SourceType.HTML,

@@ -7,6 +7,8 @@ from pydantic import BaseModel, Field
 from typing import Optional, List, Dict, Any
 from app.db.session import SessionLocal, get_db
 from app.db.models.api_config import APIConfig
+from app.db.models.subscription import UserAccount
+from app.api.auth import get_current_user
 from sqlalchemy.orm import Session
 import logging
 from app.services.socket_manager import manager
@@ -395,17 +397,18 @@ async def get_providers():
 async def list_configs(
     provider_type: Optional[str] = None,
     provider: Optional[str] = None,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: UserAccount = Depends(get_current_user),
 ):
-    """List all API configurations (sensitive data masked)"""
+    """List all API configurations for the current user (sensitive data masked)"""
     try:
-        query = db.query(APIConfig)
-        
+        query = db.query(APIConfig).filter(APIConfig.user_id == str(current_user.id))
+
         if provider_type:
             query = query.filter(APIConfig.provider_type == provider_type)
         if provider:
             query = query.filter(APIConfig.provider == provider)
-        
+
         configs = query.all()
         return {
             "success": True,
@@ -421,12 +424,19 @@ async def list_configs(
 
 
 @router.get("/{config_id}")
-async def get_config(config_id: int, db: Session = Depends(get_db)):
-    """Get specific configuration (sensitive data masked)"""
-    config = db.query(APIConfig).filter(APIConfig.id == config_id).first()
+async def get_config(
+    config_id: int,
+    db: Session = Depends(get_db),
+    current_user: UserAccount = Depends(get_current_user),
+):
+    """Get specific configuration for the current user (sensitive data masked)"""
+    config = db.query(APIConfig).filter(
+        APIConfig.id == config_id,
+        APIConfig.user_id == str(current_user.id),
+    ).first()
     if not config:
         raise HTTPException(status_code=404, detail="Configuration not found")
-    
+
     return {
         "success": True,
         "config": config.to_dict(include_sensitive=False)
@@ -434,7 +444,11 @@ async def get_config(config_id: int, db: Session = Depends(get_db)):
 
 
 @router.post("/")
-async def create_config(payload: CreateConfigPayload, db: Session = Depends(get_db)):
+async def create_config(
+    payload: CreateConfigPayload,
+    db: Session = Depends(get_db),
+    current_user: UserAccount = Depends(get_current_user),
+):
     """Create new API configuration"""
     # Validate provider exists
     provider_def = PROVIDER_DEFINITIONS.get(payload.provider_type, {}).get(payload.provider)
@@ -466,16 +480,17 @@ async def create_config(payload: CreateConfigPayload, db: Session = Depends(get_
         else:
             config_data[field_name] = value
     
-    # If setting as default, unset other defaults of same type
+    # If setting as default, unset other defaults of same type for this user
     if payload.is_default:
         db.query(APIConfig).filter(
+            APIConfig.user_id == str(current_user.id),
             APIConfig.provider_type == payload.provider_type,
             APIConfig.is_default == True
         ).update({"is_default": False})
     
     # Create configuration
     config = APIConfig(
-        user_id="default",  # For now, single user. Can be extended for multi-user
+        user_id=str(current_user.id),
         provider=payload.provider,
         provider_type=payload.provider_type,
         config_data=config_data,
@@ -519,9 +534,17 @@ async def create_config(payload: CreateConfigPayload, db: Session = Depends(get_
 
 
 @router.put("/{config_id}")
-async def update_config(config_id: int, payload: UpdateConfigPayload, db: Session = Depends(get_db)):
-    """Update API configuration"""
-    config = db.query(APIConfig).filter(APIConfig.id == config_id).first()
+async def update_config(
+    config_id: int,
+    payload: UpdateConfigPayload,
+    db: Session = Depends(get_db),
+    current_user: UserAccount = Depends(get_current_user),
+):
+    """Update API configuration for the current user"""
+    config = db.query(APIConfig).filter(
+        APIConfig.id == config_id,
+        APIConfig.user_id == str(current_user.id),
+    ).first()
     if not config:
         raise HTTPException(status_code=404, detail="Configuration not found")
     
@@ -536,6 +559,7 @@ async def update_config(config_id: int, payload: UpdateConfigPayload, db: Sessio
         if payload.is_default:
             # Unset other defaults
             db.query(APIConfig).filter(
+                APIConfig.user_id == str(current_user.id),
                 APIConfig.provider_type == config.provider_type,
                 APIConfig.id != config_id,
                 APIConfig.is_default == True
@@ -589,9 +613,16 @@ async def update_config(config_id: int, payload: UpdateConfigPayload, db: Sessio
 
 
 @router.delete("/{config_id}")
-async def delete_config(config_id: int, db: Session = Depends(get_db)):
-    """Delete API configuration"""
-    config = db.query(APIConfig).filter(APIConfig.id == config_id).first()
+async def delete_config(
+    config_id: int,
+    db: Session = Depends(get_db),
+    current_user: UserAccount = Depends(get_current_user),
+):
+    """Delete API configuration for the current user"""
+    config = db.query(APIConfig).filter(
+        APIConfig.id == config_id,
+        APIConfig.user_id == str(current_user.id),
+    ).first()
     if not config:
         raise HTTPException(status_code=404, detail="Configuration not found")
     
@@ -605,9 +636,16 @@ async def delete_config(config_id: int, db: Session = Depends(get_db)):
 
 
 @router.post("/{config_id}/test")
-async def test_config(config_id: int, db: Session = Depends(get_db)):
-    """Test API configuration by making a test API call"""
-    config = db.query(APIConfig).filter(APIConfig.id == config_id).first()
+async def test_config(
+    config_id: int,
+    db: Session = Depends(get_db),
+    current_user: UserAccount = Depends(get_current_user),
+):
+    """Test API configuration for the current user by making a test API call"""
+    config = db.query(APIConfig).filter(
+        APIConfig.id == config_id,
+        APIConfig.user_id == str(current_user.id),
+    ).first()
     if not config:
         raise HTTPException(status_code=404, detail="Configuration not found")
     

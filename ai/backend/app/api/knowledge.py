@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Header, HTTPException, Depends
 from pydantic import BaseModel
 from typing import Optional, List, Dict
+from threading import Thread
 import os
 from app.services.knowledge_service import (
     query_tickets,
@@ -19,13 +20,14 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-# Start background reindexer on module load
-start_reindexer(interval_seconds=24 * 60 * 60)  # Daily reindex
-# Also do initial index
-try:
-    index_all_connectors()
-except Exception as e:
-    logger.warning(f"Initial knowledge index failed: {e}")
+start_reindexer(interval_seconds=24 * 60 * 60)
+def _initial_index():
+    try:
+        index_all_connectors()
+    except Exception as e:
+        logger.warning(f"Initial knowledge index failed: {e}")
+
+Thread(target=_initial_index, daemon=True).start()
 
 
 class QueryPayload(BaseModel):

@@ -30,6 +30,8 @@ from app.services.context_analyzer import (
     should_create_ticket,
     generate_contextual_response
 )
+from app.services.knowledge_service import query_with_solution
+from app.services.language_detection import detect_ticket_intent_multilang
 from app.db.session import SessionLocal, get_db
 from app.utils.subscription import consume_tool_tokens
 from sqlalchemy.orm import Session
@@ -47,6 +49,7 @@ class ChatPayload(BaseModel):
     connector_type: Optional[str] = None  # jira, zendesk, etc.
     conversation_history: Optional[List[Dict]] = None
     attachments: Optional[List[str]] = None
+    session_id: Optional[str] = None
 
 
 @router.get("/stream")
@@ -108,6 +111,7 @@ async def handle_chat(payload: ChatPayload):
     message = payload.message
     connector_type = payload.connector_type
     conversation_history = payload.conversation_history or []
+    session_id = payload.session_id or f"chat_{user_id}"
     
     # Check tool operation mode
     from app.core.tool_registry import get_tool
@@ -120,17 +124,12 @@ async def handle_chat(payload: ChatPayload):
     if operation_mode == "independent":
         connector_type = None
         
-    # ENTERPRISE FEATURE: Agent Routing
-    # Check if we should route to an Agent instead of hardcoded logic
     agent_id = tool_entry.metadata.get("agent_id") if tool_entry else None
-    
-    # Fallback: Check if we have a "Voice Agent" for testing purposes if not explicitly configured
     if not agent_id and operation_mode == "integrated":
         try:
             from app.db.models.agent import Agent
             db_temp = SessionLocal()
             try:
-                # Look for an agent with "voice" in the name or description
                 voice_agent = db_temp.query(Agent).filter(
                     (Agent.name.ilike("%voice%")) | (Agent.description.ilike("%voice%"))
                 ).first()
@@ -141,79 +140,6 @@ async def handle_chat(payload: ChatPayload):
         except Exception:
             pass
 
-    if agent_id:
-        try:
-            from app.services.agent_executor import AgentExecutor
-            from app.db.models.agent import Agent, AgentConversation
-            import uuid
-            
-            db = SessionLocal()
-            try:
-                agent = db.query(Agent).filter(Agent.id == agent_id).first()
-                
-                if agent and agent.is_active:
-                    # Create/Get conversation
-                    # Use a stable session ID for the user to maintain context
-                    session_id = f"chat_{user_id}"
-                    
-                    conversation = db.query(AgentConversation).filter(
-                        AgentConversation.agent_id == agent.id,
-                        AgentConversation.session_id == session_id,
-                        AgentConversation.is_active == True
-                    ).first()
-                    
-                    if not conversation:
-                        conversation = AgentConversation(
-                            agent_id=agent.id,
-                            session_id=session_id,
-                            channel="chat",
-                            context={"user_id": user_id, "source": "customer_service_chat"}
-                        )
-                        db.add(conversation)
-                        db.commit()
-                        db.refresh(conversation)
-                    
-                    # Execute Agent
-                    executor = AgentExecutor(agent.id, db)
-                    
-                    # Pass context variables
-                    context = {
-                        "user_id": user_id, 
-                        "channel": "chat",
-                        "message": message,
-                        "conversation_history": conversation_history
-                    }
-                    
-                    result = await executor.execute(
-                        message, 
-                        conversation.id,
-                        context=context
-                    )
-                    
-                    # Format response to match expected Chat structure
-                    response_text = result.get("response", "")
-                    metadata = result.get("metadata", {})
-                    
-                    # Construct response
-                    chat_response = {
-                        "type": "AGENT_RESPONSE",
-                        "message": response_text,
-                        "metadata": metadata, # Pass metadata for voice/streaming
-                        "ticket_created": False,
-                        # Map some metadata to root fields if needed
-                        "tone": metadata.get("tone", "neutral"),
-                        "steps": metadata.get("steps", [])
-                    }
-                    
-                    return chat_response
-            finally:
-                db.close()
-                
-        except Exception as e:
-            logger.error(f"Error executing agent {agent_id}: {e}", exc_info=True)
-            # Fallback to standard logic if agent execution fails
-
-    
     if not user_id or not message:
         return {
             "type": "INVALID_REQUEST",
@@ -225,9 +151,79 @@ async def handle_chat(payload: ChatPayload):
     
     # Analyze user's intent
     intent = analyze_user_intent(message, conversation_history)
+    agent_intent = detect_ticket_intent_multilang(message)
+    wants_agent = agent_intent.get("needs_agent", False)
     
     # Generate contextual, polite response
     contextual_response = generate_contextual_response(message, conversation_history, tone_analysis, intent)
+
+    def has_basic_troubleshooting(history: List[Dict]) -> bool:
+        for msg in reversed(history or []):
+            if msg.get("role") == "assistant":
+                data = msg.get("data", {}) or {}
+                if data.get("type") in ["TROUBLESHOOTING", "QUESTION_FLOW", "TICKET_CREATED", "TICKET_UPDATED"]:
+                    return True
+                text = (msg.get("text") or "").lower()
+                if "here's what you can try" in text or "steps that might help" in text:
+                    return True
+        return False
+
+    def build_human_message(
+        base_text: str,
+        solution_text: Optional[str],
+        followups: List[str],
+        info: Dict,
+        used_web_sources: bool,
+        mention_agent_after_basics: bool,
+        include_solution: bool
+    ) -> str:
+        message_text = base_text.strip()
+        if include_solution and solution_text:
+            message_text = f"{message_text}\n\n{solution_text}"
+        if include_solution and used_web_sources:
+            message_text = f"{message_text}\n\nI checked similar cases and a couple public references to guide the next steps."
+        missing_questions = []
+        if not info.get("error_message"):
+            missing_questions.append("What exact behavior do you see when you try to power it on?")
+        if not info.get("start_time"):
+            missing_questions.append("When did this start happening?")
+        if not info.get("steps_tried"):
+            missing_questions.append("What have you already tried (charging, buttons, another charger)?")
+        if not info.get("device_info"):
+            missing_questions.append("What phone model and OS version are you on?")
+        questions = followups[:3] if followups else missing_questions[:3]
+        if questions:
+            message_text += "\n\nA couple quick questions so I can narrow this down:"
+            for q in questions:
+                message_text += f"\n- {q}"
+        if include_solution:
+            message_text += "\n\nIf you can share a photo of the screen or any lights/vibrations, that helps a lot."
+        if mention_agent_after_basics:
+            message_text += "\n\nIf you’d like, I can connect you to an agent after we try the basics."
+        return message_text
+
+    basic_done = has_basic_troubleshooting(conversation_history)
+    has_question_flow = any(
+        msg.get("role") == "assistant" and msg.get("data", {}).get("type") == "QUESTION_FLOW"
+        for msg in conversation_history or []
+    )
+    user_id_int = None
+    try:
+        user_id_int = int(user_id)
+    except Exception:
+        user_id_int = None
+    knowledge_solution = None
+    try:
+        knowledge_solution = await query_with_solution(
+            message,
+            limit=3,
+            conversation_history=conversation_history,
+            user_id=user_id_int
+        )
+        if knowledge_solution and knowledge_solution.get("type") == "ROUTE_TO_CUSTOMER_SERVICE":
+            knowledge_solution = None
+    except Exception as e:
+        logger.warning(f"Customer service knowledge lookup failed: {e}")
     
     # Check if there's already an active ticket for this user
     db = SessionLocal()
@@ -267,12 +263,149 @@ async def handle_chat(payload: ChatPayload):
         # Perform basic troubleshooting
         troubleshooting = perform_basic_troubleshooting(message)
         
-        # Determine if ticket should be created based on intent and tone
-        should_create = should_create_ticket(message, conversation_history, intent)
+        user_unhappy = any(
+            phrase in message.lower()
+            for phrase in ["still not working", "not working", "didn't work", "doesn't work", "not resolved", "not fixed", "not helping"]
+        )
+        should_create = should_create_ticket(message, conversation_history, intent) or wants_agent or user_unhappy
         
         # Determine priority from tone (urgent, high, medium, low)
         priority = determine_priority_from_tone(tone_analysis)
         
+        solution_text = knowledge_solution.get("solution") if knowledge_solution else None
+        followups = knowledge_solution.get("follow_up_questions") if knowledge_solution else []
+        used_web_sources = False
+        if knowledge_solution and knowledge_solution.get("results"):
+            used_web_sources = any(r.get("source_type") == "web_search" for r in knowledge_solution.get("results", []))
+
+        if wants_agent:
+            try:
+                from app.services.routing_service import RoutingService
+                from app.schemas.node_configs import HandoffNodeConfig
+                from app.db.models.agent import Agent, AgentConversation, AgentMessage
+
+                agent_for_conversation = agent_id
+                if not agent_for_conversation:
+                    agent_record = db.query(Agent).filter(Agent.is_active == True).first()
+                    if agent_record:
+                        agent_for_conversation = agent_record.id
+                if not agent_for_conversation:
+                    agent_record = db.query(Agent).first()
+                    if agent_record:
+                        agent_for_conversation = agent_record.id
+
+                if agent_for_conversation:
+                    channel = "call" if connector_type == "call" else "chat"
+                    conversation = db.query(AgentConversation).filter(
+                        AgentConversation.session_id == session_id,
+                        AgentConversation.is_active == True
+                    ).first()
+                    if not conversation:
+                        conversation = AgentConversation(
+                            agent_id=agent_for_conversation,
+                            session_id=session_id,
+                            channel=channel,
+                            context={"user_id": user_id, "source": "customer_service_chat"}
+                        )
+                        db.add(conversation)
+                        db.commit()
+                        db.refresh(conversation)
+
+                    existing_messages = db.query(AgentMessage).filter(
+                        AgentMessage.conversation_id == conversation.id
+                    ).order_by(AgentMessage.created_at.asc(), AgentMessage.id.asc()).all()
+
+                    if conversation_history:
+                        history_entries = []
+                        history_pairs = []
+                        for entry in conversation_history:
+                            role = (entry.get("role") or "").lower()
+                            content = entry.get("text") or entry.get("content")
+                            if not content:
+                                continue
+                            if role == "agent":
+                                normalized_role = "agent"
+                            elif role == "assistant":
+                                normalized_role = "assistant"
+                            else:
+                                normalized_role = "user"
+                            history_pairs.append((normalized_role, content))
+                            history_entries.append(AgentMessage(
+                                conversation_id=conversation.id,
+                                role=normalized_role,
+                                content=content
+                            ))
+
+                        if history_pairs:
+                            existing_pairs = [(msg.role, msg.content) for msg in existing_messages]
+                            if not existing_pairs:
+                                db.add_all(history_entries)
+                                db.commit()
+                            elif existing_pairs[:len(history_pairs)] == history_pairs:
+                                if len(existing_pairs) < len(history_pairs):
+                                    missing_entries = history_entries[len(existing_pairs):]
+                                    if missing_entries:
+                                        db.add_all(missing_entries)
+                                        db.commit()
+                            else:
+                                db.query(AgentMessage).filter(
+                                    AgentMessage.conversation_id == conversation.id
+                                ).delete()
+                                db.add_all(history_entries)
+                                db.commit()
+
+                    message_entry = AgentMessage(
+                        conversation_id=conversation.id,
+                        role="user",
+                        content=message
+                    )
+                    db.add(message_entry)
+                    db.commit()
+
+                priority_map = {"urgent": 10, "high": 7, "medium": 5, "low": 3}
+                numeric_priority = priority_map.get(priority, 5)
+
+                node_config = HandoffNodeConfig(
+                    queue_name="default",
+                    priority=numeric_priority,
+                    required_skills=[],
+                    handoff_message="Please hold while I connect you to a live agent...",
+                    timeout_seconds=300,
+                    timeout_action="voicemail"
+                )
+
+                context = {
+                    "user_id": user_id,
+                    "channel": "call" if connector_type == "call" else "chat",
+                    "message": message,
+                    "conversation_history": conversation_history,
+                    "connector_type": connector_type
+                }
+
+                enqueued = await RoutingService.enqueue_call(session_id, node_config, context)
+                if not enqueued:
+                    return {
+                        "type": "AGENT_REQUEST_FAILED",
+                        "message": "Live agent routing is unavailable. Please ensure Redis is running for queueing.",
+                        "session_id": session_id,
+                        "ticket_created": False
+                    }
+
+                return {
+                    "type": "AGENT_REQUESTED",
+                    "message": "I'm connecting you to a live agent now. You'll see them join shortly.",
+                    "session_id": session_id,
+                    "ticket_created": False
+                }
+            except Exception as e:
+                logger.error(f"Error enqueuing agent request for {session_id}: {e}", exc_info=True)
+                return {
+                    "type": "AGENT_REQUEST_FAILED",
+                    "message": "Live agent routing is unavailable. Please ensure Redis is running for queueing.",
+                    "session_id": session_id,
+                    "ticket_created": False
+                }
+
         # Step 1: Check for similar previous tickets
         similar_tickets = []
         history_response = None
@@ -350,7 +483,15 @@ async def handle_chat(payload: ChatPayload):
                     "type": "TICKET_UPDATED",
                     "ticket_id": existing_ticket.id,
                     "assigned_to": existing_ticket.assigned_to,
-                    "message": contextual_response,
+                    "message": build_human_message(
+                        contextual_response,
+                        solution_text,
+                        followups,
+                        customer_info,
+                        used_web_sources,
+                        wants_agent and not basic_done,
+                        basic_done
+                    ),
                     "troubleshooting": {
                         "steps": troubleshooting.get("steps", []),
                         "potential_solution": troubleshooting.get("potential_solution")
@@ -425,7 +566,15 @@ async def handle_chat(payload: ChatPayload):
                         next_question = questions[next_question_index]
                         return {
                             "type": "QUESTION_FLOW",
-                            "message": contextual_response,
+                            "message": build_human_message(
+                                contextual_response,
+                                solution_text,
+                                followups,
+                                customer_info,
+                                used_web_sources,
+                                wants_agent and not basic_done,
+                                basic_done
+                            ),
                             "next_question": next_question,
                             "issue_type": issue_type,
                             "severity": question_flow_state.get("severity", "medium"),
@@ -459,7 +608,7 @@ async def handle_chat(payload: ChatPayload):
                                 "type": "TICKET_CREATED",
                                 "ticket_id": ticket.id,
                                 "assigned_to": ticket.assigned_to,
-                                "message": f"{contextual_response} I've created your ticket and it has been forwarded to our team for resolution.",
+                                "message": f"{build_human_message(contextual_response, solution_text, followups, customer_info, used_web_sources, False, True)}\n\nI've created your ticket and it has been forwarded to our team for resolution.",
                                 "troubleshooting": {
                                     "steps": troubleshooting.get("steps", []),
                                     "potential_solution": troubleshooting.get("potential_solution")
@@ -542,7 +691,7 @@ async def handle_chat(payload: ChatPayload):
                         "type": "TICKET_CREATED",
                         "ticket_id": ticket.id,
                         "assigned_to": ticket.assigned_to,
-                        "message": f"{contextual_response} I've created your ticket and it will be forwarded to our team for resolution.",
+                        "message": f"{build_human_message(contextual_response, solution_text, followups, customer_info, used_web_sources, False, True)}\n\nI've created your ticket and it will be forwarded to our team for resolution.",
                         "troubleshooting": {
                             "steps": troubleshooting.get("steps", []),
                             "potential_solution": troubleshooting.get("potential_solution")
@@ -566,7 +715,15 @@ async def handle_chat(payload: ChatPayload):
                     if suggested_questions and not next_question:
                         next_question = suggested_questions[0] if suggested_questions else template_result["next_question"]
                     
-                    message_text = f"{contextual_response} To help you better, I need to gather some information."
+                    message_text = build_human_message(
+                        contextual_response,
+                        solution_text,
+                        followups,
+                        customer_info,
+                        used_web_sources,
+                        wants_agent and not basic_done,
+                        basic_done
+                    )
                     if history_response and history_response.get("is_similar"):
                         message_text = f"{history_response.get('response', contextual_response)}"
                     
@@ -601,7 +758,15 @@ async def handle_chat(payload: ChatPayload):
             # Provide helpful response without creating ticket
             return {
                 "type": "TROUBLESHOOTING",
-                "message": contextual_response + " " + (troubleshooting.get("potential_solution", "") or "Let me help you with that."),
+                "message": build_human_message(
+                    contextual_response,
+                    solution_text,
+                    followups,
+                    customer_info,
+                    used_web_sources,
+                    wants_agent and not basic_done,
+                    basic_done or has_question_flow
+                ),
                 "steps": troubleshooting.get("steps", []),
                 "ticket_created": False,
                 "tone": tone_analysis["tone"]

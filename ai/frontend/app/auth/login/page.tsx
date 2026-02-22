@@ -101,10 +101,11 @@ function LoginContent() {
   };
 
   const googleLoginAction = useGoogleLogin({
+    scope: "openid email profile https://www.googleapis.com/auth/gmail.send",
     onSuccess: async (tokenResponse) => {
-        handleGoogleAuth(tokenResponse.access_token);
+      handleGoogleAuth(tokenResponse.access_token);
     },
-    onError: () => setError('Google Login Failed'),
+    onError: () => setError("Google Login Failed"),
   });
 
   const handleGoogleAuth = async (token: string) => {

@@ -22,6 +22,7 @@ from app.db.models import audit
 # HR models
 from app.db.models import hr
 from app.db.models import crm
+from app.db.models import voice
 
 def init_db():
     """

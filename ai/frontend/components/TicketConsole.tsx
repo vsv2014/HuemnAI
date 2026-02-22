@@ -116,6 +116,8 @@ export default function TicketConsole() {
         params.include_unassigned = true;
       } else if (filterStatus !== "all") {
         params.status = filterStatus;
+      } else {
+        params.include_unassigned = true;
       }
 
       const response = await getAgentTickets(token, params);

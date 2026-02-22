@@ -1,4 +1,4 @@
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE || 'http://localhost:8000';
+const API_BASE = process.env.NEXT_PUBLIC_API_URL;
 
 export async function getJobs(token: string, query?: string) {
     try {
@@ -102,6 +102,29 @@ export async function postEmail(email: { title: string; content: string; email_a
             },
             body: JSON.stringify(email)
         });
+        return await res.json();
+    } catch (err) {
+        console.error(err);
+        return { success: false, error: "Network error" };
+    }
+}
+
+export async function sendHREmail(emailId: number, token: string, googleAccessToken?: string) {
+    try {
+        const res = await fetch(`${API_BASE}/api/hr/emails/${emailId}/send`, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${token}`
+            },
+            body: JSON.stringify({
+                google_access_token: googleAccessToken || null
+            })
+        });
+        if (!res.ok) {
+            const text = await res.text();
+            throw new Error(text || "Failed to send HR email");
+        }
         return await res.json();
     } catch (err) {
         console.error(err);

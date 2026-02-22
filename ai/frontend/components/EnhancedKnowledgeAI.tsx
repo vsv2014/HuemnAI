@@ -121,7 +121,7 @@ export default function EnhancedKnowledgeAI({ embedded = false }: { embedded?: b
   const [sourcesLoading, setSourcesLoading] = useState(false);
   const [showAddSource, setShowAddSource] = useState(false);
   const [newSourceName, setNewSourceName] = useState("");
-  const [newSourceUrl, setNewSourceUrl] = useState("");
+  const newSourceUrlRef = useRef<HTMLInputElement>(null);
   const [newSourceType, setNewSourceType] = useState<"website" | "document">("website");
   const [autoCrawl, setAutoCrawl] = useState(false);
   const [uploadingFile, setUploadingFile] = useState(false);
@@ -205,7 +205,7 @@ export default function EnhancedKnowledgeAI({ embedded = false }: { embedded?: b
     setConversationHistory(nextHistory);
 
     try {
-      const res = await chatWithKnowledge(searchQuery, nextHistory, token);
+      const res = await chatWithKnowledge(searchQuery, token, currentConversationId);
       
       if (res.conversation_id) {
         setCurrentConversationId(res.conversation_id);
@@ -230,44 +230,58 @@ export default function EnhancedKnowledgeAI({ embedded = false }: { embedded?: b
     }
   };
 
+  const handleSourceTypeChange = (value: "website" | "document") => {
+    setNewSourceType(value);
+    setAutoCrawl(false);
+    if (newSourceUrlRef.current) {
+      newSourceUrlRef.current.value = "";
+    }
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
+  };
+
   const handleAddSource = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!token) return;
 
     try {
       let res;
-      if (newSourceType === "document" && fileInputRef.current?.files?.[0]) {
-        setUploadingFile(true);
-        const createRes = await createKnowledgeSource({
-          name: newSourceName,
-          source_type: "document",
-          auto_crawl: false
-        }, token);
-        
-        if (createRes.success && createRes.id) {
-          const formData = new FormData();
-          formData.append("file", fileInputRef.current.files[0]);
-          formData.append("name", newSourceName);
-          formData.append("auto_crawl", "false");
-          formData.append("source_id", createRes.id.toString());
-          res = await uploadKnowledgeDocument(formData, token);
-        } else {
-          res = { error: "Failed to create source container" };
+      if (newSourceType === "document") {
+        const file = fileInputRef.current?.files?.[0];
+        if (!file) {
+          alert("Please select a document to upload.");
+          return;
         }
+        const extension = file.name.split(".").pop()?.toLowerCase();
+        const supportedExtensions = ["pdf", "doc", "docx", "txt", "md", "html", "csv", "json"];
+        if (!extension || !supportedExtensions.includes(extension)) {
+          alert("Unsupported file type. Please upload PDF, DOC, DOCX, TXT, MD, HTML, CSV, or JSON.");
+          return;
+        }
+        setUploadingFile(true);
+        const formData = new FormData();
+        formData.append("file", file);
+        formData.append("name", newSourceName);
+        formData.append("auto_crawl", String(autoCrawl));
+        res = await uploadKnowledgeDocument(formData, token);
         setUploadingFile(false);
       } else {
+        const urlValue = newSourceUrlRef.current?.value?.trim() || "";
         res = await createKnowledgeSource({
           name: newSourceName,
           source_type: newSourceType,
-          url: newSourceUrl,
+          url: urlValue,
           auto_crawl: autoCrawl
         }, token);
       }
 
       if (res.success) {
         setNewSourceName("");
-        setNewSourceUrl("");
         setAutoCrawl(false);
+        if (newSourceUrlRef.current) {
+          newSourceUrlRef.current.value = "";
+        }
         setShowAddSource(false);
         await loadSources();
         if (res.source?.id) {
@@ -679,7 +693,7 @@ export default function EnhancedKnowledgeAI({ embedded = false }: { embedded?: b
                     <label className="block text-sm font-medium text-white/60 mb-1">Type</label>
                     <select
                       value={newSourceType}
-                      onChange={(e) => setNewSourceType(e.target.value as any)}
+                      onChange={(e) => handleSourceTypeChange(e.target.value as "website" | "document")}
                       className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-blue-500"
                     >
                       <option value="website">Website URL</option>
@@ -693,8 +707,7 @@ export default function EnhancedKnowledgeAI({ embedded = false }: { embedded?: b
                       <input
                         required
                         type="url"
-                        value={newSourceUrl}
-                        onChange={(e) => setNewSourceUrl(e.target.value)}
+                        ref={newSourceUrlRef}
                         className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-blue-500"
                         placeholder="https://..."
                       />
@@ -716,7 +729,7 @@ export default function EnhancedKnowledgeAI({ embedded = false }: { embedded?: b
                         required
                         type="file"
                         ref={fileInputRef}
-                        accept=".pdf,.docx,.txt,.md"
+                        accept=".pdf,.doc,.docx,.txt,.md,.html,.csv,.json"
                         className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-blue-500 file:mr-4 file:py-1 file:px-3 file:rounded-md file:border-0 file:text-xs file:font-semibold file:bg-blue-500 file:text-white hover:file:bg-blue-600"
                       />
                     </div>

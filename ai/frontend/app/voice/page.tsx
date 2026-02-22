@@ -21,6 +21,8 @@ import { useAuthStore } from "@/store/authStore";
 import { getVoiceProfiles, deleteVoiceProfile, cloneVoice, updateVoiceProfile, syncHuemnVoices, startToolSession } from "@/services/api";
 import TrialBanner from "@/components/TrialBanner";
 
+const API_BASE = process.env.NEXT_PUBLIC_API_URL;
+
 const containerVariants = {
   hidden: { opacity: 0 },
   visible: {
@@ -57,6 +59,8 @@ interface VoiceProfile {
   id: number;
   name: string;
   description: string;
+  greeting_script?: string;
+  greeting_audio_url?: string;
   provider: string;
   provider_voice_id: string;
   category: string;
@@ -212,6 +216,12 @@ const VoiceCard = ({
             />
           </div>
         </div>
+        {profile.greeting_script && (
+          <div className="text-[11px] text-white/50">
+            <span className="text-white/40">Greeting:</span>{" "}
+            <span className="line-clamp-2">{profile.greeting_script}</span>
+          </div>
+        )}
       </div>
 
       <div className="flex items-center justify-between pt-3 border-t border-white/5">
@@ -287,11 +297,15 @@ export default function VoiceStudio() {
   // Clone Form State
   const [cloneName, setCloneName] = useState("");
   const [cloneDesc, setCloneDesc] = useState("");
+  const [cloneGreeting, setCloneGreeting] = useState("");
   const [cloneFiles, setCloneFiles] = useState<File[]>([]);
+  const [cloneConsent, setCloneConsent] = useState(false);
+  const [cloneError, setCloneError] = useState("");
   const [cloning, setCloning] = useState(false);
 
   // Settings Form State
-  const [settingsForm, setSettingsForm] = useState<VoiceSettings>({ stability: 0.5, similarity_boost: 0.75 });
+  const [settingsForm, setSettingsForm] = useState<VoiceSettings>({ stability: 0.5, similarity_boost: 0.75, style: 0.2, use_speaker_boost: true });
+  const [settingsGreeting, setSettingsGreeting] = useState("");
   const [savingSettings, setSavingSettings] = useState(false);
 
   // --- Effects ---
@@ -332,6 +346,38 @@ export default function VoiceStudio() {
 
   const showToast = (message: string, type: 'success' | 'error') => {
     setToast({ message, type });
+  };
+
+  const formatBytes = (bytes: number) => {
+    if (!bytes) return "0 B";
+    const sizes = ["B", "KB", "MB", "GB"];
+    const i = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), sizes.length - 1);
+    return `${(bytes / Math.pow(1024, i)).toFixed(i === 0 ? 0 : 1)} ${sizes[i]}`;
+  };
+
+  const handleCloneFilesChange = (files: FileList | null) => {
+    if (!files) return;
+    setCloneError("");
+    const selected = Array.from(files);
+    const maxBytes = 6 * 1024 * 1024;
+    const allowedExtensions = [".mp3", ".wav", ".m4a", ".aac", ".flac", ".ogg", ".opus", ".mp4"];
+    const valid = selected.filter((file) => {
+      const lowerName = file.name.toLowerCase();
+      const hasAllowedExtension = allowedExtensions.some((ext) => lowerName.endsWith(ext));
+      const isAudioType = file.type ? file.type.startsWith("audio/") : false;
+      const isVideoMp4 = file.type === "video/mp4" || lowerName.endsWith(".mp4");
+      return (isAudioType || isVideoMp4 || hasAllowedExtension) && file.size <= maxBytes;
+    });
+    if (valid.length === 0 && selected.length > 0) {
+      setCloneError("Only audio or MP4 files up to 6MB are allowed.");
+    } else if (valid.length !== selected.length) {
+      setCloneError("Some files were skipped. Only audio or MP4 files up to 6MB are allowed.");
+    }
+    setCloneFiles(valid);
+  };
+
+  const handleRemoveCloneFile = (index: number) => {
+    setCloneFiles((prev) => prev.filter((_, i) => i !== index));
   };
 
   const loadProfiles = async () => {
@@ -390,13 +436,22 @@ export default function VoiceStudio() {
     } else {
       // Play new
       if (audioRef.current) audioRef.current.pause();
-      
-      if (!profile.sample_url) {
+
+      const previewUrl = profile.greeting_audio_url
+        || (profile.provider === "local"
+          ? profile.sample_url
+          : (profile.greeting_script
+            ? `${API_BASE}/api/voice/twilio-speak?text=${encodeURIComponent(profile.greeting_script)}&voice_id=${encodeURIComponent(profile.provider_voice_id)}`
+            : profile.sample_url));
+      if (!previewUrl) {
         showToast("No preview available for this voice", 'error');
         return;
       }
 
-      const audio = new Audio(profile.sample_url);
+      const sampleUrl = previewUrl.startsWith("http")
+        ? previewUrl
+        : `${API_BASE}${previewUrl.startsWith("/") ? "" : "/"}${previewUrl}`;
+      const audio = new Audio(sampleUrl);
       audioRef.current = audio;
       audio.play().catch(e => showToast("Failed to play audio", 'error'));
       setPlayingId(profile.id);
@@ -411,15 +466,25 @@ export default function VoiceStudio() {
       showToast("Please upload at least one sample", 'error');
       return;
     }
+    if (!cloneGreeting.trim()) {
+      showToast("Please add a greeting script", 'error');
+      return;
+    }
+    if (!cloneConsent) {
+      showToast("Please confirm you have consent to use these samples", 'error');
+      return;
+    }
 
     setCloning(true);
     try {
-      const res = await cloneVoice(cloneName, cloneDesc, cloneFiles, token!);
+      const res = await cloneVoice(cloneName, cloneDesc, cloneGreeting.trim(), cloneFiles, token!);
       if (res.success) {
         setShowCloneModal(false);
         setCloneName("");
         setCloneDesc("");
+        setCloneGreeting("");
         setCloneFiles([]);
+        setCloneConsent(false);
         loadProfiles();
         showToast("Voice cloned successfully!", 'success');
       } else {
@@ -433,7 +498,8 @@ export default function VoiceStudio() {
   };
 
   const openSettings = (profile: VoiceProfile) => {
-    setSettingsForm(profile.settings || { stability: 0.5, similarity_boost: 0.75 });
+    setSettingsForm(profile.settings || { stability: 0.5, similarity_boost: 0.75, style: 0.2, use_speaker_boost: true });
+    setSettingsGreeting(profile.greeting_script || "");
     setShowSettingsModal(profile);
   };
 
@@ -441,10 +507,10 @@ export default function VoiceStudio() {
     if (!showSettingsModal) return;
     setSavingSettings(true);
     try {
-      const res = await updateVoiceProfile(showSettingsModal.id, { settings: settingsForm }, token!);
+      const res = await updateVoiceProfile(showSettingsModal.id, { settings: settingsForm, greeting_script: settingsGreeting.trim() }, token!);
       if (res.success || !res.error) { // Handling different response structures
         setProfiles(prev => prev.map(p => 
-          p.id === showSettingsModal.id ? { ...p, settings: settingsForm } : p
+          p.id === showSettingsModal.id ? { ...p, settings: settingsForm, greeting_script: settingsGreeting.trim() } : p
         ));
         setShowSettingsModal(null);
         showToast("Settings updated", 'success');
@@ -547,7 +613,14 @@ export default function VoiceStudio() {
               <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" /></svg>
             </div>
             <h3 className="text-lg font-medium text-white mb-1">No voices found</h3>
-            <p className="text-white/40">Try adjusting your filters or clone a new voice.</p>
+            <p className="text-white/40">Try adjusting your filters or clone a new Huemn voice.</p>
+            <button
+              onClick={() => setShowCloneModal(true)}
+              className="mt-4 px-5 py-2 bg-indigo-600 hover:bg-indigo-500 rounded-lg text-white font-medium shadow-lg shadow-indigo-500/25 transition-all inline-flex items-center gap-2"
+            >
+              <PlusIcon />
+              <span>Clone Voice</span>
+            </button>
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
@@ -586,7 +659,7 @@ export default function VoiceStudio() {
             >
               <div className="p-6 border-b border-white/5">
                 <h2 className="text-xl font-bold text-white">Clone a New Voice</h2>
-                <p className="text-sm text-white/50">Upload clear audio samples to generate a custom voice.</p>
+                <p className="text-sm text-white/50">Upload clear audio samples to generate a custom Huemn voice.</p>
               </div>
               
               <form onSubmit={handleCloneSubmit} className="p-6 space-y-4">
@@ -608,12 +681,22 @@ export default function VoiceStudio() {
                 </div>
 
                 <div>
+                  <label className="block text-sm font-medium text-white/70 mb-1">Greeting Script</label>
+                  <textarea 
+                    required
+                    className="w-full bg-black/20 border border-white/10 rounded-lg px-4 py-2 text-white focus:border-indigo-500/50 focus:outline-none h-24 resize-none"
+                    value={cloneGreeting} onChange={e => setCloneGreeting(e.target.value)}
+                    placeholder="Welcome to Huemn. How can I help you today?"
+                  />
+                </div>
+
+                <div>
                   <label className="block text-sm font-medium text-white/70 mb-1">Audio Samples</label>
                   <div className="border-2 border-dashed border-white/10 rounded-lg p-6 text-center hover:bg-white/5 transition-colors cursor-pointer relative">
                     <input 
-                      type="file" multiple accept="audio/*"
+                      type="file" multiple accept="audio/*,.mp3,.wav,.m4a,.aac,.flac,.ogg,.opus,.mp4"
                       className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                      onChange={e => setCloneFiles(Array.from(e.target.files || []))}
+                      onChange={e => handleCloneFilesChange(e.target.files)}
                     />
                     <div className="text-indigo-400 mb-2">
                       <svg className="w-8 h-8 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" /></svg>
@@ -623,9 +706,57 @@ export default function VoiceStudio() {
                         ? `${cloneFiles.length} files selected` 
                         : "Drag & drop or click to upload"}
                     </p>
-                    <p className="text-xs text-white/30 mt-1">MP3, WAV, M4A up to 10MB</p>
+                    <p className="text-xs text-white/30 mt-1">MP3, WAV, M4A, MP4 up to 6MB</p>
                   </div>
                 </div>
+
+                {cloneError && (
+                  <div className="text-xs text-red-300 bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2">
+                    {cloneError}
+                  </div>
+                )}
+
+                {cloneFiles.length > 0 && (
+                  <div className="space-y-2 border border-white/10 rounded-lg p-3 bg-white/5">
+                    <div className="flex items-center justify-between text-xs text-white/50">
+                      <span>Selected samples</span>
+                      <span>{formatBytes(cloneFiles.reduce((sum, file) => sum + file.size, 0))}</span>
+                    </div>
+                    <div className="max-h-24 overflow-y-auto space-y-1 pr-1">
+                      {cloneFiles.map((file, index) => (
+                        <div key={`${file.name}-${index}`} className="flex items-center justify-between text-xs bg-black/20 rounded-md px-2 py-1">
+                          <span className="truncate">{file.name}</span>
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveCloneFile(index)}
+                            className="text-white/40 hover:text-red-300"
+                          >
+                            <Trash2 size={12} />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <div className="rounded-lg border border-white/10 bg-white/5 p-3 text-xs text-white/50 space-y-1">
+                  <div className="text-white/70 font-medium">Sample quality checklist</div>
+                  <ul className="list-disc list-inside space-y-1">
+                    <li>Single speaker with minimal background noise</li>
+                    <li>Natural pacing with a mix of sentences</li>
+                    <li>Longer samples improve accuracy and stability</li>
+                  </ul>
+                </div>
+
+                <label className="flex items-start gap-2 text-xs text-white/60">
+                  <input
+                    type="checkbox"
+                    checked={cloneConsent}
+                    onChange={(e) => setCloneConsent(e.target.checked)}
+                    className="mt-0.5 accent-indigo-500"
+                  />
+                  I confirm I have consent to use these audio samples and follow Huemn voice policy.
+                </label>
 
                 <div className="flex justify-end gap-3 pt-4">
                   <button 
@@ -637,7 +768,7 @@ export default function VoiceStudio() {
                   </button>
                   <button 
                     type="submit"
-                    disabled={cloning}
+                    disabled={cloning || !cloneConsent}
                     className="px-6 py-2 bg-indigo-600 hover:bg-indigo-500 rounded-lg text-white font-medium disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
                   >
                     {cloning && <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />}
@@ -670,6 +801,15 @@ export default function VoiceStudio() {
               
               <div className="p-6 space-y-6">
                 <div>
+                  <label className="text-sm font-medium text-white/80">Greeting Script</label>
+                  <textarea
+                    value={settingsGreeting}
+                    onChange={(e) => setSettingsGreeting(e.target.value)}
+                    className="mt-2 w-full bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-white focus:border-indigo-500/50 focus:outline-none h-24 resize-none"
+                  />
+                </div>
+
+                <div>
                   <div className="flex justify-between mb-2">
                     <label className="text-sm font-medium text-white/80">Stability</label>
                     <span className="text-sm text-indigo-400">{Math.round(settingsForm.stability * 100)}%</span>
@@ -696,6 +836,30 @@ export default function VoiceStudio() {
                   />
                   <p className="text-xs text-white/40 mt-1">Higher values match the original voice more closely.</p>
                 </div>
+
+                <div>
+                  <div className="flex justify-between mb-2">
+                    <label className="text-sm font-medium text-white/80">Style Intensity</label>
+                    <span className="text-sm text-pink-400">{Math.round((settingsForm.style ?? 0) * 100)}%</span>
+                  </div>
+                  <input
+                    type="range" min="0" max="1" step="0.01"
+                    className="w-full h-2 bg-white/10 rounded-lg appearance-none cursor-pointer accent-pink-500"
+                    value={settingsForm.style ?? 0}
+                    onChange={e => setSettingsForm({ ...settingsForm, style: parseFloat(e.target.value) })}
+                  />
+                  <p className="text-xs text-white/40 mt-1">Higher values add more expressive styling.</p>
+                </div>
+
+                <label className="flex items-center justify-between rounded-lg border border-white/10 bg-white/5 px-4 py-3 text-sm text-white/70">
+                  <span>Speaker Boost</span>
+                  <input
+                    type="checkbox"
+                    checked={settingsForm.use_speaker_boost ?? true}
+                    onChange={(e) => setSettingsForm({ ...settingsForm, use_speaker_boost: e.target.checked })}
+                    className="accent-indigo-500"
+                  />
+                </label>
 
                 <div className="flex justify-end gap-3 pt-4">
                   <button 

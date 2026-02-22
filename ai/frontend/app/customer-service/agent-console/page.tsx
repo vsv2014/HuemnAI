@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
-import { useRouter } from "next/navigation";
+import { useState, useEffect, useRef, useCallback } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Device, Call } from "@twilio/voice-sdk";
 import { useAuthStore } from "@/store/authStore";
 import { toast } from "react-hot-toast";
@@ -25,7 +25,7 @@ import EnhancedKnowledgeAI from "@/components/EnhancedKnowledgeAI";
 import ToolSwitcher from "@/components/ToolSwitcher";
 import ConnectorConfig from "@/components/ConnectorConfig";
 import ConnectorStatusDropdown from "@/components/ConnectorStatusDropdown";
-import { getAgentConversation, getConnectorConfigs, startToolSession } from "@/services/api";
+import { addAgentConversationMessage, getAgentConversation, getConnectorConfigs, startToolSession } from "@/services/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -65,6 +65,7 @@ import { useStatusStore } from "@/store/statusStore";
 
 export default function AgentConsolePage({ onSwitchToCustomerView }: { onSwitchToCustomerView?: () => void }) {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { user, token } = useAuthStore();
   const { status, setStatus, error: statusError } = useStatusStore();
   const [device, setDevice] = useState<Device | null>(null);
@@ -78,11 +79,21 @@ export default function AgentConsolePage({ onSwitchToCustomerView }: { onSwitchT
   const [activeTab, setActiveTab] = useState<"voice" | "tickets" | "knowledge">("voice");
   const [transcript, setTranscript] = useState<Array<{role: string, text: string, timestamp: number}>>([]);
   const [sessionId, setSessionId] = useState<string | null>(null);
+  const [sessionInput, setSessionInput] = useState("");
+  const [chatMessages, setChatMessages] = useState<Array<{role: string, text: string, timestamp: number}>>([]);
+  const [chatInput, setChatInput] = useState("");
+  const [voiceMasking, setVoiceMasking] = useState(false);
+  const [ivrCallSid, setIvrCallSid] = useState<string | null>(null);
+  const [ivrVoiceId, setIvrVoiceId] = useState<string | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const transcriptEndRef = useRef<HTMLDivElement>(null);
+  const chatEndRef = useRef<HTMLDivElement>(null);
+  const lastRoutingErrorRef = useRef<{ message: string; ts: number } | null>(null);
+  const previousQueueCountRef = useRef(0);
   const [showConnectorConfig, setShowConnectorConfig] = useState(false);
   const [connectorConfigs, setConnectorConfigs] = useState<any[]>([]);
   const [connectorLoading, setConnectorLoading] = useState(false);
+  const audioContextRef = useRef<AudioContext | null>(null);
 
   // Handle status errors
   useEffect(() => {
@@ -97,10 +108,22 @@ export default function AgentConsolePage({ onSwitchToCustomerView }: { onSwitchT
   }, [transcript]);
 
   useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [chatMessages]);
+
+  useEffect(() => {
     if (token) {
       loadConnectorStatus();
     }
   }, [token]);
+
+  useEffect(() => {
+    const sid = searchParams?.get("session_id") || searchParams?.get("sessionId");
+    if (sid && sid !== sessionId) {
+      setSessionId(sid);
+      setSessionInput(sid);
+    }
+  }, [searchParams, sessionId]);
 
   useEffect(() => {
     if (!token) return;
@@ -129,13 +152,96 @@ export default function AgentConsolePage({ onSwitchToCustomerView }: { onSwitchT
     return acc;
   }, {});
 
+  const handleSendChat = async () => {
+    if (!sessionId || !token || !chatInput.trim()) return;
+    const content = chatInput.trim();
+    setChatInput("");
+    const optimistic = {
+      role: "agent",
+      text: content,
+      timestamp: Date.now() / 1000
+    };
+    setChatMessages((prev) => [...prev, optimistic]);
+    if (activeCall) {
+      setTranscript((prev) => [...prev, optimistic]);
+    }
+    try {
+      const apiBase = process.env.NEXT_PUBLIC_API_URL as string;
+      if (voiceMasking && ivrCallSid) {
+        const response = await fetch(`${apiBase}/api/ivr/calls/${ivrCallSid}/agent-say`, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            message: content,
+            voice_id: ivrVoiceId || undefined,
+            session_id: sessionId,
+            agent_id: user?.id
+          })
+        });
+        if (!response.ok) {
+          const error = await response.json().catch(() => ({}));
+          throw new Error(error.detail || error.error || "Failed to speak on call");
+        }
+      } else {
+        await addAgentConversationMessage(sessionId, "agent", content, token);
+      }
+    } catch (e) {
+      console.error("Failed to send agent message:", e);
+    }
+  };
+
+  const loadChatHistory = useCallback(async (sid: string) => {
+    if (!token || !sid) return;
+    try {
+      const result: any = await getAgentConversation(sid, token);
+      if (result && Array.isArray(result.messages)) {
+        const history = result.messages.map((msg: any) => ({
+          role: msg.role === "agent" ? "agent" : msg.role === "assistant" ? "assistant" : "user",
+          text: msg.content,
+          timestamp: msg.created_at ? new Date(msg.created_at).getTime() / 1000 : Date.now() / 1000
+        }));
+        setChatMessages(history);
+        if (result.context) {
+          setVoiceMasking(Boolean(result.context.voice_masking));
+          setIvrCallSid(result.context.ivr_call_sid || result.context.call_sid || null);
+          setIvrVoiceId(result.context.ivr_voice_id || null);
+        }
+      }
+    } catch (error) {
+      console.error("Failed to load chat history:", error);
+    }
+  }, [token]);
+
+  const handleLoadSession = () => {
+    const trimmed = sessionInput.trim();
+    if (!trimmed) return;
+    setSessionId(trimmed);
+    loadChatHistory(trimmed);
+  };
+
+  useEffect(() => {
+    if (!sessionId) {
+      setChatMessages([]);
+      return;
+    }
+    loadChatHistory(sessionId);
+    const interval = setInterval(() => {
+      loadChatHistory(sessionId);
+    }, 3000);
+    return () => clearInterval(interval);
+  }, [sessionId, loadChatHistory]);
+
   // Initialize Twilio Device
   useEffect(() => {
     if (!token || !user) return;
 
     const initDevice = async () => {
       try {
-        const response = await fetch(`${process.env.NEXT_PUBLIC_API_BASE}/api/voice/token`, {
+        const apiBase = process.env.NEXT_PUBLIC_API_URL as string;
+        const response = await fetch(`${apiBase}/api/voice/token`, {
           headers: { Authorization: `Bearer ${token}` }
         });
         
@@ -179,6 +285,9 @@ export default function AgentConsolePage({ onSwitchToCustomerView }: { onSwitchT
             setCallDuration(0);
             setSessionId(null);
             setTranscript([]);
+            setVoiceMasking(false);
+            setIvrCallSid(null);
+            setIvrVoiceId(null);
           });
           
           call.on("accept", () => {
@@ -219,37 +328,15 @@ export default function AgentConsolePage({ onSwitchToCustomerView }: { onSwitchT
     };
   }, [token, user]);
 
-  // WebSocket connection for transcript
+  useEffect(() => {
+    if (!sessionId || !token) return;
+    loadChatHistory(sessionId);
+  }, [sessionId, token, loadChatHistory]);
+
   useEffect(() => {
     if (!sessionId || !activeCall) return;
 
-    // Fetch history
-    const fetchHistory = async () => {
-        if (!token) return;
-        try {
-            const res = await getAgentConversation(sessionId, token);
-            // Handle different response structures (pagination or direct list)
-            const messages = res.messages || res; 
-            
-            if (Array.isArray(messages)) {
-                // Map to transcript format
-                const history = messages.map((m: any) => ({
-                    role: m.role === 'user' ? 'user' : 'agent',
-                    text: m.content,
-                    timestamp: m.created_at ? new Date(m.created_at).getTime() / 1000 : Date.now() / 1000
-                }));
-                // Sort by timestamp
-                history.sort((a: any, b: any) => a.timestamp - b.timestamp);
-                setTranscript(history);
-            }
-        } catch (e) {
-            console.error("Failed to fetch history:", e);
-        }
-    };
-    fetchHistory();
-
-    // Construct WebSocket URL
-    const apiBase = process.env.NEXT_PUBLIC_API_BASE || "http://localhost:8000";
+    const apiBase = process.env.NEXT_PUBLIC_API_URL as string;
     const wsProtocol = apiBase.startsWith("https") ? "wss" : "ws";
     const wsHost = apiBase.replace(/^https?:\/\//, "");
     const wsUrl = `${wsProtocol}://${wsHost}/api/routing/ws/call/${sessionId}/transcript`;
@@ -266,11 +353,13 @@ export default function AgentConsolePage({ onSwitchToCustomerView }: { onSwitchT
       try {
         const data = JSON.parse(event.data);
         if (data.type === "transcript") {
-          setTranscript((prev) => [...prev, {
-            role: data.role,
-            text: data.text,
-            timestamp: data.timestamp
-          }]);
+                const entry = {
+                  role: data.role === "agent" ? "agent" : data.role === "assistant" ? "assistant" : "user",
+                  text: data.text,
+                  timestamp: data.timestamp
+                };
+                setTranscript((prev) => [...prev, entry]);
+                setChatMessages((prev) => [...prev, entry]);
         }
       } catch (e) {
         console.error("Error parsing transcript message:", e);
@@ -293,12 +382,23 @@ export default function AgentConsolePage({ onSwitchToCustomerView }: { onSwitchT
 
     const fetchQueuedCalls = async () => {
       try {
-        const res = await fetch(`${process.env.NEXT_PUBLIC_API_BASE}/api/routing/queues/calls`, {
+        const apiBase = process.env.NEXT_PUBLIC_API_URL as string;
+        const res = await fetch(`${apiBase}/api/routing/queues/calls`, {
           headers: { Authorization: `Bearer ${token}` }
         });
         if (res.ok) {
           const data = await res.json();
           setQueuedCalls(data);
+          lastRoutingErrorRef.current = null;
+        } else {
+          const errorData = await res.json().catch(() => ({}));
+          const message = errorData.detail || "Routing unavailable. Ensure Redis is running.";
+          const now = Date.now();
+          const lastError = lastRoutingErrorRef.current;
+          if (!lastError || lastError.message !== message || now - lastError.ts > 10000) {
+            toast.error(message);
+            lastRoutingErrorRef.current = { message, ts: now };
+          }
         }
       } catch (e) {
         console.error("Polling error:", e);
@@ -310,6 +410,33 @@ export default function AgentConsolePage({ onSwitchToCustomerView }: { onSwitchT
 
     return () => clearInterval(interval);
   }, [status, token]);
+
+  useEffect(() => {
+    const previous = previousQueueCountRef.current;
+    if (queuedCalls.length > previous) {
+      try {
+        if (!audioContextRef.current) {
+          audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
+        }
+        const ctx = audioContextRef.current;
+        const oscillator = ctx.createOscillator();
+        const gain = ctx.createGain();
+        oscillator.type = "sine";
+        oscillator.frequency.setValueAtTime(880, ctx.currentTime);
+        gain.gain.setValueAtTime(0.0001, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.2, ctx.currentTime + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.6);
+        oscillator.connect(gain);
+        gain.connect(ctx.destination);
+        oscillator.start();
+        oscillator.stop(ctx.currentTime + 0.65);
+      } catch (e) {
+        console.error("Notification sound failed:", e);
+      }
+      toast.success("A customer is waiting in the queue");
+    }
+    previousQueueCountRef.current = queuedCalls.length;
+  }, [queuedCalls.length]);
 
   // Call duration timer
   useEffect(() => {
@@ -324,7 +451,8 @@ export default function AgentConsolePage({ onSwitchToCustomerView }: { onSwitchT
 
   const acceptQueuedCall = async (call: QueuedCall) => {
       try {
-          const res = await fetch(`${process.env.NEXT_PUBLIC_API_BASE}/api/routing/call/${call.session_id}/accept`, {
+          const apiBase = process.env.NEXT_PUBLIC_API_URL as string;
+          const res = await fetch(`${apiBase}/api/routing/call/${call.session_id}/accept`, {
               method: "POST",
               headers: {
                   Authorization: `Bearer ${token}`,
@@ -339,10 +467,19 @@ export default function AgentConsolePage({ onSwitchToCustomerView }: { onSwitchT
               const error = await res.json();
               throw new Error(error.detail || "Failed to accept call");
           }
-          
+          const result = await res.json().catch(() => ({}));
+
+          const masked = Boolean(result.voice_masking) || Boolean(call.context?.voice_masking);
+          setVoiceMasking(masked);
+          setIvrCallSid(result.ivr_call_sid || call.context?.ivr_call_sid || call.context?.call_sid || null);
+          setIvrVoiceId(result.ivr_voice_id || call.context?.ivr_voice_id || null);
+
           toast.success("Call accepted. Connecting...");
           // The backend will now bridge the call to our Twilio Device
           // The 'incoming' event on the device will trigger shortly
+          setSessionId(call.session_id);
+          loadChatHistory(call.session_id);
+          setQueuedCalls((prev) => prev.filter((entry) => entry.session_id !== call.session_id));
       } catch (error: any) {
           toast.error(error.message);
       }
@@ -383,7 +520,8 @@ export default function AgentConsolePage({ onSwitchToCustomerView }: { onSwitchT
       }
 
       try {
-          const res = await fetch(`${process.env.NEXT_PUBLIC_API_BASE}/api/ivr/calls/${callSid}/return-to-bot`, {
+          const apiBase = process.env.NEXT_PUBLIC_API_URL as string;
+          const res = await fetch(`${apiBase}/api/ivr/calls/${callSid}/return-to-bot`, {
               method: "POST",
               headers: { 
                   Authorization: `Bearer ${token}`,
@@ -625,7 +763,7 @@ export default function AgentConsolePage({ onSwitchToCustomerView }: { onSwitchT
 
         <main className="flex-1 p-6 overflow-auto">
             {activeCall ? (
-                <div className="grid grid-cols-2 gap-6 h-full">
+                <div className="grid grid-cols-3 gap-6 h-full">
                     <Card className="h-full flex flex-col bg-white/5 backdrop-blur-md border-white/10 shadow-2xl">
                         <CardHeader className="bg-white/5 border-b border-white/5">
                             <CardTitle className="text-white">Session Context</CardTitle>
@@ -664,11 +802,16 @@ export default function AgentConsolePage({ onSwitchToCustomerView }: { onSwitchT
                                 </div>
                             ) : (
                                 <div className="space-y-4">
-                                    {transcript.map((msg, idx) => (
-                                        <div key={idx} className={`flex ${msg.role === 'agent' ? 'justify-end' : 'justify-start'}`}>
+                                    {transcript.map((msg, idx) => {
+                                        const isAgent = msg.role === "agent";
+                                        const isAssistant = msg.role === "assistant";
+                                        return (
+                                        <div key={idx} className={`flex ${isAgent ? 'justify-end' : 'justify-start'}`}>
                                             <div className={`max-w-[80%] p-3 rounded-lg ${
-                                                msg.role === 'agent' 
-                                                ? 'bg-indigo-900/40 text-indigo-100 border border-indigo-500/30 rounded-tr-none' 
+                                                isAgent
+                                                ? 'bg-indigo-900/40 text-indigo-100 border border-indigo-500/30 rounded-tr-none'
+                                                : isAssistant
+                                                ? 'bg-purple-900/30 text-purple-100 border border-purple-500/30 rounded-tl-none'
                                                 : 'bg-white/10 border border-white/10 text-white rounded-tl-none'
                                             }`}>
                                                 <p className="text-sm">{msg.text}</p>
@@ -677,23 +820,155 @@ export default function AgentConsolePage({ onSwitchToCustomerView }: { onSwitchT
                                                 </span>
                                             </div>
                                         </div>
-                                    ))}
+                                        );
+                                    })}
                                     <div ref={transcriptEndRef} />
                                 </div>
                             )}
                         </CardContent>
                     </Card>
+
+                    <Card className="h-full flex flex-col bg-white/5 border-white/10">
+                        <CardHeader className="border-b border-white/10">
+                            <CardTitle className="text-white">Agent Chat</CardTitle>
+                        </CardHeader>
+                        <CardContent className="flex-1 overflow-auto bg-black/20 p-4">
+                            {chatMessages.length === 0 ? (
+                                <div className="text-center text-white/40 py-10">
+                                    <p>Conversation history will appear here...</p>
+                                </div>
+                            ) : (
+                                <div className="space-y-4">
+                                    {chatMessages.map((msg, idx) => {
+                                        const isAgent = msg.role === "agent";
+                                        const isAssistant = msg.role === "assistant";
+                                        return (
+                                        <div key={idx} className={`flex ${isAgent ? 'justify-end' : 'justify-start'}`}>
+                                            <div className={`max-w-[80%] p-3 rounded-lg ${
+                                                isAgent
+                                                ? 'bg-indigo-900/40 text-indigo-100 border border-indigo-500/30 rounded-tr-none'
+                                                : isAssistant
+                                                ? 'bg-purple-900/30 text-purple-100 border border-purple-500/30 rounded-tl-none'
+                                                : 'bg-white/10 border border-white/10 text-white rounded-tl-none'
+                                            }`}>
+                                                <p className="text-sm">{msg.text}</p>
+                                                <span className="text-[10px] opacity-50 block mt-1 text-right">
+                                                    {new Date(msg.timestamp * 1000).toLocaleTimeString()}
+                                                </span>
+                                            </div>
+                                        </div>
+                                        );
+                                    })}
+                                    <div ref={chatEndRef} />
+                                </div>
+                            )}
+                        </CardContent>
+                        <div className="p-4 border-t border-white/10 bg-white/5">
+                            <div className="flex items-center gap-2">
+                                <input
+                                    value={chatInput}
+                                    onChange={(e) => setChatInput(e.target.value)}
+                                    onKeyDown={(e) => {
+                                      if (e.key === "Enter") {
+                                        e.preventDefault();
+                                        handleSendChat();
+                                      }
+                                    }}
+                                    className="flex-1 bg-black/40 border border-white/10 rounded-md px-3 py-2 text-sm text-white placeholder:text-white/40"
+                                    placeholder="Send a message to the customer..."
+                                />
+                                <Button onClick={handleSendChat} className="bg-indigo-600 hover:bg-indigo-500">
+                                    Send
+                                </Button>
+                            </div>
+                        </div>
+                    </Card>
                 </div>
             ) : (
                 <div className="h-full flex flex-col items-center justify-center text-white/40">
-                    <div className="w-24 h-24 bg-white/5 rounded-full flex items-center justify-center mb-6">
-                        <Headphones className="h-10 w-10 text-white/20" />
+                    <div className="grid grid-cols-2 gap-6 h-full w-full">
+                        <Card className="h-full flex flex-col bg-white/5 border-white/10">
+                            <CardHeader className="border-b border-white/10">
+                                <CardTitle className="text-white">Voice Console</CardTitle>
+                            </CardHeader>
+                            <CardContent className="flex-1 flex flex-col items-center justify-center text-white/40">
+                                <div className="w-24 h-24 bg-white/5 rounded-full flex items-center justify-center mb-6">
+                                    <Headphones className="h-10 w-10 text-white/20" />
+                                </div>
+                                <h3 className="text-xl font-medium text-white/60 mb-2">Waiting for calls</h3>
+                                <p className="max-w-md text-center text-white/40">
+                                    Set your status to "Online" to receive calls from the queue. 
+                                    Incoming calls will appear in the sidebar.
+                                </p>
+                            </CardContent>
+                        </Card>
+                        <Card className="h-full flex flex-col bg-white/5 border-white/10">
+                            <CardHeader className="border-b border-white/10">
+                                <CardTitle className="text-white">Agent Chat</CardTitle>
+                            </CardHeader>
+                            <CardContent className="flex-1 overflow-auto bg-black/20 p-4">
+                                {chatMessages.length === 0 ? (
+                                    <div className="text-center text-white/40 py-10">
+                                        <p>Conversation history will appear here...</p>
+                                    </div>
+                                ) : (
+                                    <div className="space-y-4">
+                                        {chatMessages.map((msg, idx) => (
+                                            <div key={idx} className={`flex ${msg.role === 'agent' ? 'justify-end' : 'justify-start'}`}>
+                                                <div className={`max-w-[80%] p-3 rounded-lg ${
+                                                    msg.role === 'agent' 
+                                                    ? 'bg-indigo-900/40 text-indigo-100 border border-indigo-500/30 rounded-tr-none' 
+                                                    : 'bg-white/10 border border-white/10 text-white rounded-tl-none'
+                                                }`}>
+                                                    <p className="text-sm">{msg.text}</p>
+                                                    <span className="text-[10px] opacity-50 block mt-1 text-right">
+                                                        {new Date(msg.timestamp * 1000).toLocaleTimeString()}
+                                                    </span>
+                                                </div>
+                                            </div>
+                                        ))}
+                                        <div ref={chatEndRef} />
+                                    </div>
+                                )}
+                            </CardContent>
+                            <div className="p-4 border-t border-white/10 bg-white/5">
+                                <div className="flex items-center gap-2 mb-3">
+                                    <input
+                                        value={sessionInput}
+                                        onChange={(e) => setSessionInput(e.target.value)}
+                                        onKeyDown={(e) => {
+                                          if (e.key === "Enter") {
+                                            e.preventDefault();
+                                            handleLoadSession();
+                                          }
+                                        }}
+                                        className="flex-1 bg-black/40 border border-white/10 rounded-md px-3 py-2 text-sm text-white placeholder:text-white/40"
+                                        placeholder="Paste session id to load history..."
+                                    />
+                                    <Button onClick={handleLoadSession} className="bg-white/10 hover:bg-white/20 border border-white/20">
+                                        Load
+                                    </Button>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                    <input
+                                        value={chatInput}
+                                        onChange={(e) => setChatInput(e.target.value)}
+                                        onKeyDown={(e) => {
+                                          if (e.key === "Enter") {
+                                            e.preventDefault();
+                                            handleSendChat();
+                                          }
+                                        }}
+                                        className="flex-1 bg-black/40 border border-white/10 rounded-md px-3 py-2 text-sm text-white placeholder:text-white/40"
+                                        placeholder="Send a message to the customer..."
+                                    />
+                                    <Button onClick={handleSendChat} className="bg-indigo-600 hover:bg-indigo-500" disabled={!sessionId}>
+                                        Send
+                                    </Button>
+                                </div>
+                            </div>
+                        </Card>
                     </div>
-                    <h3 className="text-xl font-medium text-white/60 mb-2">Waiting for calls</h3>
-                    <p className="max-w-md text-center text-white/40">
-                        Set your status to "Online" to receive calls from the queue. 
-                        Incoming calls will appear in the sidebar.
-                    </p>
                 </div>
             )}
         </main>

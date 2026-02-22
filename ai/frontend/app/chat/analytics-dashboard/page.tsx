@@ -173,7 +173,7 @@ export default function AnalyticsDashboardPage() {
       
       // Check if it's a network error
       if (errorMessage.includes("fetch") || errorMessage.includes("network") || errorMessage.includes("Failed to fetch")) {
-        setError("Cannot connect to backend server. Please ensure the backend is running on port 8000.");
+        setError("Cannot connect to backend server. Please ensure the backend is running on port 8001.");
       } else {
         setError(errorMessage);
       }
@@ -208,8 +208,8 @@ export default function AnalyticsDashboardPage() {
               </p>
               <ul className="text-xs text-yellow-200/80 space-y-1 list-disc list-inside">
                 <li>Make sure the backend server is running</li>
-                <li>Check if it's accessible at http://127.0.0.1:8000</li>
-                <li>Verify the backend is listening on port 8000</li>
+                <li>Check if it's accessible at http://127.0.0.1:8001</li>
+                <li>Verify the backend is listening on port 8001</li>
                 <li>Check the backend PowerShell window for errors</li>
               </ul>
             </div>

@@ -7,6 +7,7 @@ interface User {
   name: string;
   subscription_status: string;
   role?: string;
+  google_access_token?: string;
 }
 
 interface CurrentPlan {

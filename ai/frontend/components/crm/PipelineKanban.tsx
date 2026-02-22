@@ -165,7 +165,7 @@ export const PipelineKanban: React.FC<PipelineKanbanProps> = ({
   onStageChange,
   readOnly = false,
 }) => {
-  const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "http://127.0.0.1:8000";
+  const API_BASE = process.env.NEXT_PUBLIC_API_URL;
   const token = useAuthStore((s) => s.token);
   const [stages, setStages] = useState<Stage[]>([
     { id: 'prospecting', name: '📌 Prospecting', order: 1 },
