@@ -74,8 +74,8 @@ class Settings:
     
     # Subscription & Development
     BYPASS_SUBSCRIPTION = os.getenv("BYPASS_SUBSCRIPTION", "1") == "1"  # Set to "0" to enable subscription checks
-    STRIPE_SECRET_KEY = os.getenv("STRIPE_SECRET_KEY")
-    STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET")
+    RAZORPAY_KEY_ID = os.getenv("RAZORPAY_KEY_ID")
+    RAZORPAY_KEY_SECRET = os.getenv("RAZORPAY_KEY_SECRET")
 
     # Email Configuration
     SMTP_HOST = os.getenv("SMTP_HOST", "smtp.gmail.com")

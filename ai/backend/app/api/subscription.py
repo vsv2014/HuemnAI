@@ -10,16 +10,15 @@ from app.db.models.subscription import (
 from app.api.auth import get_current_user
 from app.utils.subscription import sync_tool_subscriptions, enforce_tool_access, get_plan_token_limit, get_plan_name
 import logging
-import stripe
 import os
+import hmac
+import hashlib
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
-# Stripe Configuration
-stripe.api_key = settings.STRIPE_SECRET_KEY
-STRIPE_WEBHOOK_SECRET = settings.STRIPE_WEBHOOK_SECRET
+# Payment / Frontend configuration
 FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:3000")
 
 class SubscribeRequest(BaseModel):
@@ -37,8 +36,11 @@ class SubscriptionResponse(BaseModel):
     success: bool
     message: str
     subscription: Optional[dict] = None
-    checkout_url: Optional[str] = None
-    session_id: Optional[str] = None
+    # Razorpay checkout data
+    razorpay_key_id: Optional[str] = None
+    order_id: Optional[str] = None
+    amount: Optional[float] = None
+    currency: Optional[str] = None
 
 # Pricing configuration (with 50% discount for first subscription)
 # Custom pricing as specified
@@ -308,7 +310,7 @@ async def subscribe(
     user: UserAccount = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Subscribe to a plan (integrates with Stripe)"""
+    """Subscribe to a plan using Razorpay"""
     # Get plan
     plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.id == request.plan_id).first()
     if not plan:
@@ -337,185 +339,62 @@ async def subscribe(
         ends_at = datetime.utcnow() + timedelta(days=365)
         interval = "year"
     
-    # Stripe Integration
-    checkout_url = None
-    session_id = None
-    
-    # Check for valid Stripe key
-    is_stripe_configured = stripe.api_key and "placeholder" not in stripe.api_key and "CHANGE_ME" not in stripe.api_key
-    
-    if not is_stripe_configured:
-        logger.warning("Stripe is not configured. Using mock payment flow.")
-        # MOCK FLOW for development/testing
-        # Create a dummy subscription record directly since we skip webhook
-        subscription = Subscription(
-            user_id=user.id,
-            plan_id=plan.id,
-            status="active",
-            started_at=datetime.utcnow(),
-            ends_at=ends_at,
-            billing_period=request.billing_period,
-            amount_paid=price
-        )
-        db.add(subscription)
-        
-        # Activate plan features/integrations
-        user.subscription_plan_id = plan.id
-        user.subscription_status = "active"
-        user.has_used_trial = True  # Mark trial as used
-        await _activate_integrations(user, plan, db)
-        sync_tool_subscriptions(db, user)
-        
-        db.commit()
-        
-        return SubscriptionResponse(
-            success=True,
-            message="Mock subscription successful (Stripe not configured)",
-            checkout_url=f"{FRONTEND_URL}/payment/success?session_id=mock_session_{datetime.utcnow().timestamp()}&mock=true",
-            session_id=f"mock_session_{datetime.utcnow().timestamp()}"
-        )
+    # Razorpay order creation
+    key_id = settings.RAZORPAY_KEY_ID
+    key_secret = settings.RAZORPAY_KEY_SECRET
+
+    if not key_id or not key_secret:
+        raise HTTPException(status_code=500, detail="Razorpay is not configured")
+
+    # Razorpay expects amount in the smallest currency unit (paise for INR)
+    currency = "INR"
+    amount_paise = int(price * 100)
+
+    import base64
+    import json as _json
+    import requests
 
     try:
-        # 1. Get or Create Customer
-        if not user.stripe_customer_id:
-            customer = stripe.Customer.create(
-                email=user.email,
-                name=user.name,
-                metadata={"user_id": user.id}
-            )
-            user.stripe_customer_id = customer.id
-            db.commit()
-        
-        customer_id = user.stripe_customer_id
-        
-        # 2. Create Coupon for first subscription discount if needed
-        coupon_id = None
-        if is_first_subscription:
-            try:
-                coupon = stripe.Coupon.create(
-                    percent_off=50,
-                    duration="once",
-                    name=f"first_subscription_50_{user.id}_{int(datetime.utcnow().timestamp())}"
-                )
-                coupon_id = coupon.id
-            except Exception as e:
-                logger.warning(f"Failed to create Stripe coupon: {e}")
-
-        # 3. Create Checkout Session
-        checkout_params = {
-            "customer": customer_id,
-            "payment_method_types": ["card"],
-            "line_items": [
-                {
-                    "price_data": {
-                        "currency": "usd",
-                        "product_data": {
-                            "name": plan.display_name,
-                            "description": f"{plan.display_name} ({request.billing_period})",
-                        },
-                        "unit_amount": int(original_price * 100),
-                        "recurring": {"interval": interval},
-                    },
-                    "quantity": 1,
-                },
-            ],
-            "mode": "subscription",
-            "success_url": f"{FRONTEND_URL}/payment/success?session_id={{CHECKOUT_SESSION_ID}}",
-            "cancel_url": f"{FRONTEND_URL}/pricing",
-            "subscription_data": {
-                "metadata": {
-                    "user_id": user.id,
-                    "plan_id": plan.id,
-                    "billing_period": request.billing_period
-                }
+        auth = (key_id, key_secret)
+        payload = {
+            "amount": amount_paise,
+            "currency": currency,
+            "receipt": f"user_{user.id}_plan_{plan.id}_{int(datetime.utcnow().timestamp())}",
+            "payment_capture": 1,
+            "notes": {
+                "user_id": str(user.id),
+                "plan_id": str(plan.id),
+                "billing_period": request.billing_period,
+                "is_first_subscription": _json.dumps(is_first_subscription),
             },
-            "metadata": {
-                "user_id": user.id,
-                "plan_id": plan.id,
-                "billing_period": request.billing_period
-            }
         }
-        if coupon_id:
-            checkout_params["discounts"] = [{"coupon": coupon_id}]
-        checkout_session = stripe.checkout.Session.create(**checkout_params)
-        
-        checkout_url = checkout_session.url
-        session_id = checkout_session.id
-        
-    except Exception as e:
-        logger.error(f"Stripe error: {str(e)}")
-        raise HTTPException(status_code=400, detail=f"Payment initialization failed: {str(e)}")
-
-    if checkout_url:
-        return SubscriptionResponse(
-            success=True,
-            message="Redirecting to payment...",
-            checkout_url=checkout_url,
-            session_id=session_id
+        response = requests.post(
+            "https://api.razorpay.com/v1/orders",
+            auth=auth,
+            json=payload,
+            timeout=10,
         )
+        if response.status_code not in (200, 201):
+            logger.error(f"Razorpay order creation failed: {response.status_code} {response.text}")
+            raise HTTPException(status_code=400, detail="Failed to create payment order")
+        data = response.json()
+        order_id = data.get("id")
+        if not order_id:
+            raise HTTPException(status_code=400, detail="Invalid Razorpay order response")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Razorpay error: {e}")
+        raise HTTPException(status_code=400, detail="Payment initialization failed")
 
-    # Fallback error
-    raise HTTPException(status_code=400, detail="Failed to create payment session")
-
-    # Check if we should block fallback
-    if os.getenv("ENV") == "prod" or os.getenv("FORCE_STRIPE") == "true":
-         raise HTTPException(status_code=500, detail="Payment gateway not configured correctly. Please contact support.")
-
-    # Fallback: Direct subscription (Development/No Stripe)
-    # Create subscription record
-    subscription = Subscription(
-        user_id=user.id,
-        plan_id=plan.id,
-        status="active",
-        amount_paid=price,
-        discount_applied=discount * 100,  # Store as percentage
-        billing_period=request.billing_period,
-        started_at=datetime.utcnow(),
-        ends_at=ends_at,
-        payment_method=request.payment_method or "credit_card"
-    )
-    
-    # Update user account
-    user.current_plan_id = plan.id
-    user.subscription_status = "active"
-    user.subscription_started_at = datetime.utcnow()
-    user.subscription_ends_at = ends_at
-    
-    # Set company account flag for enterprise plan
-    if plan.name == "enterprise":
-        user.is_company_account = True
-        if request.organization_name:
-            user.organization_name = request.organization_name
-        if request.organization_size:
-            user.organization_size = request.organization_size
-    
-    # Cancel any existing subscriptions
-    if existing_subscription:
-        existing_subscription.status = "cancelled"
-        existing_subscription.cancelled_at = datetime.utcnow()
-    
-    db.add(subscription)
-    db.commit()
-    db.refresh(subscription)
-    
-    # Activate integrations based on plan
-    await _activate_integrations(user, plan, db)
-    sync_tool_subscriptions(db, user)
-    
-    db.commit()
-    
     return SubscriptionResponse(
         success=True,
-        message=f"Successfully subscribed to {plan.display_name}! {'50% discount applied for first subscription.' if is_first_subscription else ''}",
-        subscription={
-            "id": subscription.id,
-            "plan": plan.display_name,
-            "amount_paid": price,
-            "original_price": original_price,
-            "discount": discount * 100,
-            "billing_period": request.billing_period,
-            "ends_at": ends_at.isoformat()
-        }
+        message="Razorpay order created",
+        razorpay_key_id=key_id,
+        order_id=order_id,
+        amount=price,
+        currency=currency,
+        subscription=None,
     )
 
 @router.get("/status")
@@ -566,23 +445,16 @@ async def get_subscription_status(
     }
 
 
-@router.get("/stripe-health")
-async def stripe_health(
-    user: UserAccount = Depends(get_current_user)
+@router.get("/gateway-health")
+async def payment_gateway_health(
+    user: UserAccount = Depends(get_current_user),
 ):
-    key = settings.STRIPE_SECRET_KEY or ""
-    configured = bool(key) and "placeholder" not in key and "CHANGE_ME" not in key
-    if key.startswith("sk_live_"):
-        mode = "live"
-    elif key.startswith("sk_test_"):
-        mode = "test"
-    else:
-        mode = "unknown"
+    key_id = settings.RAZORPAY_KEY_ID or ""
+    configured = bool(key_id)
     return {
         "configured": configured,
-        "mode": mode,
-        "webhook_configured": bool(settings.STRIPE_WEBHOOK_SECRET),
-        "bypass_subscription": settings.BYPASS_SUBSCRIPTION
+        "provider": "razorpay",
+        "bypass_subscription": settings.BYPASS_SUBSCRIPTION,
     }
 
 
@@ -616,36 +488,6 @@ async def change_plan(
         new_price = plan.price_yearly
         new_ends_at = datetime.utcnow() + timedelta(days=365)
         interval = "year"
-
-    is_stripe_configured = stripe.api_key and "placeholder" not in stripe.api_key and "CHANGE_ME" not in stripe.api_key
-    if is_stripe_configured and active_subscription.stripe_subscription_id:
-        try:
-            stripe_sub = stripe.Subscription.retrieve(active_subscription.stripe_subscription_id)
-            items = stripe_sub.get("items", {}).get("data", [])
-            if not items:
-                raise HTTPException(status_code=400, detail="Stripe subscription has no items to update")
-            price = stripe.Price.create(
-                currency="usd",
-                unit_amount=int(new_price * 100),
-                recurring={"interval": interval},
-                product_data={"name": plan.display_name}
-            )
-            stripe.Subscription.modify(
-                active_subscription.stripe_subscription_id,
-                cancel_at_period_end=False,
-                proration_behavior="create_prorations",
-                items=[{"id": items[0]["id"], "price": price.id}],
-                metadata={
-                    "user_id": user.id,
-                    "plan_id": plan.id,
-                    "billing_period": request.billing_period
-                }
-            )
-        except HTTPException:
-            raise
-        except Exception as e:
-            logger.error(f"Stripe plan change error: {e}")
-            raise HTTPException(status_code=400, detail=f"Plan change failed: {str(e)}")
 
     active_subscription.plan_id = plan.id
     active_subscription.billing_period = request.billing_period
@@ -683,30 +525,9 @@ async def create_billing_portal(
     user: UserAccount = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    is_stripe_configured = stripe.api_key and "placeholder" not in stripe.api_key and "CHANGE_ME" not in stripe.api_key
-    if not is_stripe_configured:
-        return {
-            "success": True,
-            "portal_url": f"{FRONTEND_URL}/pricing?portal=mock"
-        }
-
-    if not user.stripe_customer_id:
-        customer = stripe.Customer.create(
-            email=user.email,
-            name=user.name,
-            metadata={"user_id": user.id}
-        )
-        user.stripe_customer_id = customer.id
-        db.commit()
-
-    portal_session = stripe.billing_portal.Session.create(
-        customer=user.stripe_customer_id,
-        return_url=f"{FRONTEND_URL}/pricing"
-    )
-
     return {
         "success": True,
-        "portal_url": portal_session.url
+        "portal_url": f"{FRONTEND_URL}/pricing"
     }
 
 
@@ -1019,87 +840,83 @@ async def unsubscribe_from_tool(
         "message": f"Successfully unsubscribed from {tool_subscription.tool_display_name}"
     }
 
-@router.post("/webhook")
-async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
-    """Handle Stripe webhooks"""
-    payload = await request.body()
-    sig_header = request.headers.get("stripe-signature")
-    
-    try:
-        event = stripe.Webhook.construct_event(
-            payload, sig_header, STRIPE_WEBHOOK_SECRET
-        )
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail="Invalid payload")
-    except stripe.error.SignatureVerificationError as e:
-        raise HTTPException(status_code=400, detail="Invalid signature")
-        
-    if event['type'] == 'checkout.session.completed':
-        session = event['data']['object']
-        
-        # Retrieve user and plan from metadata
-        user_id = session.get('metadata', {}).get('user_id')
-        plan_id = session.get('metadata', {}).get('plan_id')
-        
-        if user_id and plan_id:
-            user = db.query(UserAccount).filter(UserAccount.id == int(user_id)).first()
-            plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.id == int(plan_id)).first()
-            
-            if user and plan:
-                # Update user
-                user.current_plan_id = plan.id
-                user.subscription_status = "active"
-                user.stripe_customer_id = session.get('customer')
-                
-                # Create Subscription Record
-                subscription_id = session.get('subscription')
-                if subscription_id:
-                    # Retrieve stripe subscription to get current_period_end
-                    stripe_sub = stripe.Subscription.retrieve(subscription_id)
-                    ends_at = datetime.fromtimestamp(stripe_sub.current_period_end)
-                    
-                    subscription = Subscription(
-                        user_id=user.id,
-                        plan_id=plan.id,
-                        status="active",
-                        amount_paid=session.get('amount_total', 0) / 100.0,
-                        billing_period=session.get('metadata', {}).get('billing_period', 'monthly'),
-                        started_at=datetime.utcnow(),
-                        ends_at=ends_at,
-                        payment_method="stripe",
-                        stripe_subscription_id=subscription_id,
-                        stripe_checkout_session_id=session.get('id')
-                    )
-                    
-                    user.subscription_started_at = datetime.utcnow()
-                    user.subscription_ends_at = ends_at
-                    
-                    db.add(subscription)
-                    
-                    # Activate integrations
-                    await _activate_integrations(user, plan, db)
-                    
-                    db.commit()
-        
-    elif event['type'] == 'invoice.payment_succeeded':
-        invoice = event['data']['object']
-        subscription_id = invoice.get('subscription')
-        
-        if subscription_id:
-            subscription = db.query(Subscription).filter(Subscription.stripe_subscription_id == subscription_id).first()
-            if subscription:
-                # Update ends_at
-                period_end = invoice.get('lines', {}).get('data', [{}])[0].get('period', {}).get('end')
-                if period_end:
-                    subscription.ends_at = datetime.fromtimestamp(period_end)
-                    subscription.status = "active"
-                    
-                    # Also update user account
-                    if subscription.user:
-                        subscription.user.subscription_ends_at = datetime.fromtimestamp(period_end)
-                        subscription.user.subscription_status = "active"
-                        
-                    db.commit()
-        
-    return {"status": "success"}
+@router.post("/razorpay/verify")
+async def verify_razorpay_payment(
+    payload: dict,
+    db: Session = Depends(get_db),
+    user: UserAccount = Depends(get_current_user),
+):
+    """Verify Razorpay payment and activate subscription"""
+    order_id = payload.get("razorpay_order_id")
+    payment_id = payload.get("razorpay_payment_id")
+    signature = payload.get("razorpay_signature")
+    plan_id = payload.get("plan_id")
+    billing_period = payload.get("billing_period")
+    amount = payload.get("amount")
+
+    if not all([order_id, payment_id, signature, plan_id, billing_period]):
+        raise HTTPException(status_code=400, detail="Missing payment verification fields")
+
+    key_secret = settings.RAZORPAY_KEY_SECRET
+    if not key_secret:
+        raise HTTPException(status_code=500, detail="Razorpay is not configured")
+
+    data = f"{order_id}|{payment_id}"
+    expected_signature = hmac.new(
+        key_secret.encode("utf-8"),
+        data.encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
+
+    if expected_signature != signature:
+        raise HTTPException(status_code=400, detail="Invalid payment signature")
+
+    plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.id == int(plan_id)).first()
+    if not plan:
+        raise HTTPException(status_code=404, detail="Plan not found")
+
+    # Cancel any existing active subscription
+    existing_subscription = db.query(Subscription).filter(
+        Subscription.user_id == user.id,
+        Subscription.status == "active",
+    ).first()
+
+    now = datetime.utcnow()
+    if billing_period == "monthly":
+        ends_at = now + timedelta(days=30)
+    else:
+        ends_at = now + timedelta(days=365)
+
+    if existing_subscription:
+        existing_subscription.status = "cancelled"
+        existing_subscription.cancelled_at = now
+
+    subscription = Subscription(
+        user_id=user.id,
+        plan_id=plan.id,
+        status="active",
+        amount_paid=amount,
+        discount_applied=0.0,
+        billing_period=billing_period,
+        started_at=now,
+        ends_at=ends_at,
+        payment_method="razorpay",
+        transaction_id=payment_id,
+    )
+
+    user.current_plan_id = plan.id
+    user.subscription_status = "active"
+    user.subscription_started_at = now
+    user.subscription_ends_at = ends_at
+
+    db.add(subscription)
+    await _activate_integrations(user, plan, db)
+    sync_tool_subscriptions(db, user)
+    db.commit()
+
+    return {
+        "success": True,
+        "message": "Payment verified and subscription activated",
+        "subscription_id": subscription.id,
+    }
 

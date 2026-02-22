@@ -23,7 +23,10 @@ export default function Rotating3DLogo({
   };
 
   useEffect(() => {
-    // Add continuous rotation animation with better 3D effect
+    if (typeof document === "undefined") {
+      return;
+    }
+
     const style = document.createElement('style');
     style.id = 'rotating-3d-logo-style';
     style.textContent = `
