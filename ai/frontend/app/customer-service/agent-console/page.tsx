@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { Device, Call } from "@twilio/voice-sdk";
 import { useAuthStore } from "@/store/authStore";
 import { toast } from "react-hot-toast";
@@ -65,7 +65,6 @@ import { useStatusStore } from "@/store/statusStore";
 
 export default function AgentConsolePage({ onSwitchToCustomerView }: { onSwitchToCustomerView?: () => void }) {
   const router = useRouter();
-  const searchParams = useSearchParams();
   const { user, token } = useAuthStore();
   const { status, setStatus, error: statusError } = useStatusStore();
   const [device, setDevice] = useState<Device | null>(null);
@@ -118,12 +117,14 @@ export default function AgentConsolePage({ onSwitchToCustomerView }: { onSwitchT
   }, [token]);
 
   useEffect(() => {
-    const sid = searchParams?.get("session_id") || searchParams?.get("sessionId");
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    const sid = params.get("session_id") || params.get("sessionId");
     if (sid && sid !== sessionId) {
       setSessionId(sid);
       setSessionInput(sid);
     }
-  }, [searchParams, sessionId]);
+  }, [sessionId]);
 
   useEffect(() => {
     if (!token) return;

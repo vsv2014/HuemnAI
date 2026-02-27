@@ -45,59 +45,75 @@ ai/
 - SMTP credentials for email sending
 - Connector credentials for CRM, ticketing, HR, and collaboration tools
 
-## Installation
-### Backend Dependencies
-```bash
-cd ai/backend
-python -m venv ../.venv
-& ..\.venv\Scripts\Activate.ps1
-pip install -r requirements.txt
-```
+## Installation & Setup
 
-### Frontend Dependencies
-```bash
-cd ai/frontend
-npm install
-```
+To get HUEMN.Ai running locally, follow these steps in order.
 
-## Start the Servers
-You need two terminals.
+### 1. Backend Setup
+1. **Create Virtual Environment:**
+   ```bash
+   cd ai/backend
+   python -m venv venv
+   source venv/bin/activate  # Windows: venv\Scripts\activate
+   ```
+2. **Install Dependencies:**
+   ```bash
+   pip install -r requirements.txt
+   ```
+3. **Configure Environment:**
+   Create a `.env` file in `ai/backend/` (refer to `app/core/config.py` for required keys).
 
-### Option A: Windows one-click
-```bash
-cd ai
-start_servers.bat
-```
+### 2. Frontend Setup
+1. **Install Dependencies:**
+   ```bash
+   cd ai/frontend
+   npm install
+   ```
+2. **Configure Environment:**
+   Create a `.env.local` file in `ai/frontend/`:
+   ```env
+   NEXT_PUBLIC_API_URL=http://localhost:8001
+   NEXT_PUBLIC_GOOGLE_CLIENT_ID=your_google_client_id
+   ```
 
-### Option B: PowerShell one-click
-```bash
-cd ai
-start_servers.ps1
-```
+## Running the Servers
 
-### Option C: Manual
-Terminal 1:
+For the full application to work, you need to run the following servers in separate terminals:
+
+### 1. API Server (Mandatory)
+Handles all core logic, authentication, and data management.
 ```bash
 cd ai/backend
 python -m uvicorn app.main:app --host 0.0.0.0 --port 8001 --reload
 ```
-Terminal 2:
+
+### 2. Frontend Development Server (Mandatory)
+The web interface for users and admins.
 ```bash
 cd ai/frontend
 npm run dev
 ```
 
-## Open in the Browser
-- Frontend: http://localhost:3000
-- Backend health: http://127.0.0.1:8001/health
-- API docs: http://127.0.0.1:8001/docs
+### 3. Redis Server (Highly Recommended)
+Used for caching, real-time status updates, and task queuing.
+- **Windows:** Use WSL2 or download Redis for Windows.
+- **Linux/Mac:** `brew install redis` or `sudo apt install redis`.
 
-## Environment Variables
-### Frontend
-`ai/frontend/.env.local`
-```env
-NEXT_PUBLIC_API_BASE=http://127.0.0.1:8001
+### 4. Celery Worker (Optional - For Background Tasks)
+Required for long-running tasks like web crawling and document indexing.
+```bash
+cd ai/backend
+celery -A app.core.celery_app.celery_app worker --loglevel=info
 ```
+
+## Accessing the App
+- **Web Interface:** [http://localhost:3000](http://localhost:3000)
+- **API Documentation (Swagger):** [http://localhost:8001/docs](http://localhost:8001/docs)
+- **Backend Health Check:** [http://localhost:8001/health](http://localhost:8001/health)
+
+---
+
+For a deep dive into the project's architecture and file-by-file breakdown, please refer to [ABOUT_PROJECT.md](file:///c:/Users/srava/huemn/ABOUT_PROJECT.md).
 
 ### Backend
 `ai/backend/.env`
