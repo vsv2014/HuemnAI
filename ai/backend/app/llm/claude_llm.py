@@ -12,7 +12,7 @@ except ImportError:
     ANTHROPIC_AVAILABLE = False
 
 class ClaudeLLM(BaseLLM):
-    async def stream(self, message: str, messages: Optional[List[Dict[str, str]]] = None, model: Optional[str] = None) -> AsyncGenerator[str, None]:
+    async def stream(self, message: str, messages: Optional[List[Dict[str, str]]] = None, model: Optional[str] = None, temperature: float = 0.7, max_tokens: int = 2000) -> AsyncGenerator[str, None]:
         # Get configuration
         from app.services.config_service import get_llm_config
         config = get_llm_config("claude")
@@ -58,10 +58,11 @@ class ClaudeLLM(BaseLLM):
 
         try:
             async with client.messages.stream(
-                max_tokens=1024,
+                max_tokens=max_tokens,
                 messages=formatted_messages,
                 model=target_model,
                 system=system_prompt,
+                temperature=temperature,
             ) as stream:
                 async for text in stream.text_stream:
                     yield text

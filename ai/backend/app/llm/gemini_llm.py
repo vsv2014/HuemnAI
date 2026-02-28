@@ -14,7 +14,7 @@ except ImportError:
     GEMINI_AVAILABLE = False
 
 class GeminiLLM(BaseLLM):
-    async def stream(self, message: str, messages: Optional[List[Dict[str, str]]] = None, model: Optional[str] = None) -> AsyncGenerator[str, None]:
+    async def stream(self, message: str, messages: Optional[List[Dict[str, str]]] = None, model: Optional[str] = None, temperature: float = 0.7, max_tokens: int = 2000) -> AsyncGenerator[str, None]:
         # Get configuration
         from app.services.config_service import get_llm_config
         config = get_llm_config("gemini")
@@ -57,24 +57,13 @@ class GeminiLLM(BaseLLM):
         else:
              formatted_contents.append(types.Content(role="user", parts=[types.Part.from_text(text=message)]))
 
-        # Ensure the last message is from the user for the chat generation context, 
-        # but the client.models.generate_content_stream handles history differently than chat sessions.
-        # For simplicity with this SDK, we can just pass the list of contents if it's a stateless call, 
-        # or use chats.create() if we want to maintain state. 
-        # Given BaseLLM stream is often stateless-ish (receives full history), we pass full history as contents.
-
         try:
-            # If the last message in history is not user, we might need to append the current message if it wasn't in history
-            # But the 'messages' arg usually includes everything.
-            
-            # The google-genai SDK 1.0+ expects 'contents' list.
-            
-            # Note: If 'messages' was None, we added the 'message' to formatted_contents above.
-            # If 'messages' was provided, we assume it contains the full history including the latest user message.
-            
             config_args = {}
             if system_instruction:
                  config_args['system_instruction'] = system_instruction
+            
+            config_args['temperature'] = temperature
+            config_args['max_output_tokens'] = max_tokens
 
             response = client.models.generate_content_stream(
                 model=target_model,

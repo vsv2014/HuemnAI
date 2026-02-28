@@ -23,7 +23,7 @@ class GenericLLM(BaseLLM):
         messages: Optional[List[Dict[str, str]]] = None,
         model: Optional[str] = None,
         temperature: float = 0.7,
-        max_tokens: int = 4096
+        max_tokens: int = 2000
     ) -> AsyncGenerator[str, None]:
         from app.services.config_service import get_llm_config
         config = get_llm_config(self.provider)
@@ -60,7 +60,10 @@ class GenericLLM(BaseLLM):
 
         # Prepare payload
         if not messages:
-            messages = [{"role": "user", "content": message}]
+            messages = [
+                {"role": "system", "content": "You are a helpful assistant."},
+                {"role": "user", "content": message}
+            ]
             
         payload = {
             "model": target_model,
@@ -99,17 +102,3 @@ class GenericLLM(BaseLLM):
         except Exception as e:
             logger.error(f"Error in {self.provider} stream: {str(e)}")
             yield f"⚠️ Connection Error: {str(e)}"
-
-    async def generate(
-        self,
-        message: str,
-        messages: Optional[List[Dict[str, str]]] = None,
-        model: Optional[str] = None,
-        temperature: float = 0.7,
-        max_tokens: int = 4096
-    ) -> str:
-        tokens = []
-        async for token in self.stream(message, messages, model, temperature, max_tokens):
-            if not token.startswith("⚠️"):
-                tokens.append(token)
-        return "".join(tokens)

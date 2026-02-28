@@ -1,4 +1,4 @@
-const API_BASE = process.env.NEXT_PUBLIC_API_URL;
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || process.env.NEXT_PUBLIC_API_BASE || 'http://localhost:8000';
 
 type SafeFetchOptions = RequestInit & { timeoutMs?: number };
 
@@ -342,13 +342,15 @@ export async function getAgentTemplate(id: string) {
 
 export async function generateFlowFromPrompt(agentId: string | number, prompt: string, token: string) {
   if (!token) return { error: "No authentication token" };
+  // Multi-stage generation can take up to 180 seconds for very complex architectures
   return safeFetch(`${API_BASE}/api/agents/generate-flow`, {
     method: "POST",
     headers: {
       "Authorization": `Bearer ${token}`,
       "Content-Type": "application/json"
     },
-    body: JSON.stringify({ agent_id: agentId, prompt })
+    body: JSON.stringify({ agent_id: agentId, prompt }),
+    timeoutMs: 180000 
   });
 }
 

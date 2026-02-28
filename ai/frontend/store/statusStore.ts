@@ -61,7 +61,7 @@ export const useStatusStore = create<StatusState>((set, get) => ({
      
     try {
        const userId = user.id?.toString() || user.email || "user1";
-       const apiBase = process.env.NEXT_PUBLIC_API_URL as string;
+       const apiBase = process.env.NEXT_PUBLIC_API_URL || process.env.NEXT_PUBLIC_API_BASE || 'http://localhost:8000';
        const response = await fetch(`${apiBase}/api/status/${userId}`, {
             headers: { Authorization: `Bearer ${token}` }
         });

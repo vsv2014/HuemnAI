@@ -601,6 +601,11 @@ async def delete_agent(
     
     agent_name = agent.name # Capture name before deletion
     
+    # Clear entry_node_id to break circular foreign key dependency
+    # before cascade delete of nodes
+    agent.entry_node_id = None
+    db.commit()
+    
     db.delete(agent)
     db.commit()
     

@@ -13,13 +13,15 @@ except ImportError:
 
 
 class OpenAILLM(BaseLLM):
-    async def stream(self, message: str, messages: list = None, model: str = None):
+    async def stream(self, message: str, messages: list = None, model: str = None, temperature: float = 0.7, max_tokens: int = 2000):
         """
         Stream tokens from OpenAI API.
         Args:
             message: The user message (used if messages is None)
             messages: Full conversation history (preferred)
             model: Specific model to use (overrides config)
+            temperature: Creativity level
+            max_tokens: Maximum tokens to generate
         """
         # Map deprecated or alias model names to current equivalents
         def normalize_model_name(name: str) -> str:
@@ -51,8 +53,6 @@ class OpenAILLM(BaseLLM):
                 fallback_models = [m.strip() for m in fallback_models.split(",") if m.strip()]
             
             # Create ordered list of models to try
-            # If explicit model provided, try that first (or only that?)
-            # For shadow mode, we want to try ONLY the specific model usually, but fallbacks are okay.
             if model:
                 models_to_try = [normalize_model_name(model)]
             else:
@@ -91,20 +91,20 @@ class OpenAILLM(BaseLLM):
             # Prepare messages if not provided
             if not messages:
                 messages = [
-                    {"role": "system", "content": "You are a helpful, empathetic customer service assistant. Provide unique, contextual responses for each query. Be conversational and natural."},
+                    {"role": "system", "content": "You are a helpful assistant."},
                     {"role": "user", "content": message}
                 ]
             
             # Try each model in sequence
             for current_model in models_to_try:
                 try:
-                    # Use chat completions API for streaming with higher temperature for variety
+                    # Use chat completions API for streaming
                     stream = client.chat.completions.create(
                         model=current_model,
                         messages=messages,
                         stream=True,
-                        temperature=0.8,  # Higher temperature for more variety
-                        max_tokens=500,
+                        temperature=temperature,
+                        max_tokens=max_tokens,
                     )
                     
                     # Stream tokens as they arrive

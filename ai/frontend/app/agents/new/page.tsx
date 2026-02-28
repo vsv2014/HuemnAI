@@ -104,16 +104,14 @@ export default function NewAgentPage() {
             const flowResult = await generateFlowFromPrompt(response.id, prompt, token);
             if (flowResult.error) {
               console.error("Flow generation error:", flowResult.error);
-              // Show error but still redirect - user can manually design
-              alert(`Flow generation failed: ${flowResult.error}. You can manually design the flow.`);
+              // Silent failure if we're redirecting anyway
             } else {
               console.log("Flow generated successfully:", flowResult);
-              // Wait longer to ensure backend has committed all changes
-              await new Promise(resolve => setTimeout(resolve, 1000));
+              await new Promise(resolve => setTimeout(resolve, 500));
             }
           } catch (err) {
             console.error("Failed to generate flow:", err);
-            alert(`Failed to generate flow: ${err instanceof Error ? err.message : "Unknown error"}. You can manually design the flow.`);
+            // Silent failure if we're redirecting anyway
           } finally {
             setLoading(false);
           }

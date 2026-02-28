@@ -85,15 +85,14 @@ export default function ProductCard({
       router.push("/pricing");
       return;
     }
-    try {
-      await fetch(`${API_BASE}/api/actions/`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: { name: title } }),
-      });
-    } catch (err) {
-      console.warn("Failed to notify backend about product click:", err);
-    }
+    
+    // Notify backend asynchronously (don't block navigation)
+    fetch(`${API_BASE}/api/actions/`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: { name: title } }),
+    }).catch(err => console.warn("Failed to notify backend about product click:", err));
+
     // Handle settings route
     if (isSettings || slug === "settings") {
       if (slug === "voice") {
@@ -262,7 +261,7 @@ export default function ProductCard({
   }
 
   return (
-    <div className="scene group h-full">
+    <div className="scene group h-full cursor-pointer" onClick={handleClick}>
       <Tilt
         glareEnable={true}
         glareMaxOpacity={0.15}
@@ -279,12 +278,11 @@ export default function ProductCard({
       >
         <div
           ref={ref}
-          onClick={handleClick}
           className={`tile w-full max-w-sm mx-auto sm:max-w-none sm:w-full h-full min-h-[200px] text-left rounded-3xl border ${
             subscriptionStatus === "trial" && toolTokens && toolTokens.tokens_remaining <= 0
               ? "border-red-500/50 bg-red-500/5"
               : "border-t-white/20 border-l-white/10 border-r-white/5 border-b-white/5 bg-gradient-to-br from-white/10 via-white/5 to-transparent hover:bg-white/10"
-          } tile-inner cursor-pointer active:scale-95 transition-all duration-300 relative overflow-hidden backdrop-blur-3xl shadow-[0_8px_32px_0_rgba(0,0,0,0.36),inset_0_0_0_1px_rgba(255,255,255,0.1)] hover:shadow-[0_16px_48px_0_rgba(31,38,135,0.5),inset_0_0_0_1px_rgba(255,255,255,0.2)] p-6 sm:p-8 flex flex-col justify-between group`}
+          } tile-inner active:scale-95 transition-all duration-300 relative overflow-hidden backdrop-blur-3xl shadow-[0_8px_32px_0_rgba(0,0,0,0.36),inset_0_0_0_1px_rgba(255,255,255,0.1)] hover:shadow-[0_16px_48px_0_rgba(31,38,135,0.5),inset_0_0_0_1px_rgba(255,255,255,0.2)] p-6 sm:p-8 flex flex-col justify-between group`}
           aria-label={`Open ${title}`}
         >
           <div className="absolute inset-0 bg-gradient-to-tr from-transparent via-white/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-700 pointer-events-none" />

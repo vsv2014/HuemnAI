@@ -13,7 +13,7 @@ except ImportError:
 
 
 class AzureLLM(BaseLLM):
-    async def stream(self, message: str):
+    async def stream(self, message: str, messages: list = None, model: str = None, temperature: float = 0.7, max_tokens: int = 2000):
         """
         Stream tokens from Azure OpenAI API if configured, otherwise return contextual response.
         """
@@ -54,16 +54,20 @@ class AzureLLM(BaseLLM):
                     azure_endpoint=endpoint
                 )
                 
+                # Prepare messages if not provided
+                if not messages:
+                    messages = [
+                        {"role": "system", "content": "You are a helpful assistant."},
+                        {"role": "user", "content": message}
+                    ]
+                
                 # Use chat completions API for streaming
                 stream = client.chat.completions.create(
                     model=deployment_name,
-                    messages=[
-                        {"role": "system", "content": "You are a helpful, empathetic customer service assistant. Provide unique, contextual responses for each query. Be conversational and natural."},
-                        {"role": "user", "content": message}
-                    ],
+                    messages=messages,
                     stream=True,
-                    temperature=0.8,
-                    max_tokens=500,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
                 )
                 
                 # Stream tokens as they arrive

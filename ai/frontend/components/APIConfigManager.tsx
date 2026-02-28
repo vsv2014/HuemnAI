@@ -1,8 +1,9 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useAuthStore } from "@/store/authStore";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL;
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || process.env.NEXT_PUBLIC_API_BASE || 'http://localhost:8000';
 
 const PROVIDER_TYPE_LABELS: Record<string, string> = {
   llm: "LLM Providers",
@@ -39,6 +40,7 @@ interface Config {
 }
 
 export default function APIConfigManager() {
+  const { token, isAuthenticated } = useAuthStore();
   const [providers, setProviders] = useState<Record<string, Record<string, Provider>>>({});
   const [configs, setConfigs] = useState<Config[]>([]);
   const [loading, setLoading] = useState(true);
@@ -53,11 +55,15 @@ export default function APIConfigManager() {
   useEffect(() => {
     loadProviders();
     loadConfigs();
-  }, []);
+  }, [isAuthenticated, token]);
 
   const loadProviders = async () => {
     try {
-      const res = await fetch(`${API_BASE}/api/config/providers`);
+      const res = await fetch(`${API_BASE}/api/config/providers`, {
+        headers: {
+          Authorization: `Bearer ${token}`
+        }
+      });
       if (!res.ok) {
         if (res.status === 404) {
           console.error("API endpoint not found. Please restart the backend server.");
@@ -92,9 +98,14 @@ export default function APIConfigManager() {
   };
 
   const loadConfigs = async () => {
+    if (!token) return;
     try {
       setLoading(true);
-      const res = await fetch(`${API_BASE}/api/config/`);
+      const res = await fetch(`${API_BASE}/api/config/`, {
+        headers: {
+          Authorization: `Bearer ${token}`
+        }
+      });
       const data = await res.json();
       setConfigs(data.configs || []);
     } catch (error) {
@@ -147,7 +158,10 @@ export default function APIConfigManager() {
         // Update
         const res = await fetch(`${API_BASE}/api/config/${editingId}`, {
           method: "PUT",
-          headers: { "Content-Type": "application/json" },
+          headers: { 
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${token}`
+          },
           body: JSON.stringify({
             name: formData.name,
             description: formData.description,
@@ -167,7 +181,10 @@ export default function APIConfigManager() {
         // Create
         const res = await fetch(`${API_BASE}/api/config/`, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { 
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${token}`
+          },
           body: JSON.stringify({
             provider: selectedProvider,
             provider_type: selectedProviderType,
@@ -198,6 +215,9 @@ export default function APIConfigManager() {
     try {
       const res = await fetch(`${API_BASE}/api/config/${id}`, {
         method: "DELETE",
+        headers: {
+          "Authorization": `Bearer ${token}`
+        }
       });
       const data = await res.json();
       if (data.success) {
@@ -214,6 +234,9 @@ export default function APIConfigManager() {
     try {
       const res = await fetch(`${API_BASE}/api/config/${id}/test`, {
         method: "POST",
+        headers: {
+          "Authorization": `Bearer ${token}`
+        }
       });
       const data = await res.json();
       alert(data.message || (data.success ? "Connection successful!" : "Connection failed"));
