@@ -14,12 +14,472 @@ logger = logging.getLogger(__name__)
 
 
 class FlowGenerator:
-    """Generates agent flows from natural language prompts"""
+    """Generates agent flows from natural language prompts using a multi-stage architecture engine"""
     
     def __init__(self, db: Session):
         self.db = db
         self.llm = get_available_llm()
-    
+
+    async def generate_from_prompt(
+        self,
+        agent: Agent,
+        user_prompt: str
+    ) -> Dict[str, Any]:
+        try:
+            decomposition = await self._decompose_use_case(user_prompt)
+            domain = decomposition.get("domain", "general")
+            requirements = decomposition.get("requirements", [])
+            capabilities = decomposition.get("capabilities", [])
+            integrations = decomposition.get("integrations", [])
+
+            if requirements:
+                capabilities = await self._map_requirements_with_llm(user_prompt, requirements)
+
+            node_mappings = self._map_capabilities_to_nodes(
+                capabilities,
+                integrations,
+                domain,
+                decomposition
+            )
+            dependencies = self._resolve_dependencies(node_mappings)
+            missing_configs = dependencies.get("missing_configurations", [])
+
+            topology = await self._design_topology(user_prompt, decomposition, node_mappings)
+
+            flow_data = {
+                "nodes": topology.get("nodes", []),
+                "connections": topology.get("connections", []),
+                "entry_node": topology.get("entry_node", "start"),
+                "missing_configurations": missing_configs
+            }
+
+            flow_data = self._validate_flow_structure(flow_data)
+
+            result = await self._create_from_llm_json(agent, user_prompt, flow_data)
+            if "missing_configurations" in flow_data:
+                result["missing_configurations"] = flow_data["missing_configurations"]
+                
+            return result
+            
+        except Exception as e:
+            logger.error(f"Architect: Error in multi-stage generation: {str(e)}", exc_info=True)
+            return await self._create_simple_flow(agent, user_prompt)
+
+    async def _decompose_use_case(self, user_prompt: str) -> Dict[str, Any]:
+        prompt = f"""
+        As a Senior Enterprise AI Architect, decompose the following user requirement into atomic functional capabilities.
+        
+        USER REQUIREMENT: "{user_prompt}"
+        
+        STRICT OUTPUT FORMAT (JSON):
+        {{
+            "domain": "website_bot" | "internal_enterprise" | "hybrid",
+            "requirements": ["requirement1", "requirement2", ...],
+            "capabilities": ["capability1", "capability2", ...],
+            "integrations": ["jira", "zendesk", "salesforce", "slack", "database", "api", ...],
+            "complexity": "low" | "medium" | "high",
+            "requires_branching": true | false,
+            "requires_auth": true | false,
+            "requires_sentiment_handoff": true | false
+        }}
+        
+        CAPABILITIES TO DETECT:
+        - knowledge_lookup (RAG)
+        - intent_detection
+        - entity_extraction
+        - sentiment_analysis
+        - human_handoff
+        - authentication
+        - data_persistence
+        - external_api_call
+        - workflow_automation
+        - scheduling
+        - notification
+        - document_processing
+        - multi_agent_orchestration
+        """
+        
+        response = await self.llm.generate(prompt)
+        try:
+            json_match = re.search(r'\{.*\}', response, re.DOTALL)
+            if json_match:
+                return json.loads(json_match.group())
+            return {{"domain": "general", "capabilities": ["general_chat"]}}
+        except Exception as e:
+            logger.error(f"Decomposition error: {e}")
+            return {{"domain": "general", "capabilities": ["general_chat"]}}
+
+    async def _map_requirements_with_llm(self, user_prompt: str, requirements: List[str]) -> List[str]:
+        prompt = f"""
+        Map each requirement to a canonical capability label from the allowed list.
+
+        USER PROMPT: "{user_prompt}"
+        REQUIREMENTS: {json.dumps(requirements)}
+
+        ALLOWED CAPABILITIES:
+        ["knowledge_lookup","intent_detection","entity_extraction","sentiment_analysis","human_handoff","authentication","data_persistence",
+        "external_api_call","workflow_automation","scheduling","notification","document_processing","multi_agent_orchestration",
+        "decision_making","logic_branching","reasoning"]
+
+        STRICT OUTPUT FORMAT (JSON):
+        {{
+            "capabilities": ["capability1", "capability2", ...]
+        }}
+        """
+        response = await self.llm.generate(prompt)
+        try:
+            json_match = re.search(r'\{.*\}', response, re.DOTALL)
+            if json_match:
+                data = json.loads(json_match.group())
+                caps = data.get("capabilities", [])
+                return [c for c in caps if isinstance(c, str)]
+        except Exception:
+            pass
+        return []
+
+    def _map_capabilities_to_nodes(self, capabilities: List[str], integrations: List[str], domain: str, decomposition: Dict[str, Any]) -> List[Dict[str, Any]]:
+        mapping_table = {
+            "knowledge_lookup": NodeType.AI_RAG,
+            "intent_detection": NodeType.INTENT,
+            "entity_extraction": NodeType.ENTITY,
+            "sentiment_analysis": NodeType.AI_INSIGHT,
+            "human_handoff": NodeType.HANDOFF_INTELLIGENCE,
+            "authentication": NodeType.AUTH_PROVIDER,
+            "data_persistence": NodeType.SESSION_STATE,
+            "external_api_call": NodeType.API,
+            "workflow_automation": NodeType.WORKFLOW_AUTOMATION,
+            "scheduling": NodeType.CALENDAR,
+            "notification": NodeType.NOTIFICATION,
+            "document_processing": NodeType.DOCUMENT_PROCESSOR,
+            "multi_agent_orchestration": NodeType.AI_MULTI_AGENT,
+            "decision_making": NodeType.AI_DECISION,
+            "logic_branching": NodeType.CONDITION,
+            "reasoning": NodeType.LLM
+        }
+        
+        nodes = []
+        nodes.append({"id": "start", "type": NodeType.START, "label": "Start"})
+        
+        for cap in list(dict.fromkeys(capabilities or [])):
+            if cap in mapping_table:
+                nodes.append({
+                    "id": f"node_{cap}",
+                    "type": mapping_table[cap],
+                    "label": cap.replace("_", " ").title()
+                })
+        
+        for integration in integrations:
+            nodes.append({
+                "id": f"conn_{integration}",
+                "type": NodeType.CONNECTOR,
+                "label": f"{integration.title()} Connector",
+                "integration": integration
+            })
+            
+        if domain == "website_bot":
+            if not any(n["type"] == NodeType.PERSONA_CONTROL for n in nodes):
+                nodes.append({"id": "persona", "type": NodeType.PERSONA_CONTROL, "label": "Persona Control"})
+            if not any(n["type"] == NodeType.INTENT for n in nodes):
+                nodes.append({"id": "intent", "type": NodeType.INTENT, "label": "Intent Detection"})
+            if not any(n["type"] == NodeType.AI_RAG for n in nodes):
+                nodes.append({"id": "rag", "type": NodeType.AI_RAG, "label": "Knowledge Lookup"})
+            if not any(n["type"] == NodeType.AI_INSIGHT for n in nodes):
+                nodes.append({"id": "sentiment", "type": NodeType.AI_INSIGHT, "label": "Sentiment Monitor"})
+            if not any(n["type"] == NodeType.HANDOFF_INTELLIGENCE for n in nodes):
+                nodes.append({"id": "handoff", "type": NodeType.HANDOFF_INTELLIGENCE, "label": "Handoff Intelligence"})
+            if not any(n["type"] == NodeType.SESSION_STATE for n in nodes):
+                nodes.append({"id": "session_state", "type": NodeType.SESSION_STATE, "label": "Session State"})
+        
+        if domain == "internal_enterprise":
+            if not any(n["type"] == NodeType.AUTH_PROVIDER for n in nodes):
+                nodes.append({"id": "auth", "type": NodeType.AUTH_PROVIDER, "label": "Enterprise Auth"})
+            if not any(n["type"] == NodeType.CONDITION for n in nodes):
+                nodes.append({"id": "condition", "type": NodeType.CONDITION, "label": "Business Routing"})
+            if not any(n["type"] == NodeType.SESSION_STATE for n in nodes):
+                nodes.append({"id": "session_state", "type": NodeType.SESSION_STATE, "label": "Session State"})
+
+        if integrations and not any(n["type"] == NodeType.AUTH_PROVIDER for n in nodes):
+            nodes.append({"id": "auth", "type": NodeType.AUTH_PROVIDER, "label": "Integration Auth"})
+
+        if decomposition.get("requires_branching") and not any(n["type"] == NodeType.CONDITION for n in nodes):
+            nodes.append({"id": "condition", "type": NodeType.CONDITION, "label": "Condition"})
+
+        if decomposition.get("complexity") in ["medium", "high"] and not any(n["type"] == NodeType.LLM for n in nodes):
+            nodes.append({"id": "reasoning", "type": NodeType.LLM, "label": "Reasoning Core"})
+        
+        return nodes
+
+    def _resolve_dependencies(self, nodes: List[Dict[str, Any]]) -> Dict[str, Any]:
+        missing_configs = []
+        
+        integration_fields = {
+            "jira": ["base_url", "api_key", "project_key"],
+            "zendesk": ["subdomain", "api_token", "email"],
+            "salesforce": ["instance_url", "client_id", "client_secret"],
+            "slack": ["bot_token", "channel_id"],
+            "database": ["connection_string", "table_name"]
+        }
+        
+        for node in nodes:
+            if node["type"] == NodeType.CONNECTOR and "integration" in node:
+                integration = node["integration"]
+                if integration in integration_fields:
+                    missing_configs.append({
+                        "node": node["id"],
+                        "label": node["label"],
+                        "required_fields": integration_fields[integration]
+                    })
+            
+            if node["type"] == NodeType.API:
+                missing_configs.append({
+                    "node": node["id"],
+                    "label": node["label"],
+                    "required_fields": ["endpoint_url", "method", "headers"]
+                })
+                
+        return {"missing_configurations": missing_configs}
+
+    async def _design_topology(self, user_prompt: str, decomposition: Dict[str, Any], mapped_nodes: List[Dict[str, Any]]) -> Dict[str, Any]:
+        node_list_str = "\n".join([f"- {n['id']} ({n['type'].value}): {n['label']}" for n in mapped_nodes])
+        
+        prompt = f"""
+        As a Senior Enterprise AI Architect, design the optimal graph topology for an AI Agent.
+        
+        USER PROMPT: "{user_prompt}"
+        DECOMPOSED REQUIREMENTS: {json.dumps(decomposition)}
+        AVAILABLE NODES:
+        {node_list_str}
+        
+        RULES:
+        1. Always start with 'start' node.
+        2. Must end with an 'end' node (add one if missing).
+        3. Use 'condition' nodes for branching logic.
+        4. Preserve intentional complexity; do NOT collapse everything into one LLM node.
+        5. For WEBSITE BOTS: Ensure a flow like Start -> Persona -> Intent -> (RAG/Connectors) -> Response -> Sentiment -> End.
+        6. For ENTERPRISE BOTS: Ensure Auth -> Integration -> Logic -> Response.
+        7. LLM nodes should be used for REASONING, not just output.
+        8. RESPONSE nodes are for final user output.
+        
+        STRICT OUTPUT FORMAT (JSON):
+        {{
+            "nodes": [
+                {{
+                    "name": "node_id",
+                    "node_type": "node_type_value",
+                    "label": "Display Label",
+                    "config": {{}},
+                    "position_x": 100,
+                    "position_y": 200
+                }}
+            ],
+            "connections": [
+                {{
+                    "source": "source_node_id",
+                    "target": "target_node_id",
+                    "condition": {{}}
+                }}
+            ],
+            "entry_node": "start"
+        }}
+        """
+        
+        response = await self.llm.generate(prompt)
+        try:
+            json_match = re.search(r'\{.*\}', response, re.DOTALL)
+            if json_match:
+                data = json.loads(json_match.group())
+                if data.get("nodes") and data.get("connections") is not None:
+                    return data
+        except Exception as e:
+            logger.error(f"Topology design error: {e}")
+        return self._fallback_topology(mapped_nodes, decomposition, user_prompt)
+
+    def _fallback_topology(self, mapped_nodes: List[Dict[str, Any]], decomposition: Dict[str, Any], user_prompt: str) -> Dict[str, Any]:
+        domain = decomposition.get("domain", "general")
+        required = {n["id"]: n for n in mapped_nodes}
+        nodes = []
+        used = set()
+
+        def add_node(node_id: str, node_type: NodeType, label: str, x: int, y: int, config: Optional[Dict[str, Any]] = None):
+            if node_id in used:
+                return
+            used.add(node_id)
+            nodes.append({
+                "name": node_id,
+                "node_type": node_type.value,
+                "label": label,
+                "config": config or {},
+                "position_x": x,
+                "position_y": y
+            })
+
+        seed = sum(ord(c) for c in (user_prompt or "")) % 60
+        base_y = 200 + seed
+        step_x = 180
+
+        add_node("start", NodeType.START, "Start", 60, base_y)
+
+        pre_order = []
+        for key in ["persona", "auth", "session_state", "intent", "node_intent_detection"]:
+            if key in required:
+                pre_order.append(required[key])
+
+        action_order = []
+        for n in mapped_nodes:
+            if n["id"] in ["start", "persona", "auth", "session_state", "intent", "node_intent_detection"]:
+                continue
+            if n["type"] in [NodeType.RESPONSE, NodeType.END]:
+                continue
+            if n["id"] == "sentiment" or n["type"] == NodeType.AI_INSIGHT:
+                continue
+            if n["id"] == "handoff" or n["type"] == NodeType.HANDOFF_INTELLIGENCE:
+                continue
+            action_order.append(n)
+
+        post_sentiment = next((n for n in mapped_nodes if n["id"] == "sentiment" or n["type"] == NodeType.AI_INSIGHT), None)
+        post_handoff = next((n for n in mapped_nodes if n["id"] == "handoff" or n["type"] == NodeType.HANDOFF_INTELLIGENCE), None)
+
+        x = 60 + step_x
+        for n in pre_order:
+            add_node(n["id"], n["type"], n["label"], x, base_y)
+            x += step_x
+
+        condition_node = next((n for n in mapped_nodes if n["type"] == NodeType.CONDITION), None)
+        if condition_node:
+            add_node(condition_node["id"], condition_node["type"], condition_node["label"], x, base_y)
+            x += step_x
+
+        branch_y = base_y - 140
+        for idx, n in enumerate(action_order):
+            add_node(n["id"], n["type"], n["label"], x, branch_y + (idx * 140))
+        x += step_x
+
+        add_node("response", NodeType.RESPONSE, "Response", x, base_y, {"response_type": "text"})
+        x += step_x
+
+        if post_sentiment:
+            add_node(post_sentiment["id"], post_sentiment["type"], post_sentiment["label"], x, base_y)
+            x += step_x
+        if post_handoff:
+            add_node(post_handoff["id"], post_handoff["type"], post_handoff["label"], x, base_y)
+            x += step_x
+
+        add_node("end", NodeType.END, "End", x, base_y)
+
+        connections = []
+        def connect(a: str, b: str, condition: Optional[Dict[str, Any]] = None):
+            connections.append({"source": a, "target": b, "condition": condition or {}})
+
+        last = "start"
+        for n in pre_order:
+            connect(last, n["id"])
+            last = n["id"]
+
+        if condition_node:
+            connect(last, condition_node["id"])
+            for idx, n in enumerate(action_order):
+                connect(condition_node["id"], n["id"], {"branch": f"path_{idx + 1}"})
+            if action_order:
+                for n in action_order:
+                    connect(n["id"], "response")
+            else:
+                connect(condition_node["id"], "response")
+        else:
+            if action_order:
+                for n in action_order:
+                    connect(last, n["id"])
+                    last = n["id"]
+                connect(last, "response")
+            else:
+                connect(last, "response")
+
+        if post_sentiment:
+            connect("response", post_sentiment["id"])
+            last = post_sentiment["id"]
+        else:
+            last = "response"
+
+        if post_handoff:
+            connect(last, post_handoff["id"], {"sentiment": "negative"})
+            connect(post_handoff["id"], "end")
+        else:
+            connect(last, "end")
+
+        if domain == "website_bot" and not action_order:
+            connect("response", "end")
+
+        return {
+            "nodes": nodes,
+            "connections": connections,
+            "entry_node": "start"
+        }
+
+    def _validate_flow_structure(self, flow_data: Dict[str, Any]) -> Dict[str, Any]:
+        nodes = flow_data.get("nodes", [])
+        connections = flow_data.get("connections", [])
+        
+        if not nodes:
+            return flow_data
+            
+        node_names = {n["name"] for n in nodes}
+        node_types = {n["node_type"] for n in nodes}
+        
+        if "start" not in node_types and "start" not in node_names:
+            nodes.insert(0, {
+                "name": "start",
+                "node_type": NodeType.START.value,
+                "label": "Start",
+                "position_x": 50,
+                "position_y": 250
+            })
+            
+        if "end" not in node_types and "end" not in node_names:
+            nodes.append({
+                "name": "end",
+                "node_type": NodeType.END.value,
+                "label": "End",
+                "position_x": 1200,
+                "position_y": 250
+            })
+
+        if "response" not in node_types and "response" not in node_names:
+            nodes.append({
+                "name": "response",
+                "node_type": NodeType.RESPONSE.value,
+                "label": "Response",
+                "position_x": 1000,
+                "position_y": 250,
+                "config": {"response_type": "text"}
+            })
+            
+        connected_sources = {c["source"] for c in connections}
+        connected_targets = {c["target"] for c in connections}
+        
+        safe_types = [NodeType.START.value, NodeType.END.value, NodeType.RESPONSE.value]
+        
+        orphaned = []
+        for n in nodes:
+            if n["node_type"] in safe_types: continue
+            if n["name"] not in connected_sources and n["name"] not in connected_targets:
+                orphaned.append(n["name"])
+        
+        if orphaned:
+            logger.info(f"Architect: Removing truly orphaned nodes: {orphaned}")
+            nodes = [n for n in nodes if n["name"] not in orphaned]
+
+        if not connections:
+            ordered = sorted(nodes, key=lambda n: (n.get("position_x", 0), n.get("position_y", 0)))
+            for i in range(len(ordered) - 1):
+                if ordered[i]["node_type"] == NodeType.END.value:
+                    continue
+                if ordered[i + 1]["node_type"] == NodeType.START.value:
+                    continue
+                connections.append({"source": ordered[i]["name"], "target": ordered[i + 1]["name"], "condition": {}})
+
+        flow_data["nodes"] = nodes
+        flow_data["connections"] = connections
+        return flow_data
+
     def _resolve_node_type(self, node_type_str: str, name: str, label: str, prompt_text: str):
         s = (node_type_str or "").lower()
         n = (name or "").lower()
@@ -34,15 +494,15 @@ class FlowGenerator:
         if any(k in s or k in n or k in l for k in ["end", "finish"]):
             return NodeType.END
         if any(k in s or k in n or k in l for k in ["intent", "classifier"]):
-            return NodeType.LLM
+            return NodeType.INTENT
         if any(k in s or k in n or k in l for k in ["entity", "extract"]):
-            return NodeType.DATA_ANALYSIS if hasattr(NodeType, "DATA_ANALYSIS") else NodeType.LLM
+            return NodeType.ENTITY
         if any(k in text for k in ["knowledge", "faq", "kb", "docs", "documentation"]):
-            return NodeType.DATA_ANALYSIS
+            return NodeType.AI_RAG
         if any(k in text for k in ["jira", "zendesk", "salesforce", "crm", "ticket"]):
-            return NodeType.WORKFLOW_AUTOMATION if hasattr(NodeType, "WORKFLOW_AUTOMATION") else NodeType.ORCHESTRATOR
+            return NodeType.CONNECTOR
         if any(k in text for k in ["email", "gmail", "outlook"]):
-            return NodeType.EMAIL_PROCESSOR if hasattr(NodeType, "EMAIL_PROCESSOR") else NodeType.NOTIFICATION
+            return NodeType.EMAIL_PROCESSOR
         if any(k in text for k in ["slack", "notification", "notify", "alert"]):
             return NodeType.NOTIFICATION
         if any(k in text for k in ["calendar", "schedule", "meeting"]):
@@ -52,166 +512,18 @@ class FlowGenerator:
         if any(k in text for k in ["stream", "realtime"]):
             return NodeType.STREAMING
         if any(k in text for k in ["auth", "login", "verify"]):
-            return NodeType.AUTH_PROVIDER if hasattr(NodeType, "AUTH_PROVIDER") else NodeType.SESSION_STATE
+            return NodeType.AUTH_PROVIDER
         if any(k in text for k in ["database", "db", "transaction", "sql"]):
-            return NodeType.DB_TRANSACTION if hasattr(NodeType, "DB_TRANSACTION") else NodeType.DATA_PROCESSOR if hasattr(NodeType, "DATA_PROCESSOR") else NodeType.ORCHESTRATOR
+            return NodeType.DATABASE if hasattr(NodeType, "DATABASE") else NodeType.DB_TRANSACTION
         if any(k in text for k in ["scrape", "crawl"]):
             return NodeType.WEB_SCRAPER
         if any(k in s or k in n or k in l for k in ["response", "reply"]):
             return NodeType.RESPONSE
+        if any(k in text for k in ["handoff", "escalation", "agent"]):
+            return NodeType.HANDOFF_INTELLIGENCE
+        if any(k in text for k in ["sentiment", "emotion", "satisfaction"]):
+            return NodeType.AI_INSIGHT
         return NodeType.LLM
-    
-    async def generate_from_prompt(
-        self,
-        agent: Agent,
-        user_prompt: str
-    ) -> Dict[str, Any]:
-        """
-        Generate agent flow from user prompt using Orchestrator
-        """
-        try:
-            from app.orchestrator.planner.planner import build_plan
-            from app.orchestrator.bot_engine.engine import FlowCompiler
-
-            # Use the advanced Orchestrator to plan the flow
-            plan = await build_plan(user_prompt)
-            
-            # Use the FlowCompiler to generate nodes and edges
-            # The compiler uses a vertical layout by default
-            compiled = FlowCompiler().compile(plan)
-            
-            nodes_spec = []
-            for n in compiled.get("nodes", []):
-                # Map orchestrator types to NodeType
-                raw_type = n.get("type", "step")
-                ntype_map = {
-                    "entry": NodeType.START,
-                    "end": NodeType.END,
-                    "response": NodeType.RESPONSE,
-                    "reasoning": NodeType.LLM,
-                    "rag": NodeType.AI_RAG,
-                    "workflow": NodeType.WORKFLOW_AUTOMATION,
-                    "api": NodeType.API,
-                    "calendar": NodeType.CALENDAR,
-                    "analysis": NodeType.DATA_ANALYSIS,
-                    "decision": NodeType.AI_DECISION,
-                    "module": NodeType.SERVICE
-                }
-                ntype = ntype_map.get(raw_type, NodeType.LLM)
-                
-                nodes_spec.append({
-                    "node_type": ntype.value,
-                    "name": n.get("id"),
-                    "label": n.get("label"),
-                    "config": n.get("data", {}),
-                    "position_x": n.get("x", 0),
-                    "position_y": n.get("y", 0)
-                })
-            
-            connections_spec = []
-            for e in compiled.get("edges", []):
-                connections_spec.append({
-                    "source": e.get("source"),
-                    "target": e.get("target"),
-                    "condition": {}
-                })
-                
-            flow_data = {
-                "nodes": nodes_spec,
-                "connections": connections_spec,
-                "entry_node": next((n["name"] for n in nodes_spec if n["node_type"] == "start"), nodes_spec[0]["name"] if nodes_spec else None)
-            }
-            
-            # Architect's Validation Step
-            flow_data = self._validate_flow(flow_data)
-            
-            return await self._create_from_llm_json(agent, user_prompt, flow_data)
-            
-        except Exception as e:
-            logger.error(f"Error generating flow via orchestrator: {str(e)}", exc_info=True)
-            # Fallback to the original heuristic method if orchestrator fails
-            return await self._create_heuristic_flow(agent, user_prompt)
-
-    def _validate_flow(self, flow_data: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Senior Architect's Final Validation (Step 6):
-        1. Does the flow directly achieve the goal?
-        2. Is there unnecessary complexity? (Remove generic infrastructure)
-        3. Are nodes minimal but sufficient?
-        4. Is reasoning centralized but branches preserved?
-        """
-        nodes = flow_data.get("nodes", [])
-        connections = flow_data.get("connections", [])
-        
-        # 0. Infrastructure Purge: Remove generic utility nodes, but KEEP intentional business routers
-        # We only remove nodes that are generic 'infrastructure' and don't add business value
-        generic_infrastructure = [
-            "policy_router", "domain_router", "intent_detector", 
-            "entity_extractor", "audit_log", "notification_gateway",
-            "gateway", "logger"
-        ]
-        
-        nodes_to_remove = []
-        for n in nodes:
-            name = n.get("name", "").lower()
-            label = n.get("label", "").lower()
-            # ONLY remove if it's in the generic list AND not specifically requested as a business router
-            if any(k in name or k in label for k in generic_infrastructure):
-                if n["node_type"] not in [NodeType.START.value, NodeType.END.value, NodeType.RESPONSE.value]:
-                    # Exception: If it's labeled "Workflow Router" or similar, keep it as it's part of business logic
-                    if "workflow" in label or "business" in label or "task" in label:
-                        continue
-                    nodes_to_remove.append(n["name"])
-        
-        if nodes_to_remove:
-            logger.info(f"Architect (Step 6): Purging generic infrastructure: {nodes_to_remove}")
-            nodes = [n for n in nodes if n["name"] not in nodes_to_remove]
-            
-            # Bypass logic
-            for rid in nodes_to_remove:
-                incoming = [c for c in connections if c["target"] == rid]
-                outgoing = [c for c in connections if c["source"] == rid]
-                for inc in incoming:
-                    for out in outgoing:
-                        if inc["source"] != out["target"]:
-                            connections.append({
-                                "source": inc["source"],
-                                "target": out["target"],
-                                "condition": inc.get("condition", {})
-                            })
-                connections = [c for c in connections if c["source"] != rid and c["target"] != rid]
-
-        # 1. Branch Preservation: Ensure decision nodes have their branches intact
-        # (We skip the aggressive LLM merge if there are multiple intentional branches)
-        reasoning_nodes = [n for n in nodes if n["node_type"] == NodeType.LLM.value]
-        
-        # Only merge if they are effectively doing the same thing in a linear sequence
-        # If they are in different branches or one is a manager and others are workers, keep them
-        if len(reasoning_nodes) > 1:
-            # Simple heuristic: if one node has multiple outgoing edges to other reasoning nodes, it's a manager
-            # We only merge reasoning nodes that are redundant
-            pass # For now, let's be less aggressive with merging to see if it improves the user's complex case
-
-        # 2. Orphan Removal: Final sweep for disconnected nodes
-        connected_sources = {c["source"] for c in connections}
-        connected_targets = {c["target"] for c in connections}
-        
-        orphaned = []
-        for n in nodes:
-            if n["node_type"] in [NodeType.START.value, NodeType.END.value]: continue
-            if n["name"] not in connected_sources and n["name"] not in connected_targets:
-                orphaned.append(n["name"])
-        
-        if orphaned:
-            logger.info(f"Architect (Step 6): Removing orphaned nodes: {orphaned}")
-            nodes = [n for n in nodes if n["name"] not in orphaned]
-            connections = [c for c in connections if c["source"] not in orphaned and c["target"] not in orphaned]
-
-        return {
-            "nodes": nodes,
-            "connections": connections,
-            "entry_node": flow_data.get("entry_node")
-        }
 
 
 
