@@ -266,9 +266,9 @@ async def get_subscription_plans(db: Session = Depends(get_db)):
                 "display_name": plan.display_name,
                 "price_monthly": None if plan.name == "enterprise" else (plan.price_monthly if plan.price_monthly and plan.price_monthly > 0 else None),
                 "price_yearly": None if plan.name == "enterprise" else (plan.price_yearly if plan.price_yearly and plan.price_yearly > 0 else None),
-                "original_price_monthly": None if plan.name == "enterprise" else (plan.price_monthly * 2 if plan.price_monthly and plan.price_monthly > 0 else None),
-                "original_price_yearly": None if plan.name == "enterprise" else (plan.price_yearly * 2 if plan.price_yearly and plan.price_yearly > 0 else None),
-                "discount": 50 if plan.name != "enterprise" else 0,  # 50% discount for first subscription (not for enterprise)
+                "original_price_monthly": None,
+                "original_price_yearly": None,
+                "discount": 0,
                 "features": plan.features,
                 "integrations": plan.integrations,
                 "is_popular": PRICING.get(plan.name, {}).get("is_popular", False),
@@ -324,18 +324,13 @@ async def subscribe(
         Subscription.status == "active"
     ).first()
     
-    # Calculate price with 50% discount for first subscription
-    is_first_subscription = not existing_subscription
-    discount = 0.5 if is_first_subscription else 0.0
-    
+    # Calculate price
     if request.billing_period == "monthly":
-        original_price = plan.price_monthly
-        price = plan.price_monthly * (1 - discount)
+        price = plan.price_monthly
         ends_at = datetime.utcnow() + timedelta(days=30)
         interval = "month"
     else:
-        original_price = plan.price_yearly
-        price = plan.price_yearly * (1 - discount)
+        price = plan.price_yearly
         ends_at = datetime.utcnow() + timedelta(days=365)
         interval = "year"
     
@@ -346,9 +341,9 @@ async def subscribe(
     if not key_id or not key_secret:
         raise HTTPException(status_code=500, detail="Razorpay is not configured")
 
-    # Razorpay expects amount in the smallest currency unit (paise for INR)
-    currency = "INR"
-    amount_paise = int(price * 100)
+    # Razorpay expects amount in the smallest currency unit (cents for USD)
+    currency = "USD"
+    amount_cents = int(price * 100)
 
     import base64
     import json as _json
@@ -357,7 +352,7 @@ async def subscribe(
     try:
         auth = (key_id, key_secret)
         payload = {
-            "amount": amount_paise,
+            "amount": amount_cents,
             "currency": currency,
             "receipt": f"user_{user.id}_plan_{plan.id}_{int(datetime.utcnow().timestamp())}",
             "payment_capture": 1,
@@ -365,7 +360,6 @@ async def subscribe(
                 "user_id": str(user.id),
                 "plan_id": str(plan.id),
                 "billing_period": request.billing_period,
-                "is_first_subscription": _json.dumps(is_first_subscription),
             },
         }
         response = requests.post(
@@ -446,6 +440,7 @@ async def get_subscription_status(
 
 
 @router.get("/gateway-health")
+@router.get("/stripe-health")
 async def payment_gateway_health(
     user: UserAccount = Depends(get_current_user),
 ):

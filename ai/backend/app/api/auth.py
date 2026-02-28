@@ -62,6 +62,7 @@ class AuthResponse(BaseModel):
     trial_days_remaining: Optional[int] = None
     subscribed_tools: Optional[list] = None
     requires_otp: bool = False
+    is_verified: bool = True
     message: Optional[str] = None
 
 def hash_password(password: str) -> str:
@@ -137,6 +138,20 @@ def get_client_ip(request: Request) -> str:
     return "unknown"
 
 import re
+
+# Disposable email domains to block
+DISPOSABLE_EMAIL_DOMAINS = {
+    "mailinator.com", "guerrillamail.com", "10minutemail.com", "temp-mail.org",
+    "yopmail.com", "throwawaymail.com", "getnada.com", "maildrop.cc",
+    "dispostable.com", "sharklasers.com", "guerrillamailblock.com",
+    "guerrillamail.net", "guerrillamail.org", "guerrillamail.biz",
+    "spam4.me", "grr.la", "pokemail.net", "trashmail.com"
+}
+
+def is_disposable_email(email: str) -> bool:
+    """Check if the email domain is a known disposable email provider"""
+    domain = email.split("@")[-1].lower() if "@" in email else ""
+    return domain in DISPOSABLE_EMAIL_DOMAINS
 
 def validate_password_complexity(password: str) -> None:
     """
@@ -220,28 +235,43 @@ async def signup(
     db: Session = Depends(get_db),
     http_request: Request = None
 ):
-    """Sign up new user with free trial"""
-    # Validate password complexity
+    """Sign up new user with free trial and email verification"""
+    # 1. Validate email domain (block disposable emails)
+    if is_disposable_email(signup_request.email):
+        logger.warning(f"Signup attempt with disposable email: {signup_request.email}")
+        raise HTTPException(
+            status_code=400, 
+            detail="Signup with disposable email is not allowed. Please use a permanent email address."
+        )
+
+    # 2. Validate password complexity
     validate_password_complexity(signup_request.password)
 
-    # Check if email already exists
+    # 3. Check if email already exists
     existing_user = db.query(UserAccount).filter(UserAccount.email == signup_request.email).first()
     if existing_user:
         raise HTTPException(status_code=400, detail="Email already registered")
         
-    # Mandatory OTP for Gmail - BYPASSED FOR DEV
-    # if signup_request.email.endswith("@gmail.com"):
-    #     if not signup_request.otp:
-    #         # Generate and send OTP
-    #         await handle_otp_generation(signup_request.email, db)
-    #         return AuthResponse(
-    #             requires_otp=True,
-    #             message="OTP sent to your Gmail address. Please verify to continue."
-    #         )
-    #     else:
-    #         # Verify OTP
-    #         if not verify_otp_code(signup_request.email, signup_request.otp, db):
-    #             raise HTTPException(status_code=400, detail="Invalid or expired OTP")
+    # Mandatory Email Verification (OTP)
+    if not signup_request.otp:
+        # Generate and send OTP
+        success = await handle_otp_generation(signup_request.email, db)
+        if not success:
+            raise HTTPException(
+                status_code=500,
+                detail="Failed to send verification email. Please check your SMTP settings."
+            )
+        return AuthResponse(
+            requires_otp=True,
+            is_verified=False,
+            message="Verification code sent to your email. Please verify to complete signup."
+        )
+    else:
+        # Verify OTP
+        if verify_otp_code(signup_request.email, signup_request.otp, db):
+            pass
+        else:
+            raise HTTPException(status_code=400, detail="Invalid or expired verification code")
     
     # Check IP-based trial restriction (bypassed in development mode)
     ip_address = signup_request.ip_address or (get_client_ip(http_request) if http_request else "unknown")
@@ -272,7 +302,9 @@ async def signup(
         subscription_status="trial",
         trial_started_at=trial_start,
         trial_ends_at=trial_end,
-        has_used_trial=True
+        has_used_trial=True,
+        is_verified=True, # Verified via OTP
+        is_active=True
     )
     
     db.add(user)
@@ -313,10 +345,12 @@ async def signup(
             "id": user.id,
             "email": user.email,
             "name": user.name,
-            "subscription_status": user.subscription_status
+            "subscription_status": user.subscription_status,
+            "is_verified": user.is_verified
         },
         subscription_status=user.subscription_status,
-        trial_days_remaining=max(0, trial_days)
+        trial_days_remaining=max(0, trial_days),
+        is_verified=user.is_verified
     )
 
 @router.post("/login", response_model=AuthResponse)
@@ -340,19 +374,29 @@ async def login(
     if not user.is_active:
         raise HTTPException(status_code=403, detail="Account is inactive")
         
-    # Mandatory OTP for Gmail - BYPASSED FOR DEV
-    # if user.email.endswith("@gmail.com"):
-    #     if not request.otp:
-    #         # Generate and send OTP
-    #         await handle_otp_generation(user.email, db)
-    #         return AuthResponse(
-    #             requires_otp=True,
-    #             message="OTP sent to your Gmail address. Please verify to continue."
-    #         )
-    #     else:
-    #         # Verify OTP
-    #         if not verify_otp_code(user.email, request.otp, db):
-    #             raise HTTPException(status_code=400, detail="Invalid or expired OTP")
+    # Email Verification Check for existing accounts
+    if not user.is_verified:
+        if not request.otp:
+            # Generate and send OTP for unverified account
+            success = await handle_otp_generation(user.email, db)
+            if not success:
+                raise HTTPException(
+                    status_code=500,
+                    detail="Failed to send verification email. Please check your SMTP settings."
+                )
+            return AuthResponse(
+                requires_otp=True,
+                is_verified=False,
+                message="Your email is not verified. A verification code has been sent to your email."
+            )
+        else:
+            # Verify OTP
+            if verify_otp_code(user.email, request.otp, db):
+                # Mark as verified
+                user.is_verified = True
+                db.commit()
+            else:
+                raise HTTPException(status_code=400, detail="Invalid or expired verification code")
     
     # Agent login: verify company email domain
     if request.is_agent:
@@ -423,11 +467,13 @@ async def login(
             "email": user.email,
             "name": user.name,
             "role": user.role,
-            "subscription_status": user.subscription_status
+            "subscription_status": user.subscription_status,
+            "is_verified": user.is_verified
         },
         "subscription_status": user.subscription_status,
         "trial_days_remaining": trial_days_remaining,
-        "subscribed_tools": subscribed_tools
+        "subscribed_tools": subscribed_tools,
+        "is_verified": user.is_verified
     }
 
 @router.post("/verify-otp")
@@ -518,6 +564,7 @@ async def google_login(
             trial_started_at=trial_start,
             trial_ends_at=trial_end,
             has_used_trial=True,
+            is_verified=True, # Verified via Google
             is_active=True
         )
         db.add(user)
@@ -563,10 +610,12 @@ async def google_login(
             "role": user.role,
             "subscription_status": user.subscription_status,
             "google_access_token": request.token,
+            "is_verified": user.is_verified
         },
         subscription_status=user.subscription_status,
         trial_days_remaining=trial_days_remaining,
-        subscribed_tools=subscribed_tools
+        subscribed_tools=subscribed_tools,
+        is_verified=user.is_verified
     )
 
 @router.post("/forgot-password")

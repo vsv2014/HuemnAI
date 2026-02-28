@@ -28,7 +28,13 @@ export default function PricingPage() {
   const [subscribing, setSubscribing] = useState<number | null>(null);
   const [error, setError] = useState("");
   const [managingBilling, setManagingBilling] = useState(false);
-  const [stripeHealth, setStripeHealth] = useState<{ configured: boolean; mode: string; webhook_configured: boolean; bypass_subscription: boolean } | null>(null);
+  const [stripeHealth, setStripeHealth] = useState<{ 
+    configured: boolean; 
+    mode?: string; 
+    provider?: string; 
+    webhook_configured?: boolean; 
+    bypass_subscription: boolean 
+  } | null>(null);
 
   useEffect(() => {
     if (!isAuthenticated) {
@@ -90,15 +96,17 @@ export default function PricingPage() {
 
     setSubscribing(planId);
     setError("");
+    const plan = plans.find((p) => p.id === planId);
 
     try {
       console.log("Calling subscribe API...");
       const response = subscriptionStatus === "active"
         ? await changePlan(planId, billingPeriod, token)
         : await subscribe(planId, billingPeriod, token);
-      console.log("Subscribe API response:", response);
+      console.log("Subscribe API response received:", response);
       
       if (response.error) {
+        console.error("API error response:", response.error);
         if (response.status === 401 || response.error.includes("Token expired")) {
             console.log("Token expired, redirecting to login");
             setSubscribing(null);
@@ -111,16 +119,90 @@ export default function PricingPage() {
         return;
       }
 
-      // Check for Stripe checkout URL
-      if (response.checkout_url) {
-        window.location.href = response.checkout_url;
+      // Razorpay Integration
+      if (response.order_id && response.razorpay_key_id) {
+        console.log("Razorpay order detected, loading SDK...");
+        const loadRazorpay = () => {
+          return new Promise((resolve) => {
+            if ((window as any).Razorpay) {
+              console.log("Razorpay SDK already loaded");
+              resolve(true);
+              return;
+            }
+            const script = document.createElement("script");
+            script.src = "https://checkout.razorpay.com/v1/checkout.js";
+            script.onload = () => {
+              console.log("Razorpay SDK script loaded successfully");
+              resolve(true);
+            };
+            script.onerror = () => {
+              console.error("Failed to load Razorpay SDK script");
+              resolve(false);
+            };
+            document.body.appendChild(script);
+          });
+        };
+
+        const res = await loadRazorpay();
+        if (!res) {
+          setError("Razorpay SDK failed to load. Are you online?");
+          setSubscribing(null);
+          return;
+        }
+
+        console.log("Opening Razorpay modal...");
+        const options = {
+          key: response.razorpay_key_id,
+          amount: response.amount * 100,
+          currency: response.currency || "USD",
+          name: "HUEMN.Ai",
+          description: `Subscription for ${plan?.display_name || planId}`,
+          order_id: response.order_id,
+          handler: function (paymentResponse: any) {
+            console.log("Payment successful handler called", paymentResponse);
+            // Verify payment on backend if needed
+            if (response.subscription_status) {
+              updateSubscriptionStatus(
+                response.subscription_status, 
+                response.trial_days_remaining,
+                response.current_plan
+              );
+            }
+            router.push("/payment/success");
+          },
+          prefill: {
+            name: useAuthStore.getState().user?.name || "",
+            email: useAuthStore.getState().user?.email || "",
+          },
+          theme: {
+            color: "#3B82F6",
+          },
+          modal: {
+            ondismiss: function() {
+              console.log("Razorpay modal dismissed by user");
+              setSubscribing(null);
+            }
+          }
+        };
+
+        const rzp = new (window as any).Razorpay(options);
+        rzp.on('payment.failed', function (response: any) {
+            console.error("Payment failed event:", response.error);
+            setError(response.error.description || "Payment failed");
+            setSubscribing(null);
+        });
+        rzp.open();
         return;
       }
 
-      // Success - redirect to dashboard
-      // alert(response.message || "Subscription successful!");
+      // Check for Stripe checkout URL (legacy/fallback)
+      if (response.checkout_url) {
+        console.log("Stripe checkout URL detected, redirecting...");
+        window.location.href = response.checkout_url;
+        return;
+      }
       
-      // Update store with new subscription status
+      console.log("No checkout required, updating status and redirecting...");
       if (response.subscription_status) {
         updateSubscriptionStatus(
           response.subscription_status, 
@@ -128,14 +210,20 @@ export default function PricingPage() {
           response.current_plan
         );
       }
-      
+
       if (subscriptionStatus === "active") {
-        router.push("/pricing");
+        console.log("Already active, refreshing pricing page");
+        alert(response.message || "Plan updated successfully!");
+        setSubscribing(null);
+        // Refresh plans to show new current plan
+        loadPlans();
       } else {
+        console.log("Subscription success, redirecting to success page");
+        alert(response.message || "Subscription successful!");
         router.push("/payment/success");
       }
     } catch (err: any) {
-      console.error("Subscription error:", err);
+      console.error("Caught error in handleSubscribe:", err);
       alert("Subscription failed: " + (err.message || "Unknown error"));
       setError(err.message || "Subscription failed");
       setSubscribing(null);
@@ -176,7 +264,7 @@ export default function PricingPage() {
             Choose Your Plan
           </h1>
           <p className="text-xl text-white/60 mb-6">
-            Start with a 14-day free trial. 50% off your first subscription!
+            Start with a 14-day free trial.
           </p>
           {subscriptionStatus === "active" && (
             <div className="mt-4 flex items-center justify-center gap-3">
@@ -202,12 +290,12 @@ export default function PricingPage() {
               stripeHealth.configured ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-300" : "bg-red-500/10 border-red-500/30 text-red-300"
             }`}>
               <span className="text-sm font-semibold">
-                Stripe {stripeHealth.configured ? "Connected" : "Not Configured"}
+                {stripeHealth.provider === 'razorpay' ? 'Razorpay' : 'Stripe'} {stripeHealth.configured ? "Connected" : "Not Configured"}
               </span>
               <span className="text-xs text-white/60">
-                {stripeHealth.configured ? `${stripeHealth.mode.toUpperCase()} mode` : "Using mock checkout flow"}
+                {stripeHealth.configured ? `${(stripeHealth.mode || stripeHealth.provider || 'live').toUpperCase()} mode` : "Using mock checkout flow"}
               </span>
-              {!stripeHealth.webhook_configured && stripeHealth.configured && (
+              {stripeHealth.provider !== 'razorpay' && !stripeHealth.webhook_configured && stripeHealth.configured && (
                 <span className="text-xs text-amber-300">Webhook missing</span>
               )}
               {stripeHealth.bypass_subscription && (
@@ -298,7 +386,7 @@ export default function PricingPage() {
                     <p className="text-sm text-white/50 mt-1">
                       ${plan.price_yearly?.toFixed(2) || "0.00"}/year
                       {plan.price_yearly && plan.original_price_yearly && (
-                        <> (save ${((plan.original_price_yearly - plan.price_yearly)).toFixed(2)})</>
+                        <> (Save ${((plan.original_price_yearly - plan.price_yearly)).toFixed(2)})</>
                       )}
                     </p>
                   </>

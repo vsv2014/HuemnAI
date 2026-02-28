@@ -12,6 +12,9 @@ class Settings:
 
     # Database
     DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./huemn.db" if not IS_PROD else "")
+    POSTGRES_USER = os.getenv("POSTGRES_USER", "postgres")
+    POSTGRES_PASSWORD = os.getenv("POSTGRES_PASSWORD", "postgres")
+    POSTGRES_DB = os.getenv("POSTGRES_DB", "huemn")
     if IS_PROD:
         if not DATABASE_URL:
             raise RuntimeError("DATABASE_URL is required in production and must point to PostgreSQL")
