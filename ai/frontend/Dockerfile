@@ -14,14 +14,14 @@ COPY . .
 ENV NODE_OPTIONS="--max-old-space-size=4096"
 ENV NEXT_TELEMETRY_DISABLED=1
 
-# Disable type checking and linting during build via Next.js config (already done in next.config.js)
-# but we also set this to ensure
-ENV SKIP_LINT=1
-ENV SKIP_TYPE_CHECK=1
-
 # Accept build arguments for environment variables
 ARG NEXT_PUBLIC_API_BASE
 ENV NEXT_PUBLIC_API_BASE=$NEXT_PUBLIC_API_BASE
+
+# Production build optimizations
+ENV SKIP_LINT=1
+ENV SKIP_TYPE_CHECK=1
+ENV NEXT_DISABLE_SOURCEMAPS=1
 
 RUN npm run build
 
@@ -38,6 +38,7 @@ RUN adduser --system --uid 1001 nextjs
 # Copy necessary files
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
+COPY --from=builder --chown=nextjs:nodejs /app/public ./public
 
 USER nextjs
 

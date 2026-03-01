@@ -36,7 +36,7 @@ export default function AnimatedImageLogo({
     >
       <div className="relative logo-container" style={{ width, height }}>
         <img
-          src="/images/huemn-ai-logo.jpg"
+          src="/images/logo-head.png"
           alt="HUEMN.Ai Logo"
           width={width}
           height={height}
