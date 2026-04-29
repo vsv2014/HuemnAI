@@ -3,7 +3,9 @@ from sqlalchemy import Column, Integer, String, Boolean, DateTime, Text, JSON, F
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from app.db.base import Base
+from app.core.security import encrypt_string, decrypt_string
 import enum
+import json
 
 
 class VariableType(str, enum.Enum):
@@ -54,42 +56,68 @@ class AgentVariable(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
+    def set_value(self, raw_value: str, encrypt: bool = False):
+        """Set value with optional encryption"""
+        self.is_encrypted = encrypt
+        if encrypt and raw_value:
+            self.value = encrypt_string(raw_value)
+        else:
+            self.value = raw_value
+
+    def get_value(self) -> str:
+        """Get decrypted value if encrypted"""
+        if self.is_encrypted and self.value:
+            return decrypt_string(self.value)
+        return self.value
+
 
 class ModelProvider(str, enum.Enum):
     OPENAI = "openai"
     ANTHROPIC = "anthropic"
     AZURE_OPENAI = "azure_openai"
-    AMAZON_BEDROCK = "amazon_bedrock"
-    GOOGLE = "google"
-    MISTRAL = "mistral"
-    COHERE = "cohere"
+    GOOGLE_GEMINI = "google_gemini"
     GROQ = "groq"
-    TOGETHER = "together"
     OLLAMA = "ollama"
-    KORE_XO_GPT = "kore_xo_gpt"
-    CUSTOM_LLM = "custom_llm"
-
+    CUSTOM_API = "custom_api"
 
 class AIModel(Base):
-    """AI Model configurations"""
+    """AI Model configurations - Bring Your Own Key (BYOK)"""
     __tablename__ = "ai_models"
     
     id = Column(Integer, primary_key=True, index=True)
     agent_id = Column(Integer, ForeignKey("agents.id"), nullable=False, index=True)
+    name = Column(String(255), nullable=False) # Friendly name: "My GPT-4", "Production Claude"
     provider = Column(SQLEnum(ModelProvider), nullable=False)
-    model_name = Column(String(255), nullable=False)  # gpt-4, claude-2, etc.
+    model_name = Column(String(255), nullable=False)  # gpt-4, claude-3-opus, etc.
     
     # Configuration
-    api_key = Column(Text, nullable=True)  # Encrypted
-    endpoint = Column(String(500), nullable=True)
-    config = Column(JSON, nullable=True)  # Temperature, max_tokens, etc.
+    api_key = Column(Text, nullable=True)  # Encrypted using Fernet
+    base_url = Column(String(500), nullable=True) # For custom endpoints or Ollama
+    api_version = Column(String(100), nullable=True) # For Azure
+    organization_id = Column(String(255), nullable=True) # For OpenAI
+    
+    # Advanced settings (Temperature, Top-P, etc.)
+    settings = Column(JSON, nullable=True)
     
     # Status
     is_active = Column(Boolean, default=True)
-    is_configured = Column(Boolean, default=False)
+    is_default = Column(Boolean, default=False)
     
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    def set_api_key(self, key: str):
+        """Encrypt and set API key"""
+        if key:
+            self.api_key = encrypt_string(key)
+        else:
+            self.api_key = None
+
+    def get_api_key(self) -> str:
+        """Decrypt and return API key"""
+        if self.api_key:
+            return decrypt_string(self.api_key)
+        return None
 
 
 class Prompt(Base):
@@ -170,6 +198,24 @@ class Integration(Base):
     
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    def set_credentials(self, creds: dict):
+        """Encrypt and set credentials"""
+        if creds:
+            creds_str = json.dumps(creds)
+            self.credentials = {"encrypted_data": encrypt_string(creds_str)}
+        else:
+            self.credentials = None
+
+    def get_credentials(self) -> dict:
+        """Decrypt and return credentials"""
+        if self.credentials and "encrypted_data" in self.credentials:
+            decrypted_str = decrypt_string(self.credentials["encrypted_data"])
+            try:
+                return json.loads(decrypted_str)
+            except json.JSONDecodeError:
+                return {}
+        return self.credentials or {}
 
 
 class ChangeLog(Base):

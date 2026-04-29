@@ -75,6 +75,9 @@ const STATUS_STYLES: Record<string, string> = {
   in_progress: "bg-blue-500/10 text-blue-400 border-blue-500/20",
   resolved: "bg-purple-500/10 text-purple-400 border-purple-500/20",
   closed: "bg-zinc-500/10 text-zinc-400 border-zinc-500/20",
+  pending: "bg-orange-500/10 text-orange-400 border-orange-500/20 animate-pulse",
+  approved: "bg-emerald-500/10 text-emerald-400 border-emerald-500/20",
+  rejected: "bg-red-500/10 text-red-400 border-red-500/20",
 };
 
 export default function TicketConsole() {
@@ -301,6 +304,7 @@ export default function TicketConsole() {
                 <div className="flex gap-2 pb-1">
                     {[
                         { id: 'all', label: 'All' },
+                        { id: 'pending', label: 'Approvals' },
                         { id: 'open', label: 'Open' },
                         { id: 'in_progress', label: 'Active' },
                         { id: 'unassigned', label: 'Unassigned' },
@@ -445,6 +449,31 @@ export default function TicketConsole() {
                                 </div>
                             )}
                         </div>
+
+                        {/* Approval Actions for Pending Tickets */}
+                        {selectedTicket.status === "pending" && (
+                            <div className="flex items-center space-x-3 p-4 bg-orange-500/10 border border-orange-500/20 rounded-xl mb-6">
+                                <div className="flex-1">
+                                    <div className="text-sm font-bold text-orange-400">Human Approval Required</div>
+                                    <div className="text-xs text-orange-400/70">An agent workflow is waiting for your decision to proceed.</div>
+                                </div>
+                                <div className="flex space-x-2">
+                                    <Button 
+                                        onClick={() => handleStatusChange("approved")}
+                                        className="bg-emerald-600 hover:bg-emerald-700 text-white border-none h-8 px-4 text-xs shadow-lg shadow-emerald-600/20"
+                                    >
+                                        Approve
+                                    </Button>
+                                    <Button 
+                                        onClick={() => handleStatusChange("rejected")}
+                                        variant="outline"
+                                        className="border-red-500/30 text-red-400 hover:bg-red-500/10 h-8 px-4 text-xs"
+                                    >
+                                        Reject
+                                    </Button>
+                                </div>
+                            </div>
+                        )}
 
                         {/* Conversation */}
                         <div className="space-y-4">

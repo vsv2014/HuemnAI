@@ -285,7 +285,7 @@ export default function VoiceStudio() {
   const [toast, setToast] = useState<{message: string, type: 'success' | 'error'} | null>(null);
 
   // UI State
-  const [activeTab, setActiveTab] = useState<'all' | 'cloned' | 'system'>('all');
+  const [activeTab, setActiveTab] = useState<'all' | 'cloned' | 'system' | 'campaigns'>('all');
   const [searchQuery, setSearchQuery] = useState("");
   const [playingId, setPlayingId] = useState<number | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -582,10 +582,25 @@ export default function VoiceStudio() {
 
         {/* Controls Bar */}
         <div className="sticky top-4 z-40 bg-[#0a0a0f]/80 backdrop-blur-xl border border-white/5 p-4 rounded-2xl flex flex-col md:flex-row gap-4 items-center justify-between">
-          <div className="flex bg-white/5 p-1 rounded-lg">
-            <TabButton active={activeTab === 'all'} onClick={() => setActiveTab('all')}>All Voices</TabButton>
-            <TabButton active={activeTab === 'cloned'} onClick={() => setActiveTab('cloned')}>Cloned</TabButton>
-            <TabButton active={activeTab === 'system'} onClick={() => setActiveTab('system')}>System</TabButton>
+          <div className="flex bg-white/5 p-1 rounded-xl border border-white/5">
+            {[
+              { id: 'all', label: 'All Voices' },
+              { id: 'cloned', label: 'Cloned' },
+              { id: 'system', label: 'Huemn AI' },
+              { id: 'campaigns', label: 'Outbound Campaigns' }
+            ].map((tab) => (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id as any)}
+                className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                  activeTab === tab.id 
+                    ? "bg-white text-black shadow-lg shadow-white/10" 
+                    : "text-white/40 hover:text-white"
+                }`}
+              >
+                {tab.label}
+              </button>
+            ))}
           </div>
 
           <div className="relative w-full md:w-96">
@@ -602,10 +617,82 @@ export default function VoiceStudio() {
           </div>
         </div>
 
-        {/* Grid */}
+        {/* Grid or Campaigns */}
         {loading ? (
           <div className="flex items-center justify-center h-64">
             <div className="w-8 h-8 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
+          </div>
+        ) : activeTab === 'campaigns' ? (
+          <div className="space-y-6">
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              {/* Campaign Stats */}
+              <div className="lg:col-span-2 grid grid-cols-1 sm:grid-cols-3 gap-4">
+                {[
+                  { label: 'Active Campaigns', value: '12', color: 'text-emerald-400', icon: '📢' },
+                  { label: 'Total Outreach', value: '45.2k', color: 'text-indigo-400', icon: '📞' },
+                  { label: 'DNC Blocked', value: '1.2k', color: 'text-red-400', icon: '🛡️' }
+                ].map((stat, i) => (
+                  <div key={i} className="bg-white/5 border border-white/10 rounded-2xl p-4">
+                    <div className="text-2xl mb-2">{stat.icon}</div>
+                    <div className="text-2xl font-bold text-white">{stat.value}</div>
+                    <div className={`text-[10px] uppercase tracking-widest font-bold ${stat.color}`}>{stat.label}</div>
+                  </div>
+                ))}
+              </div>
+              
+              {/* DNC Registry Quick Access */}
+              <div className="bg-gradient-to-br from-indigo-500/10 to-purple-500/10 border border-indigo-500/20 rounded-2xl p-6 flex flex-col justify-between">
+                <div>
+                  <h3 className="text-lg font-bold text-white mb-2">Global DNC Registry</h3>
+                  <p className="text-sm text-white/50 mb-4">Automatically filters all outbound campaigns to ensure compliance.</p>
+                </div>
+                <button className="w-full py-2 bg-white/10 hover:bg-white/20 border border-white/10 rounded-xl text-sm font-bold text-white transition-all">
+                  Manage DNC List
+                </button>
+              </div>
+            </div>
+
+            {/* Campaign List */}
+            <div className="bg-white/5 border border-white/10 rounded-3xl overflow-hidden">
+              <div className="p-6 border-b border-white/5 flex items-center justify-between">
+                <h3 className="font-bold text-white uppercase tracking-wider text-sm">Active Campaigns</h3>
+                <button className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 rounded-xl text-xs font-bold text-white transition-all">
+                  Create Campaign
+                </button>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-left">
+                  <thead>
+                    <tr className="text-[10px] uppercase tracking-widest text-white/40 border-b border-white/5">
+                      <th className="px-6 py-4 font-bold">Campaign Name</th>
+                      <th className="px-6 py-4 font-bold">Type</th>
+                      <th className="px-6 py-4 font-bold">Status</th>
+                      <th className="px-6 py-4 font-bold">Reach</th>
+                      <th className="px-6 py-4 font-bold">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-white/5">
+                    {[
+                      { name: 'Q2 Product Launch', type: 'Voice', status: 'Running', reach: '8.2k/10k', color: 'text-emerald-400' },
+                      { name: 'Dormant User SMS', type: 'SMS', status: 'Scheduled', reach: '0/25k', color: 'text-indigo-400' },
+                      { name: 'Enterprise Survey', type: 'Voice', status: 'Paused', reach: '1.2k/5k', color: 'text-amber-400' }
+                    ].map((c, i) => (
+                      <tr key={i} className="group hover:bg-white/5 transition-colors">
+                        <td className="px-6 py-4 text-sm font-medium text-white">{c.name}</td>
+                        <td className="px-6 py-4 text-sm text-white/60">{c.type}</td>
+                        <td className="px-6 py-4">
+                          <span className={`text-[10px] font-bold uppercase ${c.color}`}>{c.status}</span>
+                        </td>
+                        <td className="px-6 py-4 text-sm font-mono text-white/60">{c.reach}</td>
+                        <td className="px-6 py-4">
+                          <button className="text-white/20 group-hover:text-white transition-colors text-xs font-bold">View Details</button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
           </div>
         ) : filteredProfiles.length === 0 ? (
           <div className="text-center py-24 bg-white/5 rounded-3xl border border-dashed border-white/10">

@@ -3,6 +3,7 @@
 import { usePathname, useRouter } from "next/navigation";
 import { useState } from "react";
 import Link from "next/link";
+import { useAuthStore } from "@/store/authStore";
 
 interface SidebarItem {
   id: string;
@@ -11,6 +12,7 @@ interface SidebarItem {
   path?: string;
   children?: SidebarItem[];
   badge?: string;
+  adminOnly?: boolean;
 }
 
 interface SidebarSection {
@@ -18,11 +20,15 @@ interface SidebarSection {
   label: string;
   icon: string;
   items: SidebarItem[];
+  adminOnly?: boolean;
 }
 
 export default function AppSidebar({ agentId }: { agentId: number }) {
   const pathname = usePathname();
   const router = useRouter();
+  const { user } = useAuthStore();
+  const isAdmin = user?.role === "admin" || user?.role === "superadmin";
+
   const [collapsed, setCollapsed] = useState(false);
   const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set(["app-settings", "genai-tools"]));
 
@@ -41,11 +47,33 @@ export default function AppSidebar({ agentId }: { agentId: number }) {
       ],
     },
     {
-      id: "customer-service",
-      label: "Customer Service",
-      icon: "🎧",
+      id: "automation-hub",
+      label: "Automation Hub",
+      icon: "🤖",
+      items: [
+        { id: "browser-studio", label: "Browser Studio", icon: "🌐", path: `/agents/${agentId}/automation/browser` },
+        { id: "ocr-docling", label: "OCR (Docling)", icon: "📄", path: `/agents/${agentId}/automation/ocr` },
+        { id: "published-tasks", label: "Published Tasks", icon: "✅", path: `/agents/${agentId}/automation/tasks` },
+      ],
+    },
+    {
+      id: "engagement-suite",
+      label: "Engagement Suite",
+      icon: "📢",
+      items: [
+        { id: "voice-campaigns", label: "Voice Campaigns", icon: "📞", path: `/agents/${agentId}/campaigns/voice` },
+        { id: "sms-campaigns", label: "SMS Campaigns", icon: "💬", path: `/agents/${agentId}/campaigns/sms` },
+        { id: "web-campaigns", label: "Web Proactive", icon: "🌐", path: `/agents/${agentId}/campaigns/web` },
+      ],
+    },
+    {
+      id: "interaction-center",
+      label: "Interaction Center",
+      icon: "🤝",
       items: [
         { id: "agent-console", label: "Agent Console", icon: "🖥️", path: `/customer-service/agent-console` },
+        { id: "co-browse", label: "Co-browse", icon: "👀", path: `/agents/${agentId}/interaction/co-browse` },
+        { id: "voice-transfers", label: "Voice Transfers", icon: "📞", path: `/agents/${agentId}/interaction/voice-transfers` },
       ],
     },
     {
@@ -71,6 +99,7 @@ export default function AppSidebar({ agentId }: { agentId: number }) {
       id: "app-settings",
       label: "App Settings",
       icon: "⚙️",
+      adminOnly: true,
       items: [
         { id: "profile", label: "App Profile", icon: "👤", path: `/agents/${agentId}/settings/profile` },
         { id: "languages", label: "Language Management", icon: "🌐", path: `/agents/${agentId}/settings/languages` },
@@ -85,6 +114,7 @@ export default function AppSidebar({ agentId }: { agentId: number }) {
       id: "genai-tools",
       label: "Generative AI Tools",
       icon: "✨",
+      adminOnly: true,
       items: [
         { id: "models", label: "Models Library", icon: "🤖", path: `/agents/${agentId}/genai/models` },
         { id: "prompts", label: "Prompts Library", icon: "📝", path: `/agents/${agentId}/genai/prompts` },
@@ -141,6 +171,7 @@ export default function AppSidebar({ agentId }: { agentId: number }) {
       id: "deploy",
       label: "Deploy",
       icon: "🚀",
+      adminOnly: true,
       items: [
         { id: "publish", label: "Publish", icon: "📤", path: `/agents/${agentId}/deploy/publish` },
         { id: "versions", label: "App Version", icon: "📦", path: `/agents/${agentId}/deploy/versions` },
@@ -151,6 +182,7 @@ export default function AppSidebar({ agentId }: { agentId: number }) {
       id: "users",
       label: "User Management",
       icon: "👥",
+      adminOnly: true,
       items: [
         { id: "manage", label: "Manage Users", icon: "👤", path: `/agents/${agentId}/users/manage` },
         { id: "roles", label: "Role Management", icon: "🎭", path: `/agents/${agentId}/users/roles` },
@@ -231,62 +263,74 @@ export default function AppSidebar({ agentId }: { agentId: number }) {
 
         {/* Navigation Sections */}
         <nav className="p-2 space-y-1">
-          {sections.map((section) => {
-            const sectionExpanded = expandedSections.has(section.id);
-            const sectionActive = isSectionActive(section);
+          {sections
+            .filter((section) => !section.adminOnly || isAdmin)
+            .map((section) => {
+              const sectionExpanded = expandedSections.has(section.id);
+              const sectionActive = isSectionActive(section);
 
-            return (
-              <div key={section.id} className="mb-2">
-                {/* Section Header */}
-                <button
-                  onClick={() => toggleSection(section.id)}
-                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all ${
-                    sectionActive
-                      ? "bg-gradient-to-r from-blue-500/20 to-purple-500/20 text-blue-300 border-l-2 border-blue-400"
-                      : "text-white/70 hover:bg-white/5 hover:text-white"
-                  }`}
-                >
-                  <span className="text-lg">{section.icon}</span>
-                  {!collapsed && (
-                    <>
-                      <span className="flex-1 text-left text-sm font-semibold">{section.label}</span>
-                      <svg className={`w-4 h-4 transition-transform ${sectionExpanded ? 'rotate-90' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                      </svg>
-                    </>
-                  )}
-                </button>
-
-                {/* Section Items */}
-                {sectionExpanded && !collapsed && (
-                  <div className="ml-6 mt-2 space-y-1 border-l border-white/5 pl-3">
-                    {section.items.map((item) => {
-                      const active = isActive(item.path);
-                      return (
-                        <Link
-                          key={item.id}
-                          href={item.path || "#"}
-                          className={`flex items-center gap-3 px-3 py-2 rounded-lg transition-all text-sm group ${
-                            active
-                              ? "bg-gradient-to-r from-blue-500/30 to-purple-500/20 text-blue-300 border-l-2 border-blue-400 shadow-lg shadow-blue-500/10"
-                              : "text-white/60 hover:bg-white/5 hover:text-white hover:translate-x-1"
+              return (
+                <div key={section.id} className="mb-2">
+                  {/* Section Header */}
+                  <button
+                    onClick={() => toggleSection(section.id)}
+                    className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all ${
+                      sectionActive
+                        ? "bg-gradient-to-r from-blue-500/20 to-purple-500/20 text-blue-300 border-l-2 border-blue-400"
+                        : "text-white/70 hover:bg-white/5 hover:text-white"
+                    }`}
+                  >
+                    <span className="text-lg">{section.icon}</span>
+                    {!collapsed && (
+                      <>
+                        <span className="flex-1 text-left font-medium text-sm tracking-wide">
+                          {section.label}
+                        </span>
+                        <svg
+                          className={`w-4 h-4 transition-transform duration-300 ${
+                            sectionExpanded ? "rotate-180" : ""
                           }`}
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
                         >
-                          <span className="text-base">{item.icon}</span>
-                          <span className="flex-1 font-medium">{item.label}</span>
-                          {item.badge && (
-                            <span className="px-2 py-0.5 text-xs bg-blue-500/30 rounded-full font-semibold">
-                              {item.badge}
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                        </svg>
+                      </>
+                    )}
+                  </button>
+
+                  {/* Section Items */}
+                  {sectionExpanded && !collapsed && (
+                    <div className="mt-1 space-y-1 ml-4 border-l border-white/5 pl-2">
+                      {section.items
+                        .filter((item) => !item.adminOnly || isAdmin)
+                        .map((item) => (
+                          <Link
+                            key={item.id}
+                            href={item.path || "#"}
+                            className={`flex items-center gap-3 px-3 py-2 rounded-md text-sm transition-all group ${
+                              isActive(item.path)
+                                ? "bg-white/10 text-white font-medium shadow-sm shadow-black/20"
+                                : "text-white/50 hover:bg-white/5 hover:text-white"
+                            }`}
+                          >
+                            <span className="text-base group-hover:scale-110 transition-transform">
+                              {item.icon}
                             </span>
-                          )}
-                        </Link>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            );
-          })}
+                            <span className="flex-1">{item.label}</span>
+                            {item.badge && (
+                              <span className="px-1.5 py-0.5 text-[10px] font-bold bg-blue-500/20 text-blue-400 rounded border border-blue-500/30">
+                                {item.badge}
+                              </span>
+                            )}
+                          </Link>
+                        ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
         </nav>
       </div>
     </div>

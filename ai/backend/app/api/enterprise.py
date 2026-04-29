@@ -13,6 +13,8 @@ from app.db.models.enterprise import (
 )
 from app.db.models.agent import Agent, AgentVersion
 
+from app.services.llm.provider_service import model_service
+
 router = APIRouter(prefix="/agents/{agent_id}", tags=["enterprise"])
 
 
@@ -35,14 +37,19 @@ class VariableCreate(BaseModel):
     language_code: Optional[str] = None
     group: Optional[str] = None
     notes: Optional[str] = None
+    is_encrypted: bool = False
 
 
 class ModelCreate(BaseModel):
+    name: str
     provider: str
     model_name: str
     api_key: Optional[str] = None
-    endpoint: Optional[str] = None
-    config: Optional[Dict[str, Any]] = None
+    base_url: Optional[str] = None
+    api_version: Optional[str] = None
+    organization_id: Optional[str] = None
+    settings: Optional[Dict[str, Any]] = None
+    is_default: bool = False
 
 
 class PromptCreate(BaseModel):
@@ -151,11 +158,12 @@ async def get_variables(
             "id": var.id,
             "variable_type": var.variable_type.value,
             "name": var.name,
-            "value": var.value,
+            "value": var.get_value(),
             "environment": var.environment,
             "language_code": var.language_code,
             "group": var.group,
             "notes": var.notes,
+            "is_encrypted": var.is_encrypted,
         }
         for var in variables
     ]
@@ -172,12 +180,12 @@ async def create_variable(agent_id: int, variable_data: VariableCreate, db: Sess
         agent_id=agent_id,
         variable_type=VariableType(variable_data.variable_type),
         name=variable_data.name,
-        value=variable_data.value,
         environment=variable_data.environment,
         language_code=variable_data.language_code,
         group=variable_data.group,
         notes=variable_data.notes,
     )
+    variable.set_value(variable_data.value, encrypt=variable_data.is_encrypted)
     db.add(variable)
     db.commit()
     db.refresh(variable)
@@ -196,16 +204,21 @@ async def create_variable(agent_id: int, variable_data: VariableCreate, db: Sess
 
 @router.get("/models", response_model=List[Dict[str, Any]])
 async def get_models(agent_id: int, db: Session = Depends(get_db)):
-    """Get all AI models for an agent"""
-    models = db.query(AIModel).filter(AIModel.agent_id == agent_id).all()
+    """Get all AI models for an agent (BYOK)"""
+    models = model_service.get_active_providers(db, agent_id)
     return [
         {
             "id": model.id,
+            "name": model.name,
             "provider": model.provider.value,
             "model_name": model.model_name,
             "is_active": model.is_active,
-            "is_configured": model.is_configured,
-            "endpoint": model.endpoint,
+            "is_default": model.is_default,
+            "base_url": model.base_url,
+            "api_version": model.api_version,
+            "organization_id": model.organization_id,
+            # Never return the real API key
+            "has_key": True if model.api_key else False,
         }
         for model in models
     ]
@@ -213,30 +226,52 @@ async def get_models(agent_id: int, db: Session = Depends(get_db)):
 
 @router.post("/models", response_model=Dict[str, Any])
 async def create_model(agent_id: int, model_data: ModelCreate, db: Session = Depends(get_db)):
-    """Create a new AI model configuration"""
+    """Create a new AI model configuration (BYOK)"""
     agent = db.query(Agent).filter(Agent.id == agent_id).first()
     if not agent:
         raise HTTPException(status_code=404, detail="Agent not found")
     
-    model = AIModel(
+    # If this is set as default, unset other defaults for this agent
+    if model_data.is_default:
+        db.query(AIModel).filter(AIModel.agent_id == agent_id).update({"is_default": False})
+
+    model = model_service.add_provider(
+        db=db,
         agent_id=agent_id,
-        provider=ModelProvider(model_data.provider),
+        name=model_data.name,
+        provider_type=ModelProvider(model_data.provider),
         model_name=model_data.model_name,
-        api_key=model_data.api_key,  # Should be encrypted in production
-        endpoint=model_data.endpoint,
-        config=model_data.config,
-        is_configured=True if model_data.api_key else False,
+        api_key=model_data.api_key,
+        base_url=model_data.base_url,
+        settings=model_data.settings
     )
-    db.add(model)
+    
+    # Set additional fields not covered by basic add_provider
+    model.api_version = model_data.api_version
+    model.organization_id = model_data.organization_id
+    model.is_default = model_data.is_default
     db.commit()
     db.refresh(model)
     
     return {
         "id": model.id,
+        "name": model.name,
         "provider": model.provider.value,
         "model_name": model.model_name,
-        "is_configured": model.is_configured,
+        "is_default": model.is_default,
     }
+
+
+@router.delete("/models/{model_id}")
+async def delete_model(agent_id: int, model_id: int, db: Session = Depends(get_db)):
+    """Deletes an AI model configuration"""
+    model = db.query(AIModel).filter(AIModel.id == model_id, AIModel.agent_id == agent_id).first()
+    if not model:
+        raise HTTPException(status_code=404, detail="Model configuration not found")
+    
+    db.delete(model)
+    db.commit()
+    return {"status": "success", "message": "Model configuration deleted"}
 
 
 # ============================================================================
@@ -421,10 +456,10 @@ async def create_integration(
         agent_id=agent_id,
         integration_type=integration_type,
         name=name,
-        credentials=credentials,
         config=config,
         is_configured=True if credentials else False,
     )
+    integration.set_credentials(credentials)
     db.add(integration)
     db.commit()
     db.refresh(integration)

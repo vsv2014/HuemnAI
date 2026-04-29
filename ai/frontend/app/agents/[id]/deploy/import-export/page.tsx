@@ -12,7 +12,7 @@ export default function ImportExportPage() {
   const router = useRouter();
   const agentId = parseInt(params?.id as string);
   const { token } = useAuthStore();
-  const [activeTab, setActiveTab] = useState<"import" | "export">("import");
+  const [activeTab, setActiveTab] = useState<"import" | "export" | "sdk">("import");
   const [fileType, setFileType] = useState<"zip" | "json">("zip");
   const [importType, setImportType] = useState<"full" | "incremental">("full");
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -162,6 +162,16 @@ export default function ImportExportPage() {
             >
               Export
             </button>
+            <button
+              onClick={() => setActiveTab("sdk")}
+              className={`px-4 py-2 font-medium transition-colors ${
+                activeTab === "sdk"
+                  ? "text-blue-400 border-b-2 border-blue-400"
+                  : "text-white/60 hover:text-white"
+              }`}
+            >
+              Bot SDK
+            </button>
           </div>
 
           {activeTab === "import" && (
@@ -258,6 +268,71 @@ export default function ImportExportPage() {
                 >
                   {busy ? "Preparing..." : "Export"}
                 </button>
+              </div>
+            </div>
+          )}
+
+          {activeTab === "sdk" && (
+            <div className="bg-[#1a1f3a]/80 backdrop-blur-xl border border-white/10 rounded-2xl p-6 shadow-2xl space-y-8">
+              <div>
+                <h2 className="text-xl font-bold text-white mb-2">Bot SDK Export</h2>
+                <p className="text-sm text-white/50">Deploy your Huemn agent to any application using these secure JWT-based SDK snippets.</p>
+              </div>
+
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                {/* React / Next.js */}
+                <div className="bg-black/40 border border-white/10 rounded-xl p-5">
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className="text-sm font-bold text-blue-400 uppercase tracking-widest">React / Next.js</h3>
+                    <span className="text-[10px] bg-blue-500/10 text-blue-400 px-2 py-0.5 rounded border border-blue-500/20">v2.1.0</span>
+                  </div>
+                  <pre className="bg-[#0f1419] p-4 rounded-lg overflow-x-auto text-[11px] font-mono text-white/80 border border-white/5">
+{`import { HuemnBot } from '@huemn/sdk-react';
+
+export default function MyPage() {
+  return (
+    <HuemnBot 
+      agentId="${agentId}"
+      token="YOUR_SECURE_JWT" // AES-256 encrypted
+      theme="dark"
+      position="bottom-right"
+    />
+  );
+}`}
+                  </pre>
+                  <button className="w-full mt-4 py-2 bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg text-xs font-bold text-white transition-all">
+                    Copy React Snippet
+                  </button>
+                </div>
+
+                {/* Angular */}
+                <div className="bg-black/40 border border-white/10 rounded-xl p-5">
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className="text-sm font-bold text-red-400 uppercase tracking-widest">Angular</h3>
+                    <span className="text-[10px] bg-red-500/10 text-red-400 px-2 py-0.5 rounded border border-red-500/20">v1.8.4</span>
+                  </div>
+                  <pre className="bg-[#0f1419] p-4 rounded-lg overflow-x-auto text-[11px] font-mono text-white/80 border border-white/5">
+{`// app.module.ts
+import { HuemnModule } from '@huemn/sdk-angular';
+
+@NgModule({
+  imports: [
+    HuemnModule.forRoot({
+      agentId: '${agentId}',
+      token: 'YOUR_SECURE_JWT'
+    })
+  ]
+})`}
+                  </pre>
+                  <button className="w-full mt-4 py-2 bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg text-xs font-bold text-white transition-all">
+                    Copy Angular Snippet
+                  </button>
+                </div>
+              </div>
+
+              <div className="p-4 bg-amber-500/10 border border-amber-500/20 rounded-xl">
+                <div className="text-xs font-bold text-amber-400 uppercase tracking-widest mb-1">Security Warning</div>
+                <p className="text-xs text-amber-400/70">Always use environment variables for your JWT tokens. Never commit raw tokens to public repositories.</p>
               </div>
             </div>
           )}

@@ -79,53 +79,66 @@ class AgentVersion(Base):
 
 
 class NodeType(str, enum.Enum):
+    # HIL (Huemn Intelligence Language) Mega-Nodes
+    HIL_IO = "hil_io"                # Input/Output, Entities, Intents, Response
+    HIL_GENAI = "hil_genai"          # LLM, Vision, Voice, Decision, Insight
+    HIL_KNOWLEDGE = "hil_knowledge"  # RAG, Vector Search, Docling, Sync
+    HIL_INTEGRATION = "hil_integration" # API, CRM, DB, Webhooks, Queues
+    HIL_AUTOMATION = "hil_automation" # Browser, Scraper, OCR, Workflows
+    HIL_LOGIC = "hil_logic"          # Condition, Variable, Branch, Loop, Transform
+    HIL_INTERACTION = "hil_interaction" # Handoff, Co-browse, Translation
+    HIL_APPROVAL = "hil_approval"    # Human-in-the-loop approval
+
+    # ========================================================================
+    # LEGACY NODES (For Backward Compatibility)
+    # ========================================================================
     # Input/Processing Nodes
-    ENTITY = "entity"  # Extract entities from input
-    INTENT = "intent"  # Detect user intent
-    LLM = "llm"  # LLM processing node
-    CONDITION = "condition"  # Conditional logic node
-    VARIABLE = "variable"  # Set/get variables
+    ENTITY = "entity"  # Legacy
+    INTENT = "intent"  # Legacy
+    LLM = "llm"  # Legacy
+    CONDITION = "condition"  # Legacy
+    VARIABLE = "variable"  # Legacy
     
     # Action Nodes
-    API = "api"  # Call external API
-    SERVICE = "service"  # Call internal service
-    DATABASE = "database"  # Database query
-    CONNECTOR = "connector"  # Use connector (Jira, Zendesk, etc.)
-    WEBHOOK = "webhook"  # Receive webhook calls
+    API = "api"  # Legacy
+    SERVICE = "service"  # Legacy
+    DATABASE = "database"  # Legacy
+    CONNECTOR = "connector"  # Legacy
+    WEBHOOK = "webhook"  # Legacy
     
     # Flow Control
-    START = "start"  # Entry point
-    END = "end"  # Exit point
-    BRANCH = "branch"  # Branch to multiple paths
-    MERGE = "merge"  # Merge multiple paths
-    HANDOFF = "handoff"  # Handoff to human agent
-    LOOP = "loop"  # Loop node
-    DELAY = "delay"  # Wait/delay node
-    EVENT_TRIGGER = "event_trigger"  # Event trigger node
-    SESSION_STATE = "session_state"  # Session state management
-    AGENT_DELEGATE = "agent_delegate"  # Delegate to another agent
-    PREMIUM_VOICE_TTS = "premium_voice_tts"  # Premium Voice/TTS (HuemnVoice)
+    START = "start"  # Legacy
+    END = "end"  # Legacy
+    BRANCH = "branch"  # Legacy
+    MERGE = "merge"  # Legacy
+    HANDOFF = "handoff"  # Legacy
+    LOOP = "loop"  # Legacy
+    DELAY = "delay"  # Legacy
+    EVENT_TRIGGER = "event_trigger"  # Legacy
+    SESSION_STATE = "session_state"  # Legacy
+    AGENT_DELEGATE = "agent_delegate"  # Legacy
+    PREMIUM_VOICE_TTS = "premium_voice_tts"  # Legacy
 
     # Identity & System Integration
-    AUTH_PROVIDER = "auth_provider"  # OAuth/SSO Authentication
-    QUEUE_PUBLISHER = "queue_publisher"  # Publish to Message Queue
-    QUEUE_LISTENER = "queue_listener"  # Listen to Message Queue
+    AUTH_PROVIDER = "auth_provider"  # Legacy
+    QUEUE_PUBLISHER = "queue_publisher"  # Legacy
+    QUEUE_LISTENER = "queue_listener"  # Legacy
     
     # Response Nodes
-    RESPONSE = "response"  # Send response to user
-    MESSAGE = "message"  # Send message
+    RESPONSE = "response"  # Legacy
+    MESSAGE = "message"  # Legacy
     
     # AI & Machine Learning Nodes
-    AI_VISION = "ai_vision"  # AI Vision processing
-    AI_VOICE = "ai_voice"  # AI Voice processing
-    AI_CODE = "ai_code"  # AI Code Generation
-    AI_RAG = "ai_rag"  # Retrieval-Augmented Generation
-    AI_EMBEDDING = "ai_embedding"  # AI Embedding generation
-    AI_VECTOR_SEARCH = "ai_vector_search"  # Vector similarity search
-    AI_FUNCTION = "ai_function"  # AI Function calling
-    AI_MEMORY = "ai_memory"  # AI Memory management
-    AI_DECISION = "ai_decision"  # AI Decision making
-    AI_MULTI_AGENT = "ai_multi_agent"  # Multi-agent coordination
+    AI_VISION = "ai_vision"  # Legacy
+    AI_VOICE = "ai_voice"  # Legacy
+    AI_CODE = "ai_code"  # Legacy
+    AI_RAG = "ai_rag"  # Legacy
+    AI_EMBEDDING = "ai_embedding"  # Legacy
+    AI_VECTOR_SEARCH = "ai_vector_search"  # Legacy
+    AI_FUNCTION = "ai_function"  # Legacy
+    AI_MEMORY = "ai_memory"  # Legacy
+    AI_DECISION = "ai_decision"  # Legacy
+    AI_MULTI_AGENT = "ai_multi_agent"  # Legacy
     
     # Advanced AI Intelligence
     DIALOG_POLICY = "dialog_policy"  # Hybrid rule + ML decision system

@@ -47,6 +47,19 @@ def run_orchestrator_code(session_id: str, code: str):
 
 
 @celery_app.task
+def process_campaign(campaign_id: int):
+    async def _run():
+        from app.db.session import SessionLocal
+        from app.services.campaign_service import CampaignService
+        db = SessionLocal()
+        try:
+            service = CampaignService(db)
+            await service.run_campaign(campaign_id)
+        finally:
+            db.close()
+    return asyncio.run(_run())
+
+@celery_app.task
 def orchestrator_daily_run(session_id: str):
     async def _run():
         try:

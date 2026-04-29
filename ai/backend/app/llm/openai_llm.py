@@ -1,4 +1,5 @@
 import asyncio
+from typing import Dict, Any, List, Optional
 from app.llm.base import BaseLLM
 from app.core.config import settings
 import os
@@ -161,3 +162,49 @@ class OpenAILLM(BaseLLM):
             for token in response.split():
                 yield token + " "
                 await asyncio.sleep(0.05)
+
+    async def reason_with_vision(self, prompt: str, base64_image: str, model: str = "gpt-4o") -> Dict[str, Any]:
+        """
+        Sends a screenshot + prompt to OpenAI Vision API.
+        Returns a JSON action for self-healing.
+        """
+        from app.services.config_service import get_llm_config
+        config = get_llm_config("openai")
+        api_key = config.get("api_key") if config and config.get("is_database") else os.getenv("OPENAI_API_KEY")
+
+        if not api_key:
+            return {"error": "OpenAI API key not configured"}
+
+        if not OPENAI_AVAILABLE:
+            return {"error": "OpenAI SDK not available"}
+
+        client = OpenAI(api_key=api_key)
+        
+        try:
+            response = client.chat.completions.create(
+                model=model,
+                messages=[
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": prompt},
+                            {
+                                "type": "image_url",
+                                "image_url": {
+                                    "url": f"data:image/jpeg;base64,{base64_image}"
+                                }
+                            }
+                        ]
+                    }
+                ],
+                max_tokens=500,
+                response_format={ "type": "json_object" }
+            )
+            
+            content = response.choices[0].message.content
+            return json.loads(content)
+        except Exception as e:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"OpenAI Vision error: {e}")
+            return {"error": str(e)}

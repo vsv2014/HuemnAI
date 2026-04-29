@@ -16,15 +16,27 @@ def register_lifecycle(app: FastAPI):
     async def lifespan(app_instance: FastAPI):
         # Startup
         # Register default tools and load DB config
-        register_default_tools()
-        load_tool_configs()
+        try:
+            register_default_tools()
+        except Exception:
+            pass
+        try:
+            load_tool_configs()
+        except Exception:
+            pass
         ping_database()
         # Auto-discover connectors and enable if valid
-        discover_and_enable_connectors()
+        try:
+            discover_and_enable_connectors()
+        except Exception:
+            pass
         start_status_watcher()
         # start daily knowledge reindexer (short interval during dev)
         start_reindexer(interval_seconds=60 * 60 * 24)
-        start_token_consumer(interval_seconds=300)
+        try:
+            start_token_consumer(interval_seconds=300)
+        except Exception:
+            pass
         try:
             import asyncio
             asyncio.create_task(start_forwarder())

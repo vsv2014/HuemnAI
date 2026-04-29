@@ -117,6 +117,56 @@ class AiMultiAgentConfig(BaseNodeConfig):
     max_iterations: int = Field(3, description="Maximum number of coordination iterations")
     goal: Optional[str] = Field(None, description="Global goal for the multi-agent coordination")
 
+# --- HIL Consolidated Models ---
+
+class HilIoConfig(BaseNodeConfig):
+    """Configuration for HIL IO Node"""
+    message: str = "Processing your request..."
+    mode: str = "output" # output, input, both
+    input_variables: List[Dict[str, Any]] = []
+    rich_elements: List[Dict[str, Any]] = []
+
+class HilGenAiConfig(BaseNodeConfig):
+    """Configuration for HIL GenAI Node"""
+    prompt: str = ""
+    system_prompt: Optional[str] = None
+    model_id: Optional[str] = None
+    features: List[str] = [] # vision, voice, code
+
+class HilKnowledgeConfig(BaseNodeConfig):
+    """Configuration for HIL Knowledge Node"""
+    query: Optional[str] = None
+    knowledge_base_ids: List[int] = []
+    use_docling: bool = True
+
+class HilIntegrationConfig(BaseNodeConfig):
+    """Configuration for HIL Integration Node"""
+    service_type: str
+    action: str
+    params: Dict[str, Any] = {}
+
+class HilAutomationConfig(BaseNodeConfig):
+    """Configuration for HIL Automation Node"""
+    mode: str = "deterministic" # deterministic, hybrid, agent
+    workflow: Dict[str, Any] = {}
+    instruction: Optional[str] = None
+    ai_threshold: float = 0.7
+
+class HilLogicConfig(BaseNodeConfig):
+    """Configuration for HIL Logic Node"""
+    condition: Dict[str, Any] = {}
+    variable_ops: List[Dict[str, Any]] = []
+
+class HilInteractionConfig(BaseNodeConfig):
+    """Configuration for HIL Interaction Node"""
+    action: str # handoff, cobrowse, translate
+    params: Dict[str, Any] = {}
+
+class HilApprovalConfig(BaseNodeConfig):
+    """Configuration for HIL Approval Node"""
+    message_to_approver: str = "Manual approval required"
+    approver_id: Optional[int] = None
+
 # Register configurations
 register_node_config("start", StartNodeConfig)
 register_node_config("entity", EntityNodeConfig)
@@ -131,3 +181,13 @@ register_node_config("streaming", StreamingConfig)
 register_node_config("event_trigger", EventTriggerNodeConfig)
 register_node_config("handoff", HandoffNodeConfig)
 register_node_config("ai_multi_agent", AiMultiAgentConfig)
+
+# Register HIL Consolidated Nodes
+register_node_config("hil_io", HilIoConfig)
+register_node_config("hil_genai", HilGenAiConfig)
+register_node_config("hil_knowledge", HilKnowledgeConfig)
+register_node_config("hil_integration", HilIntegrationConfig)
+register_node_config("hil_automation", HilAutomationConfig)
+register_node_config("hil_logic", HilLogicConfig)
+register_node_config("hil_interaction", HilInteractionConfig)
+register_node_config("hil_approval", HilApprovalConfig)

@@ -111,77 +111,21 @@ const edgeTypes = { premium: PremiumEdge };
 
 const nodeTypeColors: Record<string, string> = {
   start: "#10b981",
-  llm: "#3b82f6",
-  entity: "#8b5cf6",
-  intent: "#ec4899",
-  condition: "#f59e0b",
-  api: "#f97316",
-  service: "#06b6d4",
-  connector: "#6366f1",
-  response: "#14b8a6",
-  message: "#14b8a6",
-  variable: "#84cc16",
   end: "#ef4444",
+  // HIL Consolidated Nodes
+  hil_io: "#3b82f6",          // Blue (Interaction)
+  hil_genai: "#8b5cf6",       // Violet (Intelligence)
+  hil_knowledge: "#10b981",   // Emerald (Memory)
+  hil_automation: "#f59e0b",  // Amber (Execution)
+  hil_approval: "#ef4444",    // Red (Governance)
+  // Logic Nodes
+  hil_logic: "#84cc16",       // Lime (Control)
+  condition: "#f59e0b",
+  variable: "#84cc16",
   loop: "#a855f7",
   delay: "#64748b",
   branch: "#f59e0b",
   merge: "#06b6d4",
-  // Flow Control Extensions
-  event_trigger: "#f59e0b",
-  session_state: "#64748b",
-  // Identity & System Integration
-  auth_provider: "#6366f1",
-  queue_publisher: "#8b5cf6",
-  queue_listener: "#8b5cf6",
-  // Advanced AI Intelligence
-  dialog_policy: "#ec4899",
-  intent_flow: "#ec4899",
-  persona_control: "#8b5cf6",
-  kb_sync: "#3b82f6",
-  // Communication Enhancements
-  rich_message: "#14b8a6",
-  voice_translation: "#10b981",
-  handoff_intelligence: "#ef4444",
-  // Data & Analytics Extensions
-  data_transformer: "#06b6d4",
-  db_transaction: "#f97316",
-  ai_insight: "#3b82f6",
-  // Automation & Orchestration
-  orchestrator: "#a855f7",
-  scheduler_cluster: "#64748b",
-  adaptive_learner: "#10b981",
-  // Voice System
-  premium_voice_tts: "#ec4899",
-  // AI Coordination
-  ai_multi_agent: "#6366f1",
-  // Native CRM/ERP
-  salesforce: "#00a1e0",
-  servicenow: "#81b5a1",
-  sap: "#008fd3",
-  hubspot: "#ff7a59",
-  zoho: "#e32630",
-    // Prompt Additions
-    ai_vision: "#7dd3fc",
-    ai_voice: "#22c55e",
-    ai_code_gen: "#f59e0b",
-    ai_rag: "#60a5fa",
-    ai_embedding: "#34d399",
-    ai_vector_search: "#a3e635",
-    ai_function: "#9333ea",
-    ai_memory: "#0ea5e9",
-    ai_decision: "#ef4444",
-    database: "#fb7185",
-    webhook: "#f87171",
-    agent_delegate: "#fcd34d",
-    data_analysis: "#06b6d4",
-    document_processor: "#94a3b8",
-    file_processor: "#64748b",
-    web_scraper: "#22c55e",
-    email_processor: "#60a5fa",
-    notification: "#fbbf24",
-    calendar: "#3b82f6",
-    streaming: "#22d3ee",
-    ivr_call: "#14b8a6",
 };
 
 export default function EnhancedAgentBuilder() {
@@ -259,26 +203,40 @@ export default function EnhancedAgentBuilder() {
         setAgent(response);
         
         // Convert backend nodes to ReactFlow nodes
-        const flowNodes: Node[] = (response.nodes || []).map((node: AgentNode) => ({
-          id: node.id.toString(),
-          type: "default",
-          position: { x: node.position_x, y: node.position_y },
-          data: {
-            label: node.label || node.name,
-            nodeType: node.node_type,
-            config: node.config,
-            backendId: node.id,
-            code: node.config?.generated_code || (node as any).generated_code || "", // Store code in node data
-          },
-          style: {
-            background: nodeTypeColors[node.node_type] || "#6b7280",
-            color: "#fff",
-            border: "2px solid #fff",
-            borderRadius: "8px",
-            padding: "10px",
-            minWidth: "120px",
-          },
-        }));
+        const flowNodes: Node[] = (response.nodes || []).map((node: AgentNode) => {
+          // HIL Migration: Map old node types to new Mega-Nodes
+          let displayType = node.node_type;
+          if (node.node_type === "intent" || node.node_type === "llm" || node.node_type === "ai_vision" || node.node_type === "ai_voice") {
+            displayType = "hil_genai";
+          } else if (node.node_type === "response" || node.node_type === "collect") {
+            displayType = "hil_io";
+          } else if (node.node_type === "ai_rag" || node.node_type === "document_processor") {
+            displayType = "hil_knowledge";
+          } else if (node.node_type === "workflow_automation" || node.node_type === "web_scraper") {
+            displayType = "hil_automation";
+          }
+
+          return {
+            id: node.id.toString(),
+            type: "default",
+            position: { x: node.position_x, y: node.position_y },
+            data: {
+              label: node.label || node.name,
+              nodeType: displayType,
+              config: node.config,
+              backendId: node.id,
+              code: node.config?.generated_code || (node as any).generated_code || "",
+            },
+            style: {
+              background: nodeTypeColors[displayType] || "#6b7280",
+              color: "#fff",
+              border: "2px solid #fff",
+              borderRadius: "8px",
+              padding: "10px",
+              minWidth: "120px",
+            },
+          };
+        });
         
         // Convert backend connections to ReactFlow edges
         const flowEdges: Edge[] = (response.connections || []).map((conn: ConnectionData) => ({
@@ -549,85 +507,28 @@ export default function EnhancedAgentBuilder() {
   }
 
   const nodeTypeOptions = [
-    { type: "start", label: "Start", color: nodeTypeColors.start },
-    { type: "llm", label: "LLM", color: nodeTypeColors.llm },
-    { type: "entity", label: "Entity", color: nodeTypeColors.entity },
-    { type: "intent", label: "Intent", color: nodeTypeColors.intent },
-    { type: "condition", label: "Condition", color: nodeTypeColors.condition },
-    { type: "api", label: "API", color: nodeTypeColors.api },
-    { type: "service", label: "Service", color: nodeTypeColors.service },
-    { type: "connector", label: "Connector", color: nodeTypeColors.connector },
-    { type: "response", label: "Response", color: nodeTypeColors.response },
-    { type: "loop", label: "Loop", color: nodeTypeColors.loop },
-    { type: "delay", label: "Delay", color: nodeTypeColors.delay },
-    { type: "branch", label: "Branch", color: nodeTypeColors.branch },
-    { type: "merge", label: "Merge", color: nodeTypeColors.merge },
-    { type: "end", label: "End", color: nodeTypeColors.end },
-    
     // Flow Control
-    { type: "event_trigger", label: "Event Trigger", color: nodeTypeColors.event_trigger },
-    { type: "session_state", label: "Session State", color: nodeTypeColors.session_state },
+    { type: "start", label: "Start", color: nodeTypeColors.start, category: "Flow Control" },
+    { type: "end", label: "End", color: nodeTypeColors.end, category: "Flow Control" },
+    { type: "hil_logic", label: "Logic", color: nodeTypeColors.hil_logic, category: "Flow Control" },
     
-    // Identity
-    { type: "auth_provider", label: "Auth Provider", color: nodeTypeColors.auth_provider },
-    { type: "queue_publisher", label: "Queue Pub", color: nodeTypeColors.queue_publisher },
-    { type: "queue_listener", label: "Queue Sub", color: nodeTypeColors.queue_listener },
+    // Core HIL Nodes
+    { type: "hil_io", label: "Interaction (I/O)", color: nodeTypeColors.hil_io, category: "HIL Nodes" },
+    { type: "hil_genai", label: "Intelligence (AI)", color: nodeTypeColors.hil_genai, category: "HIL Nodes" },
+    { type: "hil_knowledge", label: "Memory (RAG)", color: nodeTypeColors.hil_knowledge, category: "HIL Nodes" },
+    { type: "hil_automation", label: "Execution (RPA)", color: nodeTypeColors.hil_automation, category: "HIL Nodes" },
+    { type: "hil_approval", label: "Governance", color: nodeTypeColors.hil_approval, category: "HIL Nodes" },
     
-    // AI Intelligence
-    { type: "dialog_policy", label: "Dialog Policy", color: nodeTypeColors.dialog_policy },
-    { type: "intent_flow", label: "Intent Flow", color: nodeTypeColors.intent_flow },
-    { type: "persona_control", label: "Persona", color: nodeTypeColors.persona_control },
-    { type: "kb_sync", label: "KB Sync", color: nodeTypeColors.kb_sync },
-    
-    // Communication
-    { type: "rich_message", label: "Rich Msg", color: nodeTypeColors.rich_message },
-    { type: "voice_translation", label: "Voice Trans", color: nodeTypeColors.voice_translation },
-    { type: "handoff_intelligence", label: "Smart Handoff", color: nodeTypeColors.handoff_intelligence },
-    
-    // Data
-    { type: "data_transformer", label: "Data Trans", color: nodeTypeColors.data_transformer },
-    { type: "db_transaction", label: "DB Trans", color: nodeTypeColors.db_transaction },
-    { type: "ai_insight", label: "AI Insight", color: nodeTypeColors.ai_insight },
-    
-    // Automation
-    { type: "orchestrator", label: "Orchestrator", color: nodeTypeColors.orchestrator },
-    { type: "scheduler_cluster", label: "Scheduler", color: nodeTypeColors.scheduler_cluster },
-    { type: "adaptive_learner", label: "Adapt Learn", color: nodeTypeColors.adaptive_learner },
-    
-    // Voice System
-    { type: "premium_voice_tts", label: "Premium Voice", color: nodeTypeColors.premium_voice_tts },
-
-    // Native CRM/ERP
-    { type: "salesforce", label: "Salesforce", color: nodeTypeColors.salesforce },
-    { type: "servicenow", label: "ServiceNow", color: nodeTypeColors.servicenow },
-    { type: "sap", label: "SAP", color: nodeTypeColors.sap },
-    { type: "hubspot", label: "HubSpot", color: nodeTypeColors.hubspot },
-    { type: "zoho", label: "Zoho", color: nodeTypeColors.zoho },
-    
-    // Prompt Additions
-    { type: "ai_vision", label: "AI Vision", color: nodeTypeColors.ai_vision },
-    { type: "ai_voice", label: "AI Voice", color: nodeTypeColors.ai_voice },
-    { type: "ai_code_gen", label: "AI Code Gen", color: nodeTypeColors.ai_code_gen },
-    { type: "ai_rag", label: "AI RAG", color: nodeTypeColors.ai_rag },
-    { type: "ai_embedding", label: "AI Embedding", color: nodeTypeColors.ai_embedding },
-    { type: "ai_vector_search", label: "AI Vector Search", color: nodeTypeColors.ai_vector_search },
-    { type: "ai_function", label: "AI Function", color: nodeTypeColors.ai_function },
-    { type: "ai_memory", label: "AI Memory", color: nodeTypeColors.ai_memory },
-    { type: "ai_decision", label: "AI Decision", color: nodeTypeColors.ai_decision },
-    { type: "ai_multi_agent", label: "Multi-Agent", color: nodeTypeColors.ai_multi_agent },
-    { type: "database", label: "Database", color: nodeTypeColors.database },
-    { type: "webhook", label: "Webhook", color: nodeTypeColors.webhook },
-    { type: "agent_delegate", label: "Agent Delegate", color: nodeTypeColors.agent_delegate },
-    { type: "data_analysis", label: "Data Analysis", color: nodeTypeColors.data_analysis },
-    { type: "document_processor", label: "Document Processor", color: nodeTypeColors.document_processor },
-    { type: "file_processor", label: "File Processor", color: nodeTypeColors.file_processor },
-    { type: "web_scraper", label: "Web Scraper", color: nodeTypeColors.web_scraper },
-    { type: "email_processor", label: "Email Processor", color: nodeTypeColors.email_processor },
-    { type: "notification", label: "Notification", color: nodeTypeColors.notification },
-    { type: "calendar", label: "Calendar", color: nodeTypeColors.calendar },
-    { type: "streaming", label: "Streaming", color: nodeTypeColors.streaming },
-    { type: "ivr_call", label: "IVR Call", color: nodeTypeColors.ivr_call },
+    // Legacy/Individual (Grouped under Integrations)
+    { type: "hil_integration", label: "Integrations", color: "#6366f1", category: "Connectors" },
   ];
+
+  // Helper to group nodes by category
+  const groupedNodes = nodeTypeOptions.reduce((acc: any, curr) => {
+    if (!acc[curr.category]) acc[curr.category] = [];
+    acc[curr.category].push(curr);
+    return acc;
+  }, {});
 
   const codeToShow = selectedNodeCode || selectedNode?.data?.code || "";
 

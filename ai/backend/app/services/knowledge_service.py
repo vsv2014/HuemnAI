@@ -6,6 +6,7 @@ import logging
 from app.services.connectors import jira, zendesk, salesforce
 from app.services.embeddings_service import get_embedding, cosine_similarity
 from app.services.llm_service import explain
+from app.services.docling_service import docling_service
 
 logger = logging.getLogger(__name__)
 
@@ -16,6 +17,62 @@ TICKET_VECS: List[Tuple[Dict, List[float]]] = []
 # Store solutions and resolutions for learning
 TICKET_SOLUTIONS: Dict[str, str] = {}  # ticket_id -> solution
 
+
+async def ingest_document_with_docling(file_path: str, user_id: int):
+    """
+    Ingest a document using Docling for high-fidelity parsing
+    """
+    try:
+        # 1. Parse with Docling
+        result = await docling_service.parse_document(file_path)
+        text = result.get("text", "")
+        
+        if not text:
+            logger.warning(f"Docling returned no text for {file_path}")
+            return False
+            
+        # 2. Store in Knowledge AI (Database)
+        from app.db.session import SessionLocal
+        from app.db.models.knowledge import KnowledgeSource, KnowledgeContent
+        
+        db = SessionLocal()
+        try:
+            # Create/Find source
+            source = db.query(KnowledgeSource).filter(
+                KnowledgeSource.user_id == user_id,
+                KnowledgeSource.name == os.path.basename(file_path)
+            ).first()
+            
+            if not source:
+                source = KnowledgeSource(
+                    user_id=user_id,
+                    name=os.path.basename(file_path),
+                    source_type="file",
+                    is_active=True
+                )
+                db.add(source)
+                db.commit()
+                db.refresh(source)
+            
+            # Create content chunk
+            content = KnowledgeContent(
+                source_id=source.id,
+                title=os.path.basename(file_path),
+                content=text,
+                embedding=get_embedding(text[:2000]), # Simple chunking for now
+                content_metadata=result.get("metadata", {})
+            )
+            db.add(content)
+            db.commit()
+            
+            logger.info(f"Successfully ingested {file_path} with Docling")
+            return True
+        finally:
+            db.close()
+            
+    except Exception as e:
+        logger.error(f"Error ingesting document with Docling: {e}", exc_info=True)
+        return False
 
 def index_all_connectors():
     """Index all tickets from all connectors with full content"""

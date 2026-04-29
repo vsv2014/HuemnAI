@@ -7,24 +7,42 @@ import LoadingSpinner from "@/components/LoadingSpinner";
 import ErrorBoundary from "@/components/ErrorBoundary";
 import { useAuthStore } from "@/store/authStore";
 import { getModels } from "@/services/api";
+import { Card } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
-interface ModelProvider {
-  id: string;
+interface AIModel {
+  id: number;
   name: string;
-  logo: string;
-  models: string[];
-  configured: boolean;
-  type: "configured" | "available";
+  provider: string;
+  model_name: string;
+  is_active: boolean;
+  is_default: boolean;
+  base_url?: string;
+  has_key: boolean;
 }
 
 export default function ModelsLibraryPage() {
   const params = useParams();
   const agentId = parseInt(params?.id as string);
   const { token } = useAuthStore();
-  const [configuredModels, setConfiguredModels] = useState<ModelProvider[]>([]);
-  const [availableModels, setAvailableModels] = useState<ModelProvider[]>([]);
+  const [models, setModels] = useState<AIModel[]>([]);
   const [loading, setLoading] = useState(true);
+  const [showAddModal, setShowAddModal] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Form State
+  const [formData, setFormData] = useState({
+    name: "",
+    provider: "openai",
+    model_name: "",
+    api_key: "",
+    base_url: "",
+    is_default: false,
+  });
 
   useEffect(() => {
     if (token) {
@@ -35,169 +53,222 @@ export default function ModelsLibraryPage() {
   const loadModels = useCallback(async () => {
     if (!token) return;
     setLoading(true);
-    setError(null);
     try {
-      const response = await getModels(token);
-      if (!response.error && Array.isArray(response)) {
-        const configured = response.filter((m: any) => m.is_configured);
-        const available = response.filter((m: any) => !m.is_configured);
-        setConfiguredModels(configured.map((m: any) => ({
-          id: m.id.toString(),
-          name: m.provider,
-          logo: "🤖",
-          models: [m.model_name],
-          configured: true,
-          type: "configured",
-        })));
-        
-        // Keep mock data for available models as they're not in DB yet
-        setAvailableModels([
-          {
-            id: "anthropic",
-            name: "Anthropic",
-            logo: "🧠",
-            models: ["claude-1", "claude-instant-1"],
-            configured: false,
-            type: "available",
-          },
-          {
-            id: "custom-llm",
-            name: "Custom LLM",
-            logo: "⚙️",
-            models: ["CONFIGURE CUSTOM MODELS"],
-            configured: false,
-            type: "available",
-          },
-          {
-            id: "azure-openai",
-            name: "Azure OpenAI",
-            logo: "☁️",
-            models: ["GPT-3.5 Turbo", "GPT-4", "GPT-4-32K +3"],
-            configured: false,
-            type: "available",
-          },
-          {
-            id: "amazon-bedrock",
-            name: "Amazon Bedrock",
-            logo: "🏗️",
-            models: ["Supports a wide range of advanced language models"],
-            configured: false,
-            type: "available",
-          },
-        ]);
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_BASE}/agents/${agentId}/models`, {
+        headers: { "Authorization": `Bearer ${token}` }
+      });
+      const data = await response.json();
+      if (response.ok) {
+        setModels(data);
       } else {
-        setError(response.error || "Failed to load models");
+        setError(data.detail || "Failed to load models");
       }
     } catch (err) {
-      console.error("Failed to load models:", err);
-      setError("Failed to load models. Please try again.");
+      setError("Failed to load models. Please check your connection.");
     } finally {
       setLoading(false);
     }
   }, [agentId, token]);
 
-  if (loading) {
-    return (
-      <AgentLayout>
-        <div className="flex items-center justify-center min-h-[60vh]">
-          <LoadingSpinner size="lg" text="Loading models..." />
-        </div>
-      </AgentLayout>
-    );
-  }
+  const handleAddModel = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    try {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_BASE}/agents/${agentId}/models`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`
+        },
+        body: JSON.stringify(formData)
+      });
+      if (response.ok) {
+        setShowAddModal(false);
+        loadModels();
+        setFormData({ name: "", provider: "openai", model_name: "", api_key: "", base_url: "", is_default: false });
+      } else {
+        const data = await response.json();
+        setError(data.detail || "Failed to add model");
+      }
+    } catch (err) {
+      setError("Failed to add model. Please try again.");
+    }
+  };
+
+  const deleteModel = async (id: number) => {
+    if (!confirm("Are you sure you want to delete this model configuration?")) return;
+    try {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_BASE}/agents/${agentId}/models/${id}`, {
+        method: "DELETE",
+        headers: { "Authorization": `Bearer ${token}` }
+      });
+      if (response.ok) {
+        loadModels();
+      }
+    } catch (err) {
+      setError("Failed to delete model.");
+    }
+  };
+
+  const getProviderIcon = (provider: string) => {
+    switch(provider) {
+      case 'openai': return "🟢";
+      case 'anthropic': return "🧠";
+      case 'google_gemini': return "✨";
+      case 'azure_openai': return "☁️";
+      case 'ollama': return "🦙";
+      default: return "🤖";
+    }
+  };
 
   return (
     <ErrorBoundary>
       <AgentLayout>
-        <div className="p-8">
-          <div className="mb-8">
-            <h1 className="text-4xl font-bold bg-gradient-to-r from-white to-white/70 bg-clip-text text-transparent mb-3">
-              Models Library
-            </h1>
-            <p className="text-white/60 text-lg">
-              Leverage Generative AI in the platform to create experiences faster and inject human touch in conversations. Connect to Generative AI models of your choice using one of the out-of-box integrations or custom integrations.
-            </p>
+        <div className="p-8 h-full flex flex-col gap-6">
+          <div className="flex justify-between items-start">
+            <div>
+              <h1 className="text-4xl font-bold bg-gradient-to-r from-white to-white/70 bg-clip-text text-transparent mb-3">
+                Models Library <Badge variant="outline" className="ml-2 border-blue-500 text-blue-400">BYOK</Badge>
+              </h1>
+              <p className="text-white/60 text-lg max-w-3xl">
+                Bring Your Own Key (BYOK). Configure custom model providers and API keys to use across your agent's flows.
+              </p>
+            </div>
+            <Button className="bg-blue-600 hover:bg-blue-700" onClick={() => setShowAddModal(true)}>
+              + Add Model Provider
+            </Button>
           </div>
 
           {error && (
-            <div className="mb-6 p-4 bg-red-500/20 border border-red-500/50 rounded-lg text-red-300">
+            <div className="p-4 bg-red-500/10 border border-red-500/20 rounded-lg text-red-400 text-sm">
               {error}
             </div>
           )}
 
-          {/* Configured Integrations */}
-          <div className="mb-8">
-            <h2 className="text-xl font-semibold mb-4 text-white">Configured Integrations</h2>
-            {configuredModels.length === 0 ? (
-              <div className="bg-[#1a1f3a]/80 backdrop-blur-xl border border-white/10 rounded-2xl p-8 text-center">
-                <p className="text-white/60">No configured models yet</p>
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {configuredModels.map((model) => (
-                  <div
-                    key={model.id}
-                    className="bg-[#1a1f3a]/80 backdrop-blur-xl border border-white/10 rounded-xl p-6 hover:border-blue-500/50 hover:shadow-xl transition-all"
-                  >
-                    <div className="flex items-start justify-between mb-4">
-                      <div className="flex items-center gap-3">
-                        <div className="text-4xl">{model.logo}</div>
-                        <div>
-                          <h3 className="font-semibold text-lg text-white">{model.name}</h3>
-                          <p className="text-sm text-white/60">Configured Models</p>
-                        </div>
-                      </div>
-                      <button className="text-white/40 hover:text-white/60">⋯</button>
-                    </div>
-                    <div className="space-y-1">
-                      {model.models.map((m, idx) => (
-                        <div key={idx} className="text-sm text-white/60">{m}</div>
-                      ))}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* Available Integrations */}
-          <div>
-            <h2 className="text-xl font-semibold mb-4 text-white">Available Integrations</h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {availableModels.map((model) => (
-                <div
-                  key={model.id}
-                  className="bg-[#1a1f3a]/80 backdrop-blur-xl border border-white/10 rounded-xl p-6 hover:border-blue-500/50 hover:shadow-xl transition-all"
-                >
-                  <div className="flex items-start justify-between mb-4">
+          {loading ? (
+            <div className="flex-1 flex items-center justify-center">
+              <LoadingSpinner size="lg" />
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {models.map((model) => (
+                <Card key={model.id} className="p-6 bg-[#1a1f3a]/80 border-white/10 flex flex-col gap-4 group hover:border-blue-500/30 transition-all">
+                  <div className="flex justify-between items-start">
                     <div className="flex items-center gap-3">
-                      <div className="text-4xl">{model.logo}</div>
+                      <span className="text-3xl">{getProviderIcon(model.provider)}</span>
                       <div>
-                        <h3 className="font-semibold text-lg text-white">{model.name}</h3>
-                        {model.id === "custom-llm" ? (
-                          <p className="text-sm text-white/60 font-medium">CONFIGURE CUSTOM MODELS</p>
-                        ) : (
-                          <p className="text-sm text-white/60">Available Models</p>
-                        )}
+                        <h3 className="font-bold text-white flex items-center gap-2">
+                          {model.name}
+                          {model.is_default && <Badge className="bg-blue-500 text-[10px]">DEFAULT</Badge>}
+                        </h3>
+                        <p className="text-xs text-white/40 uppercase tracking-tighter">{model.provider} / {model.model_name}</p>
                       </div>
                     </div>
+                    <Button variant="ghost" size="sm" className="text-white/20 hover:text-red-400" onClick={() => deleteModel(model.id)}>
+                      🗑️
+                    </Button>
                   </div>
-                  <div className="space-y-1 mb-4">
-                    {Array.isArray(model.models) ? (
-                      model.models.map((m, idx) => (
-                        <div key={idx} className="text-sm text-white/60">{m}</div>
-                      ))
-                    ) : (
-                      <div className="text-sm text-white/60">{model.models}</div>
+
+                  <div className="space-y-2 mt-2">
+                    <div className="flex justify-between text-xs">
+                      <span className="text-white/40">API Key:</span>
+                      <span className="text-green-400 font-mono">{model.has_key ? "••••••••••••" : "Missing"}</span>
+                    </div>
+                    {model.base_url && (
+                      <div className="flex justify-between text-xs">
+                        <span className="text-white/40">Endpoint:</span>
+                        <span className="text-white/60 truncate max-w-[150px]">{model.base_url}</span>
+                      </div>
                     )}
                   </div>
-                  <button className="w-full px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium">
-                    Configure Now →
-                  </button>
-                </div>
+                </Card>
               ))}
+
+              {models.length === 0 && (
+                <div className="col-span-full py-20 text-center border-2 border-dashed border-white/5 rounded-3xl">
+                  <div className="text-6xl mb-4 opacity-20">🤖</div>
+                  <p className="text-white/40 font-light text-xl">No model providers configured yet.</p>
+                </div>
+              )}
             </div>
-          </div>
+          )}
+
+          {/* Add Model Modal */}
+          {showAddModal && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+              <Card className="w-full max-w-md bg-[#1a1f3a] border-white/20 p-8 shadow-2xl animate-in zoom-in-95 duration-200">
+                <h2 className="text-2xl font-bold text-white mb-6">Add Model Provider</h2>
+                <form onSubmit={handleAddModel} className="space-y-4">
+                  <div className="space-y-2">
+                    <Label className="text-white/80">Friendly Name</Label>
+                    <Input 
+                      placeholder="e.g. Production GPT-4" 
+                      className="bg-[#0f1419] border-white/10 text-white"
+                      value={formData.name}
+                      onChange={(e) => setFormData({...formData, name: e.target.value})}
+                      required
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label className="text-white/80">Provider</Label>
+                      <Select value={formData.provider} onValueChange={(val) => setFormData({...formData, provider: val})}>
+                        <SelectTrigger className="bg-[#0f1419] border-white/10 text-white">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent className="bg-[#1a1f3a] border-white/10 text-white">
+                          <SelectItem value="openai">OpenAI</SelectItem>
+                          <SelectItem value="anthropic">Anthropic</SelectItem>
+                          <SelectItem value="google_gemini">Google Gemini</SelectItem>
+                          <SelectItem value="azure_openai">Azure OpenAI</SelectItem>
+                          <SelectItem value="ollama">Ollama (Local)</SelectItem>
+                          <SelectItem value="custom_api">Custom API</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="text-white/80">Model Name</Label>
+                      <Input 
+                        placeholder="e.g. gpt-4-turbo" 
+                        className="bg-[#0f1419] border-white/10 text-white"
+                        value={formData.model_name}
+                        onChange={(e) => setFormData({...formData, model_name: e.target.value})}
+                        required
+                      />
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label className="text-white/80">API Key</Label>
+                    <Input 
+                      type="password" 
+                      placeholder="sk-..." 
+                      className="bg-[#0f1419] border-white/10 text-white"
+                      value={formData.api_key}
+                      onChange={(e) => setFormData({...formData, api_key: e.target.value})}
+                      required={formData.provider !== 'ollama'}
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label className="text-white/80">Base URL (Optional)</Label>
+                    <Input 
+                      placeholder="https://..." 
+                      className="bg-[#0f1419] border-white/10 text-white"
+                      value={formData.base_url}
+                      onChange={(e) => setFormData({...formData, base_url: e.target.value})}
+                    />
+                  </div>
+
+                  <div className="flex justify-end gap-3 mt-8">
+                    <Button variant="ghost" type="button" onClick={() => setShowAddModal(false)}>Cancel</Button>
+                    <Button type="submit" className="bg-blue-600 hover:bg-blue-700">Configure Model</Button>
+                  </div>
+                </form>
+              </Card>
+            </div>
+          )}
         </div>
       </AgentLayout>
     </ErrorBoundary>

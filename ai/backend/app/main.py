@@ -9,6 +9,7 @@ from app.api.tickets import router as tickets_router
 from app.db.init_db import init_db
 from app.api.ws_status import router as ws_router
 from app.api.voice_ws import router as voice_ws_router
+from app.api.execution_ws import router as execution_ws_router
 from app.api import knowledge, hr, auth, subscription, demo_request, analytics, widget, ticket_assigner
 from app.api import webhooks, config as config_api, tools as tools_api, ticket_solver, knowledge_sources
 from app.api import agents, agent_templates
@@ -58,6 +59,7 @@ Instrumentator().instrument(app).expose(app, include_in_schema=False)
 
 app.include_router(ws_router)
 app.include_router(voice_ws_router)
+app.include_router(execution_ws_router)
 
 
 frontend_url = os.getenv("FRONTEND_URL", "http://localhost:3000")
@@ -66,6 +68,8 @@ allowed_origins = {
     "http://localhost:3000",
     "http://127.0.0.1:3000",
     "http://0.0.0.0:3000",
+    "http://localhost:3001",
+    "http://127.0.0.1:3001",
     "https://mobility-debate-toll-interim.trycloudflare.com",
 }
 app.add_middleware(

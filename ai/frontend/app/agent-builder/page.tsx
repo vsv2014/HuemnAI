@@ -55,173 +55,203 @@ interface ExecutionResult {
   prices?: Array<{ currency: string; price: number; level: "low" | "mid" | "high"; source: string; city: string; ts: number }>;
 }
 
-const CustomNode = ({ data }: { data: any }) => {
+const HilIoNode = ({ data }: { data: any }) => {
+  const { setNodes } = useReactFlow();
+  const collapsed = !!data.collapsed;
   return (
     <div className="relative group">
-      <div className={`absolute -inset-0.5 bg-gradient-to-r ${data.isMaster ? 'from-amber-500 via-yellow-500 to-amber-600' : 'from-neutral-700 via-neutral-600 to-neutral-700'} rounded-xl opacity-20 group-hover:opacity-100 transition duration-500 blur ${data.isMaster ? 'animate-pulse' : ''}`}></div>
-      <div className={`relative bg-black/90 backdrop-blur-xl border ${data.isMaster ? 'border-amber-500/50' : 'border-neutral-700 hover:border-amber-500/30'} rounded-xl p-4 min-w-[200px] shadow-[0_0_30px_rgba(0,0,0,0.5)] transition-all duration-300 transform group-hover:scale-105`}>
-        <Handle id="in" type="target" position={Position.Top} className="opacity-0 !bg-transparent !border-transparent !shadow-none" />
-        <div className="flex items-start space-x-3">
-          <div className={`p-2.5 rounded-lg border ${data.isMaster ? 'bg-amber-500/10 border-amber-500/30' : 'bg-neutral-800 border-neutral-700'} flex items-center justify-center shrink-0`}>
-            {data.isMaster ? (
-              <Crown className="w-5 h-5 text-amber-500 drop-shadow-[0_0_5px_rgba(245,158,11,0.5)]" />
-            ) : (
-              <Bot className="w-5 h-5 text-amber-400/80" />
-            )}
+      <div className="absolute -inset-0.5 bg-gradient-to-r from-blue-500 to-cyan-600 rounded-xl opacity-20 group-hover:opacity-100 transition duration-500 blur"></div>
+      <div className="relative bg-black/90 backdrop-blur-xl border border-blue-500/30 rounded-xl p-4 min-w-[220px] shadow-[0_0_30px_rgba(0,0,0,0.5)]">
+        <Handle id="in" type="target" position={Position.Top} className="opacity-0" />
+        <div className="flex items-center space-x-3 mb-3">
+          <div className="p-2 rounded-lg bg-blue-500/10 border border-blue-500/30">
+            <MessageSquare className="w-5 h-5 text-blue-400" />
           </div>
-          <div className="flex-1 min-w-0">
-            <div className={`text-xs font-bold uppercase tracking-widest mb-1 truncate ${data.isMaster ? 'text-amber-500' : 'text-neutral-300'}`}>
-              {data.label}
-            </div>
-            <div className="flex items-center space-x-2">
-              <div className="flex items-center space-x-1 bg-green-500/10 px-1.5 py-0.5 rounded border border-green-500/20">
-                <div className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse shadow-[0_0_5px_#22c55e]"></div>
-                <span className="text-[10px] text-green-500 font-mono tracking-wide">ACTIVE</span>
-              </div>
-              <div className="text-[10px] text-neutral-500 font-mono">
-                {data.isMaster ? 'PID:001' : `PID:${Math.floor(Math.random() * 900) + 100}`}
-              </div>
-            </div>
+          <div className="flex-1">
+            <div className="text-[10px] font-bold text-blue-400 uppercase tracking-widest">Mega-Node</div>
+            <div className="text-sm font-bold text-white uppercase tracking-wider">{data.label || 'Input/Output'}</div>
           </div>
-        </div>
-        <div className="absolute top-0 right-0 p-1.5">
-           <div className={`w-1 h-1 rounded-full ${data.isMaster ? 'bg-amber-500' : 'bg-neutral-600'}`}></div>
-        </div>
-        <Handle id="out" type="source" position={Position.Bottom} className="opacity-0 !bg-transparent !border-transparent !shadow-none" />
-        <Handle id="out-right" type="source" position={Position.Right} className="absolute inset-0 opacity-0 pointer-events-auto !bg-transparent !border-transparent" />
-        <Handle id="in-left" type="target" position={Position.Left} className="absolute inset-0 opacity-0 pointer-events-auto !bg-transparent !border-transparent" />
-      </div>
-    </div>
-  );
-};
-
-const StepNode = ({ data }: { data: any }) => {
-  const { setNodes } = useReactFlow();
-  const isActive = data.status === 'active';
-  const isVisited = data.status === 'visited';
-  const collapsed = !!data.collapsed;
-  const base = 'relative group rounded-full px-4 py-3 min-w-[220px] border transition-all flex items-center gap-3';
-  const active = 'bg-[#0b1b33]/70 border-sky-500/40 shadow-[0_0_20px_rgba(56,189,248,0.25)]';
-  const visited = 'bg-[#0b1b33]/40 border-sky-500/20';
-  const unvisited = 'bg-[#0b1b33]/30 border-[#1f2937]';
-  const text = isActive ? 'text-sky-300' : isVisited ? 'text-sky-200/80' : 'text-sky-200/60';
-  const Icon = data.icon === 'cloud' ? Cloud : data.icon === 'brain' ? Brain : data.icon === 'message' ? MessageSquare : Bot;
-  return (
-    <div className="relative">
-      <Handle id="in" type="target" position={Position.Top} className="opacity-0 !bg-transparent !border-transparent !shadow-none" />
-      <div className={`${base} ${isActive ? active : isVisited ? visited : unvisited}`}>
-        <div className="shrink-0 w-8 h-8 rounded-full bg-sky-500/20 border border-sky-500/40 flex items-center justify-center">
-          <Icon className="w-4 h-4 text-sky-300" />
-        </div>
-        <div className="flex-1">
-          <div className={`text-xs font-bold uppercase tracking-widest truncate ${text}`}>{data.label}</div>
-          {!collapsed && (
-            <div className="text-[10px] text-sky-200/50 font-mono">{isActive ? 'Active' : isVisited ? 'Visited' : 'Unvisited'}</div>
-          )}
-        </div>
-        <div className="flex items-center gap-2">
           <button
-            onClick={() =>
-              setNodes((nds) =>
-                nds.map((node) =>
-                  node.id === data.id ? { ...node, data: { ...node.data, collapsed: !collapsed } } : node
-                )
-              )
-            }
-            className="text-sky-300 hover:text-sky-200 text-xs px-2 py-0.5 border border-sky-500/30 rounded"
-            title={collapsed ? 'Expand' : 'Minimize'}
-          >
-            {collapsed ? '▢' : '—'}
-          </button>
-        </div>
-      </div>
-       <Handle id="out" type="source" position={Position.Bottom} className="opacity-0 !bg-transparent !border-transparent !shadow-none" />
-      <Handle id="out-right" type="source" position={Position.Right} className="absolute inset-0 opacity-0 pointer-events-auto !bg-transparent !border-transparent" />
-      <Handle id="in-left" type="target" position={Position.Left} className="absolute inset-0 opacity-0 pointer-events-auto !bg-transparent !border-transparent" />
-    </div>
-  );
-};
-
-const DecisionNode = ({ data }: { data: any }) => {
-  return (
-    <div className="relative">
-      <Handle id="in" type="target" position={Position.Top} className="opacity-0 !bg-transparent !border-transparent !shadow-none" />
-      <div className="relative w-[180px] h-[100px]">
-        <div
-          className="absolute inset-0 bg-gradient-to-br from-purple-500/40 to-fuchsia-600/40 border border-purple-500/50"
-          style={{ clipPath: 'polygon(50% 0%, 100% 50%, 50% 100%, 0% 50%)', borderRadius: 12 }}
-        />
-        <div className="absolute inset-0 flex items-center justify-center">
-          <span className="text-xs font-bold text-purple-200 uppercase tracking-widest">{data.label}</span>
-        </div>
-      </div>
-       <Handle id="out" type="source" position={Position.Bottom} className="opacity-0 !bg-transparent !border-transparent !shadow-none" />
-      <Handle id="out-right" type="source" position={Position.Right} className="absolute inset-0 opacity-0 pointer-events-auto !bg-transparent !border-transparent" />
-      <Handle id="in-left" type="target" position={Position.Left} className="absolute inset-0 opacity-0 pointer-events-auto !bg-transparent !border-transparent" />
-    </div>
-  );
-};
-
-const EntryNode = ({ data }: { data: any }) => {
-  return (
-    <div className="relative">
-      <Handle id="in" type="target" position={Position.Top} className="opacity-0 !bg-transparent !border-transparent !shadow-none" />
-      <div className="relative rounded-full px-4 py-3 min-w-[220px] bg-emerald-900/30 border border-emerald-500/40 flex items-center gap-3 shadow-[0_0_25px_rgba(16,185,129,0.2)]">
-        <div className="shrink-0 w-8 h-8 rounded-full bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center">
-          <Play className="w-4 h-4 text-emerald-300" />
-        </div>
-        <div className="flex-1">
-          <div className="text-xs font-bold uppercase tracking-widest text-emerald-300 truncate">{data.label}</div>
-          <div className="text-[10px] text-emerald-200/50 font-mono">Entry</div>
-        </div>
-      </div>
-       <Handle id="out" type="source" position={Position.Bottom} className="opacity-0 !bg-transparent !border-transparent !shadow-none" />
-      <Handle id="out-right" type="source" position={Position.Right} className="absolute inset-0 opacity-0 pointer-events-auto !bg-transparent !border-transparent" />
-      <Handle id="in-left" type="target" position={Position.Left} className="absolute inset-0 opacity-0 pointer-events-auto !bg-transparent !border-transparent" />
-    </div>
-  );
-};
-
-const ModuleNode = ({ data }: { data: any }) => {
-  const { setNodes } = useReactFlow();
-  const collapsed = !!data.collapsed;
-  return (
-    <div className="relative">
-      <Handle id="in" type="target" position={Position.Top} className="opacity-0 !bg-transparent !border-transparent !shadow-none" />
-      <div className={`rounded-xl border ${collapsed ? 'bg-neutral-900/50 border-neutral-800' : 'bg-black/70 border-amber-500/30'} p-3 min-w-[220px]`}>
-        <div className="flex items-center justify-between">
-          <div className="text-xs font-bold uppercase tracking-widest text-amber-400">{data.label || 'Module'}</div>
-          <button
-            onClick={() =>
-              setNodes((nds) =>
-                nds.map((node) =>
-                  node.id === data.id ? { ...node, data: { ...node.data, collapsed: !collapsed } } : node
-                )
-              )
-            }
-            className="text-amber-400 hover:text-amber-300 text-xs px-2 py-0.5 border border-amber-500/30 rounded"
-            title={collapsed ? 'Expand' : 'Minimize'}
+            onClick={() => setNodes((nds) => nds.map((n) => n.id === data.id ? { ...n, data: { ...n.data, collapsed: !collapsed } } : n))}
+            className="text-white/40 hover:text-white transition-colors"
           >
             {collapsed ? '▢' : '—'}
           </button>
         </div>
         {!collapsed && (
-          <div className="mt-2 text-[10px] text-neutral-400">Module content hidden when minimized.</div>
+          <div className="space-y-2">
+            <div className="text-[10px] text-neutral-400 font-mono">TYPE: hil_io</div>
+            <div className="flex flex-wrap gap-1">
+              <span className="px-1.5 py-0.5 rounded bg-blue-500/10 border border-blue-500/20 text-[9px] text-blue-300">Variables</span>
+              <span className="px-1.5 py-0.5 rounded bg-blue-500/10 border border-blue-500/20 text-[9px] text-blue-300">Rich Media</span>
+            </div>
+          </div>
         )}
+        <Handle id="out" type="source" position={Position.Bottom} className="opacity-0" />
       </div>
-       <Handle id="out" type="source" position={Position.Bottom} className="opacity-0 !bg-transparent !border-transparent !shadow-none" />
-      <Handle id="out-right" type="source" position={Position.Right} className="absolute inset-0 opacity-0 pointer-events-auto !bg-transparent !border-transparent" />
-      <Handle id="in-left" type="target" position={Position.Left} className="absolute inset-0 opacity-0 pointer-events-auto !bg-transparent !border-transparent" />
+    </div>
+  );
+};
+
+const HilGenAiNode = ({ data }: { data: any }) => {
+  const { setNodes } = useReactFlow();
+  const collapsed = !!data.collapsed;
+  return (
+    <div className="relative group">
+      <div className="absolute -inset-0.5 bg-gradient-to-r from-purple-500 to-pink-600 rounded-xl opacity-20 group-hover:opacity-100 transition duration-500 blur"></div>
+      <div className="relative bg-black/90 backdrop-blur-xl border border-purple-500/30 rounded-xl p-4 min-w-[220px] shadow-[0_0_30px_rgba(0,0,0,0.5)]">
+        <Handle id="in" type="target" position={Position.Top} className="opacity-0" />
+        <div className="flex items-center space-x-3 mb-3">
+          <div className="p-2 rounded-lg bg-purple-500/10 border border-purple-500/30">
+            <Brain className="w-5 h-5 text-purple-400" />
+          </div>
+          <div className="flex-1">
+            <div className="text-[10px] font-bold text-purple-400 uppercase tracking-widest">Mega-Node</div>
+            <div className="text-sm font-bold text-white uppercase tracking-wider">{data.label || 'GenAI'}</div>
+          </div>
+          <button
+            onClick={() => setNodes((nds) => nds.map((n) => n.id === data.id ? { ...n, data: { ...n.data, collapsed: !collapsed } } : n))}
+            className="text-white/40 hover:text-white transition-colors"
+          >
+            {collapsed ? '▢' : '—'}
+          </button>
+        </div>
+        {!collapsed && (
+          <div className="space-y-2">
+            <div className="text-[10px] text-neutral-400 font-mono">TYPE: hil_genai</div>
+            <div className="flex flex-wrap gap-1">
+              <span className="px-1.5 py-0.5 rounded bg-purple-500/10 border border-purple-500/20 text-[9px] text-purple-300">Vision</span>
+              <span className="px-1.5 py-0.5 rounded bg-purple-500/10 border border-purple-500/20 text-[9px] text-purple-300">Voice</span>
+              <span className="px-1.5 py-0.5 rounded bg-purple-500/10 border border-purple-500/20 text-[9px] text-purple-300">Code</span>
+            </div>
+          </div>
+        )}
+        <Handle id="out" type="source" position={Position.Bottom} className="opacity-0" />
+      </div>
+    </div>
+  );
+};
+
+const HilKnowledgeNode = ({ data }: { data: any }) => {
+  const { setNodes } = useReactFlow();
+  const collapsed = !!data.collapsed;
+  return (
+    <div className="relative group">
+      <div className="absolute -inset-0.5 bg-gradient-to-r from-emerald-500 to-teal-600 rounded-xl opacity-20 group-hover:opacity-100 transition duration-500 blur"></div>
+      <div className="relative bg-black/90 backdrop-blur-xl border border-emerald-500/30 rounded-xl p-4 min-w-[220px] shadow-[0_0_30px_rgba(0,0,0,0.5)]">
+        <Handle id="in" type="target" position={Position.Top} className="opacity-0" />
+        <div className="flex items-center space-x-3 mb-3">
+          <div className="p-2 rounded-lg bg-emerald-500/10 border border-emerald-500/30">
+            <Cloud className="w-5 h-5 text-emerald-400" />
+          </div>
+          <div className="flex-1">
+            <div className="text-[10px] font-bold text-emerald-400 uppercase tracking-widest">Mega-Node</div>
+            <div className="text-sm font-bold text-white uppercase tracking-wider">{data.label || 'Knowledge'}</div>
+          </div>
+          <button
+            onClick={() => setNodes((nds) => nds.map((n) => n.id === data.id ? { ...n, data: { ...n.data, collapsed: !collapsed } } : n))}
+            className="text-white/40 hover:text-white transition-colors"
+          >
+            {collapsed ? '▢' : '—'}
+          </button>
+        </div>
+        {!collapsed && (
+          <div className="space-y-2">
+            <div className="text-[10px] text-neutral-400 font-mono">TYPE: hil_knowledge</div>
+            <div className="flex flex-wrap gap-1">
+              <span className="px-1.5 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/20 text-[9px] text-emerald-300">Docling</span>
+              <span className="px-1.5 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/20 text-[9px] text-emerald-300">RAG</span>
+            </div>
+          </div>
+        )}
+        <Handle id="out" type="source" position={Position.Bottom} className="opacity-0" />
+      </div>
+    </div>
+  );
+};
+
+const HilAutomationNode = ({ data }: { data: any }) => {
+  const { setNodes } = useReactFlow();
+  const collapsed = !!data.collapsed;
+  return (
+    <div className="relative group">
+      <div className="absolute -inset-0.5 bg-gradient-to-r from-amber-500 to-orange-600 rounded-xl opacity-20 group-hover:opacity-100 transition duration-500 blur"></div>
+      <div className="relative bg-black/90 backdrop-blur-xl border border-amber-500/30 rounded-xl p-4 min-w-[220px] shadow-[0_0_30px_rgba(0,0,0,0.5)]">
+        <Handle id="in" type="target" position={Position.Top} className="opacity-0" />
+        <div className="flex items-center space-x-3 mb-3">
+          <div className="p-2 rounded-lg bg-amber-500/10 border border-amber-500/30">
+            <Zap className="w-5 h-5 text-amber-400" />
+          </div>
+          <div className="flex-1">
+            <div className="text-[10px] font-bold text-amber-400 uppercase tracking-widest">Mega-Node</div>
+            <div className="text-sm font-bold text-white uppercase tracking-wider">{data.label || 'Automation'}</div>
+          </div>
+          <button
+            onClick={() => setNodes((nds) => nds.map((n) => n.id === data.id ? { ...n, data: { ...n.data, collapsed: !collapsed } } : n))}
+            className="text-white/40 hover:text-white transition-colors"
+          >
+            {collapsed ? '▢' : '—'}
+          </button>
+        </div>
+        {!collapsed && (
+          <div className="space-y-2">
+            <div className="text-[10px] text-neutral-400 font-mono">TYPE: hil_automation</div>
+            <div className="flex flex-wrap gap-1">
+              <span className="px-1.5 py-0.5 rounded bg-amber-500/10 border border-amber-500/20 text-[9px] text-amber-300">Browser Studio</span>
+              <span className="px-1.5 py-0.5 rounded bg-amber-500/10 border border-amber-500/20 text-[9px] text-amber-300">Hybrid RPA</span>
+            </div>
+          </div>
+        )}
+        <Handle id="out" type="source" position={Position.Bottom} className="opacity-0" />
+      </div>
+    </div>
+  );
+};
+
+const HilApprovalNode = ({ data }: { data: any }) => {
+  const { setNodes } = useReactFlow();
+  const collapsed = !!data.collapsed;
+  return (
+    <div className="relative group">
+      <div className="absolute -inset-0.5 bg-gradient-to-r from-red-500 to-rose-600 rounded-xl opacity-20 group-hover:opacity-100 transition duration-500 blur"></div>
+      <div className="relative bg-black/90 backdrop-blur-xl border border-red-500/30 rounded-xl p-4 min-w-[220px] shadow-[0_0_30px_rgba(0,0,0,0.5)]">
+        <Handle id="in" type="target" position={Position.Top} className="opacity-0" />
+        <div className="flex items-center space-x-3 mb-3">
+          <div className="p-2 rounded-lg bg-red-500/10 border border-red-500/30">
+            <User className="w-5 h-5 text-red-400" />
+          </div>
+          <div className="flex-1">
+            <div className="text-[10px] font-bold text-red-400 uppercase tracking-widest">Mega-Node</div>
+            <div className="text-sm font-bold text-white uppercase tracking-wider">{data.label || 'Human Approval'}</div>
+          </div>
+          <button
+            onClick={() => setNodes((nds) => nds.map((n) => n.id === data.id ? { ...n, data: { ...n.data, collapsed: !collapsed } } : n))}
+            className="text-white/40 hover:text-white transition-colors"
+          >
+            {collapsed ? '▢' : '—'}
+          </button>
+        </div>
+        {!collapsed && (
+          <div className="space-y-2">
+            <div className="text-[10px] text-neutral-400 font-mono">TYPE: hil_approval</div>
+            <div className="flex flex-wrap gap-1">
+              <span className="px-1.5 py-0.5 rounded bg-red-500/10 border border-red-500/20 text-[9px] text-red-300">Human-in-loop</span>
+              <span className="px-1.5 py-0.5 rounded bg-red-500/10 border border-red-500/20 text-[9px] text-red-300">Interaction Inbox</span>
+            </div>
+          </div>
+        )}
+        <Handle id="out" type="source" position={Position.Bottom} className="opacity-0" />
+      </div>
     </div>
   );
 };
 
 const nodeTypes = {
-  custom: CustomNode,
-  step: StepNode,
-  decision: DecisionNode,
-  entry: EntryNode,
-  module: ModuleNode,
+  hil_io: HilIoNode,
+  hil_genai: HilGenAiNode,
+  hil_knowledge: HilKnowledgeNode,
+  hil_automation: HilAutomationNode,
+  hil_approval: HilApprovalNode,
 };
 
 const PremiumEdge = ({
@@ -286,17 +316,17 @@ const PremiumEdge = ({
 const edgeTypes = { premium: PremiumEdge };
 
 const initialNodes: Node[] = [
-  { id: 'start', type: 'entry', position: { x: 80, y: 220 }, data: { id: 'start', label: 'Start' } },
-  { id: 'welcome', type: 'step', position: { x: 240, y: 200 }, data: { id: 'welcome', label: 'Welcome_Task', status: 'active' } },
-  { id: 'intent', type: 'decision', position: { x: 430, y: 250 }, data: { id: 'intent', label: 'Intent Classification' } },
-  { id: 'farewell', type: 'step', position: { x: 330, y: 360 }, data: { id: 'farewell', label: 'Farewell_Agent', status: 'unvisited' } },
-  { id: 'booking', type: 'step', position: { x: 520, y: 360 }, data: { id: 'booking', label: 'Booking_Manager', status: 'visited' } },
+  { id: 'node-io', type: 'hil_io', position: { x: 80, y: 100 }, data: { id: 'node-io', label: 'Customer Intake' } },
+  { id: 'node-genai', type: 'hil_genai', position: { x: 320, y: 100 }, data: { id: 'node-genai', label: 'Intent Analysis' } },
+  { id: 'node-knowledge', type: 'hil_knowledge', position: { x: 560, y: 100 }, data: { id: 'node-knowledge', label: 'SOP Retrieval' } },
+  { id: 'node-automation', type: 'hil_automation', position: { x: 320, y: 300 }, data: { id: 'node-automation', label: 'Process Order' } },
+  { id: 'node-approval', type: 'hil_approval', position: { x: 560, y: 300 }, data: { id: 'node-approval', label: 'Manager Review' } },
 ];
 const initialEdges: Edge[] = [
-  { id: 'e-start-welcome', source: 'start', sourceHandle: 'out', target: 'welcome', targetHandle: 'in', type: 'premium' },
-  { id: 'e-welcome-intent', source: 'welcome', sourceHandle: 'out', target: 'intent', targetHandle: 'in', type: 'premium' },
-  { id: 'e-intent-farewell', source: 'intent', sourceHandle: 'out', target: 'farewell', targetHandle: 'in', type: 'premium' },
-  { id: 'e-intent-booking', source: 'intent', sourceHandle: 'out', target: 'booking', targetHandle: 'in', type: 'premium' },
+  { id: 'e1', source: 'node-io', target: 'node-genai', type: 'premium' },
+  { id: 'e2', source: 'node-genai', target: 'node-knowledge', type: 'premium' },
+  { id: 'e3', source: 'node-knowledge', target: 'node-automation', type: 'premium' },
+  { id: 'e4', source: 'node-automation', target: 'node-approval', type: 'premium' },
 ];
 
 export default function AgentBuilderPage() {
@@ -355,17 +385,6 @@ export default function AgentBuilderPage() {
   const [minimapInteractive, setMinimapInteractive] = useState(false);
 
   // --- Handlers ---
-  useEffect(() => {
-    const positions: Record<string, { x: number; y: number }> = {
-      start:   { x: 80,  y: 100 },
-      welcome: { x: 240, y: 220 },
-      intent:  { x: 420, y: 340 },
-      farewell:{ x: 300, y: 480 },
-      booking: { x: 540, y: 480 },
-    };
-    setNodes((nds) => nds.map((n) => ({ ...n, position: positions[n.id] ?? n.position })));
-  }, []);
-
   const onNodesChangeSynced = useCallback((changes: any) => {
     onNodesChange(changes);
     if (sessionId) {

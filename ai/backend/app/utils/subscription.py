@@ -93,7 +93,10 @@ TOOL_DISPLAY_NAMES = {
     "analytics_dashboard": "Analytics Dashboard",
     "crm": "CRM",
     "voice_studio": "Premium Voice Studio",
-    "hr_services": "HR Services"
+    "hr_services": "HR Services",
+    "browser_studio": "Browser Studio",
+    "engagement_suite": "Engagement Suite",
+    "interaction_center": "Interaction Center"
 }
 
 PLAN_TOOL_MATRIX = {
@@ -117,7 +120,10 @@ PLAN_TOOL_MATRIX = {
         "analytics_dashboard",
         "crm",
         "voice_studio",
-        "hr_services"
+        "hr_services",
+        "browser_studio",
+        "engagement_suite",
+        "interaction_center"
     ],
     "enterprise": [
         "agent_builder",
@@ -129,7 +135,10 @@ PLAN_TOOL_MATRIX = {
         "analytics_dashboard",
         "crm",
         "voice_studio",
-        "hr_services"
+        "hr_services",
+        "browser_studio",
+        "engagement_suite",
+        "interaction_center"
     ],
     "trial": [
         "agent_builder",
@@ -141,7 +150,10 @@ PLAN_TOOL_MATRIX = {
         "analytics_dashboard",
         "crm",
         "voice_studio",
-        "hr_services"
+        "hr_services",
+        "browser_studio",
+        "engagement_suite",
+        "interaction_center"
     ]
 }
 

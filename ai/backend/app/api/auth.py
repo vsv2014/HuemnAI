@@ -204,6 +204,11 @@ async def handle_otp_generation(email: str, db: Session) -> bool:
 
 def verify_otp_code(email: str, otp: str, db: Session) -> bool:
     """Verify OTP code"""
+    # In development mode without SMTP, allow 123456 as a bypass
+    if settings.ENV == "dev" and otp == "123456":
+        logger.info(f"Bypassing OTP for {email} in dev mode using 123456")
+        return True
+
     verification = db.query(EmailVerification).filter(EmailVerification.email == email).first()
     if not verification:
         return False
@@ -225,7 +230,13 @@ async def send_otp_endpoint(
     if not request.email.endswith("@gmail.com"):
         raise HTTPException(status_code=400, detail="OTP service is currently limited to Gmail addresses")
         
-    await handle_otp_generation(request.email, db)
+    success = await handle_otp_generation(request.email, db)
+    
+    if settings.ENV == "dev":
+        if not success:
+            return {"message": "SMTP not configured. Please use '123456' for testing."}
+        return {"message": "OTP sent successfully (Developer Mode: Use 123456 if email is not received)"}
+        
     return {"message": "OTP sent successfully"}
 
 @router.post("/signup", response_model=AuthResponse)
@@ -256,7 +267,19 @@ async def signup(
     if not signup_request.otp:
         # Generate and send OTP
         success = await handle_otp_generation(signup_request.email, db)
+        
+        # In development mode, provide the bypass message
+        dev_message = ""
+        if settings.ENV == "dev":
+            dev_message = " (Developer Mode: Use 123456 if email is not configured)"
+            
         if not success:
+            if settings.ENV == "dev":
+                return AuthResponse(
+                    requires_otp=True,
+                    is_verified=False,
+                    message="SMTP not configured. Please use '123456' as the verification code for testing."
+                )
             raise HTTPException(
                 status_code=500,
                 detail="Failed to send verification email. Please check your SMTP settings."
@@ -264,7 +287,7 @@ async def signup(
         return AuthResponse(
             requires_otp=True,
             is_verified=False,
-            message="Verification code sent to your email. Please verify to complete signup."
+            message=f"Verification code sent to your email.{dev_message}"
         )
     else:
         # Verify OTP
@@ -361,42 +384,108 @@ async def login(
     db: Session = Depends(get_db)
 ):
     """Login user"""
+    # Dev bypass for a dedicated developer account
+    if settings.ENV == "dev" and request.email == "dev@huemn.ai" and request.password == "dev-bypass-2024":
+        logger.info("Dev bypass triggered for dev@huemn.ai")
+        user = db.query(UserAccount).filter(UserAccount.email == "dev@huemn.ai").first()
+        if not user:
+            user = UserAccount(
+                email="dev@huemn.ai",
+                password_hash=hash_password("dev-bypass-2024"),
+                name="Developer",
+                subscription_status="trial",
+                is_verified=True,
+                is_active=True
+            )
+            db.add(user)
+            db.commit()
+            db.refresh(user)
+            sync_tool_subscriptions(db, user)
+        
+        token = create_jwt_token(user)
+        return AuthResponse(
+            token=token,
+            user={
+                "id": user.id,
+                "email": user.email,
+                "name": user.name,
+                "subscription_status": user.subscription_status,
+                "is_verified": user.is_verified
+            },
+            subscription_status=user.subscription_status,
+            trial_days_remaining=365,
+            is_verified=True
+        )
+
     user = db.query(UserAccount).filter(UserAccount.email == request.email).first()
     
     if not user:
-        logger.warning(f"Login attempt with non-existent email: {request.email}")
-        raise HTTPException(status_code=401, detail="Invalid email or password")
-    
-    if not verify_password(request.password, user.password_hash):
-        logger.warning(f"Invalid password attempt for email: {request.email}")
-        raise HTTPException(status_code=401, detail="Invalid email or password")
-    
-    if not user.is_active:
-        raise HTTPException(status_code=403, detail="Account is inactive")
-        
-    # Email Verification Check for existing accounts
-    if not user.is_verified:
-        if not request.otp:
-            # Generate and send OTP for unverified account
-            success = await handle_otp_generation(user.email, db)
-            if not success:
-                raise HTTPException(
-                    status_code=500,
-                    detail="Failed to send verification email. Please check your SMTP settings."
-                )
-            return AuthResponse(
-                requires_otp=True,
-                is_verified=False,
-                message="Your email is not verified. A verification code has been sent to your email."
+        # In dev mode, auto-create user if it doesn't exist when "override" is intended
+        if settings.ENV == "dev":
+            logger.info(f"Dev mode: Auto-creating user {request.email} for login override")
+            password_hash = hash_password(request.password)
+            user = UserAccount(
+                email=request.email,
+                password_hash=password_hash,
+                name=request.email.split("@")[0],
+                subscription_status="trial",
+                is_verified=True,
+                is_active=True
             )
+            db.add(user)
+            db.commit()
+            db.refresh(user)
+            sync_tool_subscriptions(db, user)
         else:
-            # Verify OTP
-            if verify_otp_code(user.email, request.otp, db):
-                # Mark as verified
-                user.is_verified = True
-                db.commit()
+            logger.warning(f"Login attempt with non-existent email: {request.email}")
+            raise HTTPException(status_code=401, detail="Invalid email or password")
+    
+    # In dev mode, bypass password and OTP verification
+    if settings.ENV == "dev":
+        logger.info(f"Dev mode: Bypassing password/OTP for {request.email}")
+    else:
+        if not verify_password(request.password, user.password_hash):
+            logger.warning(f"Invalid password attempt for email: {request.email}")
+            raise HTTPException(status_code=401, detail="Invalid email or password")
+        
+        if not user.is_active:
+            raise HTTPException(status_code=403, detail="Account is inactive")
+            
+        # Email Verification Check for existing accounts
+        if not user.is_verified:
+            if not request.otp:
+                # Generate and send OTP for unverified account
+                success = await handle_otp_generation(user.email, db)
+                
+                # In development mode, provide the bypass message
+                dev_message = ""
+                if settings.ENV == "dev":
+                    dev_message = " (Developer Mode: Use 123456 if email is not configured)"
+                    
+                if not success:
+                    if settings.ENV == "dev":
+                        return AuthResponse(
+                            requires_otp=True,
+                            is_verified=False,
+                            message="SMTP not configured. Please use '123456' as the verification code for testing."
+                        )
+                    raise HTTPException(
+                        status_code=500,
+                        detail="Failed to send verification email. Please check your SMTP settings."
+                    )
+                return AuthResponse(
+                    requires_otp=True,
+                    is_verified=False,
+                    message=f"Your email is not verified. A verification code has been sent to your email.{dev_message}"
+                )
             else:
-                raise HTTPException(status_code=400, detail="Invalid or expired verification code")
+                # Verify OTP
+                if verify_otp_code(user.email, request.otp, db):
+                    # Mark as verified
+                    user.is_verified = True
+                    db.commit()
+                else:
+                    raise HTTPException(status_code=400, detail="Invalid or expired verification code")
     
     # Agent login: verify company email domain
     if request.is_agent:

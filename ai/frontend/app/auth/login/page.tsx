@@ -149,6 +149,23 @@ function LoginContent() {
     }
   };
 
+  const handleDevLogin = async () => {
+    setLoading(true);
+    setError("");
+    try {
+      const data = await login("dev@huemn.ai", "dev-bypass-2024");
+      if (data.error) {
+        setError(data.error);
+      } else {
+        handleLoginSuccess(data);
+      }
+    } catch (err: any) {
+      setError("Dev login failed");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <div className="min-h-screen flex items-center justify-center relative overflow-hidden bg-transparent">
       {/* Background elements moved to global layout */}
@@ -248,8 +265,23 @@ function LoginContent() {
               className="w-full py-4 mt-2 bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 text-white font-bold rounded-xl hover:from-blue-500 hover:via-indigo-500 hover:to-purple-500 transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-[0_0_20px_rgba(79,70,229,0.4)] hover:shadow-[0_0_30px_rgba(79,70,229,0.6)] transform hover:-translate-y-0.5 active:translate-y-0 text-lg relative overflow-hidden group/btn"
             >
               <div className="absolute inset-0 bg-white/20 translate-y-full group-hover/btn:translate-y-0 transition-transform duration-300 skew-y-12"></div>
-              <span className="relative z-10">{loading ? "Signing in..." : "Sign In"}</span>
+              <span className="relative z-10 flex items-center justify-center gap-2">
+                {loading ? "Verifying..." : "Sign In"}
+                {!loading && <span className="group-hover/btn:translate-x-1 transition-transform">→</span>}
+              </span>
             </button>
+
+            {/* Developer Bypass Button */}
+            {process.env.NODE_ENV === 'development' && (
+              <button
+                type="button"
+                onClick={handleDevLogin}
+                disabled={loading}
+                className="w-full py-3 mt-4 bg-white/5 border border-white/10 text-white/70 font-medium rounded-xl hover:bg-white/10 hover:text-white transition-all text-sm flex items-center justify-center gap-2"
+              >
+                <span>🛠️</span> Developer Login (Bypass SSO)
+              </button>
+            )}
           </form>
 
           <div className="relative my-8">

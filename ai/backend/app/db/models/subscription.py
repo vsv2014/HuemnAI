@@ -2,6 +2,8 @@ from sqlalchemy import Column, Integer, String, Boolean, DateTime, Float, Foreig
 from sqlalchemy.orm import relationship
 from datetime import datetime, timedelta
 from app.db.base import Base
+from app.core.security import encrypt_string, decrypt_string
+import json
 
 class SubscriptionPlan(Base):
     """Subscription plan definitions"""
@@ -92,6 +94,24 @@ class UserIntegration(Base):
     
     # Relationships
     user = relationship("UserAccount", back_populates="integrations")
+
+    def set_credentials(self, creds: dict):
+        """Encrypt and set credentials"""
+        if creds:
+            creds_str = json.dumps(creds)
+            self.credentials = {"encrypted_data": encrypt_string(creds_str)}
+        else:
+            self.credentials = None
+
+    def get_credentials(self) -> dict:
+        """Decrypt and return credentials"""
+        if self.credentials and "encrypted_data" in self.credentials:
+            decrypted_str = decrypt_string(self.credentials["encrypted_data"])
+            try:
+                return json.loads(decrypted_str)
+            except json.JSONDecodeError:
+                return {}
+        return self.credentials or {}
 
 
 class UserToolSubscription(Base):

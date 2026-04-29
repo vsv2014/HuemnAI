@@ -10,54 +10,16 @@ import json
 import os
 import base64
 
-# Try to import cryptography
-try:
-    from cryptography.fernet import Fernet
-    CRYPTO_AVAILABLE = True
-except ImportError:
-    CRYPTO_AVAILABLE = False
-    Fernet = None
-
-# Generate encryption key (in production, use a secure key management system)
-def get_encryption_key():
-    """Get or generate encryption key for sensitive data"""
-    if not CRYPTO_AVAILABLE:
-        return None
-    key = os.getenv("ENCRYPTION_KEY")
-    if not key:
-        # Generate a key (in production, this should be set as env var)
-        key = Fernet.generate_key().decode()
-        print(f"WARNING: Generated new encryption key. Set ENCRYPTION_KEY={key} in production!")
-    else:
-        key = key.encode() if isinstance(key, str) else key
-    return key
-
-_fernet = Fernet(get_encryption_key()) if CRYPTO_AVAILABLE and get_encryption_key() else None
-
+from app.core.security import encrypt_string, decrypt_string
 
 def encrypt_value(value: str) -> str:
-    """Encrypt a sensitive value"""
-    if not value or not _fernet:
-        # If crypto not available, store as-is (not recommended for production)
-        return value
-    try:
-        return _fernet.encrypt(value.encode()).decode()
-    except Exception as e:
-        import logging
-        logging.getLogger(__name__).error(f"Encryption error: {e}")
-        return value
+    """Encrypt a sensitive value using global AES-256-GCM"""
+    return encrypt_string(value)
 
 
 def decrypt_value(encrypted_value: str) -> str:
-    """Decrypt a sensitive value"""
-    if not encrypted_value or not _fernet:
-        return encrypted_value
-    try:
-        return _fernet.decrypt(encrypted_value.encode()).decode()
-    except Exception as e:
-        import logging
-        logging.getLogger(__name__).error(f"Decryption error: {e}")
-        return encrypted_value
+    """Decrypt a sensitive value using global AES-256-GCM"""
+    return decrypt_string(encrypted_value)
 
 
 def mask_value(value: str, show_first: int = 4, show_last: int = 4) -> str:

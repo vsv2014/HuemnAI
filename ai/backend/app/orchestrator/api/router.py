@@ -47,6 +47,9 @@ class PlanResponse(BaseModel):
 
 class ExecuteRequest(BaseModel):
     session_id: str
+    agent_id: Optional[int] = None
+    node_type: Optional[str] = None
+    config: Optional[Dict[str, Any]] = None
 
 class ExecuteResponse(BaseModel):
     status: str
@@ -299,6 +302,14 @@ async def prompt(req: PromptRequest):
 
 @router.post("/execute", response_model=ExecuteResponse, dependencies=[Depends(require_agent_builder_access)])
 async def execute(req: ExecuteRequest):
+    # Check if this is a direct HIL node execution from Studio
+    if req.node_type and req.config:
+        from app.orchestrator.executor.executor import HilExecutor
+        executor = HilExecutor(req.session_id)
+        # Run the single node in the background
+        asyncio.create_task(executor.execute_node(req.node_type, req.config, {}))
+        return {"status": "started", "job_id": req.session_id}
+
     session = await MemoryStore.get_session(req.session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")

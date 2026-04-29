@@ -844,6 +844,16 @@ class AgentExecutor:
                     local_result = await self._execute_scheduler_cluster_node(node, context)
                 elif node.node_type == NodeType.ADAPTIVE_LEARNER:
                     local_result = await self._execute_adaptive_learner_node(node, context)
+                elif node.node_type == NodeType.HIL_IO:
+                    local_result = await self._execute_hil_io_node(node, context)
+                elif node.node_type == NodeType.HIL_GENAI:
+                    local_result = await self._execute_hil_genai_node(node, context)
+                elif node.node_type == NodeType.HIL_KNOWLEDGE:
+                    local_result = await self._execute_hil_knowledge_node(node, context)
+                elif node.node_type == NodeType.HIL_AUTOMATION:
+                    local_result = await self._execute_hil_automation_node(node, context)
+                elif node.node_type == NodeType.HIL_APPROVAL:
+                    local_result = await self._execute_hil_approval_node(node, context, conversation_id)
                 else:
                     local_result = {
                         "response": "",
@@ -1187,6 +1197,405 @@ class AgentExecutor:
             "metadata": result.get("metadata", {})
         }
     
+    async def _execute_hil_io_node(self, node: AgentNode, context: Dict[str, Any]) -> Dict[str, Any]:
+        """Handles Input/Output and Rich Elements"""
+        config = node.config or {}
+        message = config.get("message", "")
+        rich = config.get("rich_elements", [])
+        
+        # If there's an output message, add it to history
+        if message:
+            context["message_history"].append({"role": "assistant", "content": message})
+            if rich:
+                context["message_history"][-1]["rich"] = rich
+        
+        return {
+            "response": message,
+            "next_node_id": None, # Will use connections
+            "context": context,
+            "metadata": {"rich": rich}
+        }
+
+    async def _execute_hil_genai_node(self, node: AgentNode, context: Dict[str, Any]) -> Dict[str, Any]:
+        """Handles Multi-modal GenAI (Vision/Voice/Decision)"""
+        config = node.config or {}
+        prompt = config.get("prompt", "")
+        system_prompt = config.get("system_prompt")
+        model_id = config.get("model_id")
+        
+        # Use existing LLM service
+        llm = get_llm(model_id) if model_id else get_available_llm()
+        
+        response = ""
+        # For simplicity, using non-streaming here as part of a flow
+        # But we could stream to WebSocket if needed
+        async for token in llm.stream(prompt, system_prompt=system_prompt):
+            response += token
+            # Optional: stream tokens to manager.send_status if session_id is available
+            
+        return {
+            "response": response,
+            "next_node_id": None,
+            "context": context,
+            "metadata": {"model_used": str(llm)}
+        }
+
+    async def _execute_hil_knowledge_node(self, node: AgentNode, context: Dict[str, Any]) -> Dict[str, Any]:
+        """Handles RAG + Docling Knowledge retrieval"""
+        config = node.config or {}
+        query = config.get("query", context.get("last_user_message"))
+        user_id = context.get("user_id")
+        
+        from app.services.knowledge_service import query_with_solution
+        result = await query_with_solution(
+            query=query,
+            user_id=user_id,
+            conversation_history=context.get("message_history", [])
+        )
+        
+        return {
+            "response": result.get("solution", ""),
+            "next_node_id": None,
+            "context": context,
+            "metadata": {
+                "knowledge_results": result.get("results", []),
+                "confidence": result.get("confidence")
+            }
+        }
+
+    async def _execute_hil_automation_node(self, node: AgentNode, context: Dict[str, Any]) -> Dict[str, Any]:
+        """Handles Browser Studio Execution (Headless Playwright)"""
+        config = node.config or {}
+        session_id = context.get("session_id", "default")
+        
+        from app.services.automation.browser_service import browser_service
+        service = browser_service(session_id)
+        
+        mode = config.get("mode", "deterministic")
+        instruction = config.get("instruction")
+        
+        # This is a long running task, might need to be backgrounded 
+        # but for now we wait for completion if it's a direct node
+        await service.execute_workflow(
+            workflow=config.get("workflow", {}),
+            mode=mode,
+            goal=instruction
+        )
+        
+        return {
+            "response": f"Automation task completed in {mode} mode.",
+            "next_node_id": None,
+            "context": context,
+            "metadata": {"automation_mode": mode}
+        }
+    async def _execute_hil_approval_node(
+    self,
+    node,
+    context: Dict[str, Any],
+    conversation_id: int
+) -> Dict[str, Any]:
+
+    """
+    HIL Human Approval Runtime Node
+    """
+
+    config = node.config or {}
+
+    message = config.get(
+        "message_to_approver",
+        "Approval required"
+    )
+
+    approver_id = config.get("approver_id")
+
+    from app.db.models.ticket import Ticket
+
+    approval_ticket = Ticket(
+        conversation_id=conversation_id,
+        status="awaiting_approval",
+        title=f"HIL Approval Request: {node.name}",
+        description=message,
+        priority="high",
+        assigned_to=str(approver_id)
+        if approver_id else None,
+        customer_info={
+            "type": "approval_request",
+            "node_id": node.id,
+            "runtime": "HIL"
+        }
+    )
+
+    self.db.add(approval_ticket)
+    self.db.commit()
+
+    self._track_analytics_event(
+        agent_id=context.get("agent_id", 0),
+        conversation_id=conversation_id,
+        event_type="hil_approval_requested",
+        event_name="HIL Approval Node Triggered",
+        properties={
+            "ticket_id": approval_ticket.id,
+            "node_id": node.id
+        }
+    )
+
+    return {
+        "response": (
+            "Approval request submitted successfully. "
+            "Workflow execution paused."
+        ),
+        "next_node_id": None,
+        "context": context,
+        "metadata": {
+            "approval_ticket_id": approval_ticket.id,
+            "status": "pending_approval",
+            "runtime": "HIL"
+        }
+    }
+
+
+# =========================================================
+# HIL IO NODE
+# =========================================================
+
+async def _execute_hil_io_node(
+    self,
+    node,
+    context: Dict[str, Any]
+) -> Dict[str, Any]:
+
+    """
+    HIL Input / Output Runtime Node
+    """
+
+    config = node.config or {}
+
+    message = config.get("message", "")
+
+    rich = config.get("rich_elements", [])
+
+    if message:
+
+        context["message_history"].append({
+            "role": "assistant",
+            "content": message
+        })
+
+        if rich:
+            context["message_history"][-1]["rich"] = rich
+
+    return {
+        "response": message,
+        "next_node_id": None,
+        "context": context,
+        "metadata": {
+            "runtime": "HIL",
+            "node_type": "io",
+            "rich": rich
+        }
+    }
+
+
+# =========================================================
+# HIL AI NODE
+# =========================================================
+
+async def _execute_hil_ai_node(
+    self,
+    node,
+    context: Dict[str, Any]
+) -> Dict[str, Any]:
+
+    """
+    HIL Multi-modal AI Runtime Node
+    """
+
+    config = node.config or {}
+
+    prompt = config.get("prompt", "")
+
+    system_prompt = config.get("system_prompt")
+
+    model_id = config.get("model_id")
+
+    llm = (
+        get_llm(model_id)
+        if model_id
+        else get_available_llm()
+    )
+
+    response = ""
+
+    async for token in llm.stream(
+        prompt,
+        system_prompt=system_prompt
+    ):
+
+        response += token
+
+        # Optional:
+        # Stream token updates over websocket
+        # manager.send_status(...)
+
+    return {
+        "response": response,
+        "next_node_id": None,
+        "context": context,
+        "metadata": {
+            "runtime": "HIL",
+            "node_type": "ai",
+            "model_used": str(llm)
+        }
+    }
+
+
+# =========================================================
+# HIL KNOWLEDGE NODE
+# =========================================================
+
+async def _execute_hil_knowledge_node(
+    self,
+    node,
+    context: Dict[str, Any]
+) -> Dict[str, Any]:
+
+    """
+    HIL Knowledge Runtime Node
+    Supports:
+    - RAG
+    - OCR
+    - Docling
+    - Semantic Search
+    """
+
+    config = node.config or {}
+
+    query = config.get(
+        "query",
+        context.get("last_user_message")
+    )
+
+    user_id = context.get("user_id")
+
+    from app.services.knowledge_service import (
+        query_with_solution
+    )
+
+    result = await query_with_solution(
+        query=query,
+        user_id=user_id,
+        conversation_history=context.get(
+            "message_history",
+            []
+        )
+    )
+
+    return {
+        "response": result.get("solution", ""),
+        "next_node_id": None,
+        "context": context,
+        "metadata": {
+            "runtime": "HIL",
+            "node_type": "knowledge",
+            "knowledge_results": result.get("results", []),
+            "confidence": result.get("confidence")
+        }
+    }
+
+
+# =========================================================
+# HIL BROWSER AUTOMATION NODE
+# =========================================================
+
+async def _execute_hil_browser_node(
+    self,
+    node,
+    context: Dict[str, Any]
+) -> Dict[str, Any]:
+
+    """
+    HIL Browser Runtime Node
+    Supports:
+    - deterministic automation
+    - AI automation
+    - hybrid automation
+    """
+
+    config = node.config or {}
+
+    session_id = context.get(
+        "session_id",
+        "default"
+    )
+
+    from app.services.automation.browser_service import (
+        browser_service
+    )
+
+    service = browser_service(session_id)
+
+    mode = config.get(
+        "mode",
+        "hybrid"
+    )
+
+    instruction = config.get("instruction")
+
+    await service.execute_workflow(
+        workflow=config.get("workflow", {}),
+        mode=mode,
+        goal=instruction
+    )
+
+    return {
+        "response": (
+            f"HIL browser automation completed "
+            f"in {mode} mode."
+        ),
+        "next_node_id": None,
+        "context": context,
+        "metadata": {
+            "runtime": "HIL",
+            "node_type": "browser",
+            "execution_mode": mode
+        }
+    }
+    async def _execute_hil_approval_node(self, node: AgentNode, context: Dict[str, Any], conversation_id: int) -> Dict[str, Any]:
+        """Handles Human-in-the-loop Approval"""
+        config = node.config or {}
+        message = config.get("message_to_approver", "Approval required")
+        approver_id = config.get("approver_id")
+        
+        # Create a ticket for approval
+        from app.db.models.ticket import Ticket
+        approval_ticket = Ticket(
+            conversation_id=conversation_id,
+            status="awaiting_approval",
+            title=f"Approval Request: {node.name}",
+            description=message,
+            priority="high",
+            assigned_to=str(approver_id) if approver_id else None,
+            customer_info={"type": "approval_request", "node_id": node.id}
+        )
+        self.db.add(approval_ticket)
+        self.db.commit()
+        
+        # Track analytics
+        self._track_analytics_event(
+            agent_id=context.get("agent_id", 0),
+            conversation_id=conversation_id,
+            event_type="approval_requested",
+            event_name="Approval Node Triggered",
+            properties={"ticket_id": approval_ticket.id, "node_id": node.id}
+        )
+        
+        return {
+            "response": "Your request has been sent for manual approval. I'll let you know once it's reviewed.",
+            "next_node_id": None, # Pause execution
+            "context": context,
+            "metadata": {"approval_ticket_id": approval_ticket.id, "status": "pending_approval"}
+        }
+
     async def _execute_start_node(self, node: AgentNode, context: Dict[str, Any]) -> Dict[str, Any]:
         """Execute start node - usually just passes through"""
         config = node.config or {}

@@ -93,57 +93,46 @@ interface ConnectionData {
 // ============================================================================
 
 const NODE_TYPES = [
-  // Basic Flow Nodes
-  { type: "start", label: "Start", icon: "▶", color: "#10b981", category: "basic", description: "Entry point of your agent flow. Marks where execution begins. All flows must start with this node." },
-  { type: "end", label: "End", icon: "⏹️", color: "#ef4444", category: "basic", description: "Termination point of your agent flow. Marks where execution completes. Use this to end a flow path." },
-  { type: "condition", label: "Condition", icon: "⚡", color: "#f59e0b", category: "basic", description: "Evaluates a condition and routes flow based on true/false outcomes. Enables branching logic in your agent." },
-  { type: "loop", label: "Loop", icon: "🔁", color: "#a855f7", category: "basic", description: "Repeats a sequence of nodes until a condition is met. Perfect for processing lists or retrying operations." },
-  { type: "delay", label: "Delay", icon: "⏱️", color: "#64748b", category: "basic", description: "Pauses execution for a specified duration. Useful for rate limiting, waiting, or scheduling delays." },
-  { type: "branch", label: "Branch", icon: "🌿", color: "#f59e0b", category: "basic", description: "Splits the flow into multiple parallel paths. Allows concurrent execution of different branches." },
-  { type: "merge", label: "Merge", icon: "🔀", color: "#06b6d4", category: "basic", description: "Combines multiple flow paths back into a single path. Use after branch nodes to reunite parallel flows." },
-  { type: "variable", label: "Variable", icon: "📦", color: "#84cc16", category: "basic", description: "Sets or modifies variables in the flow context. Use this to store data for later use." },
+  // HIL Mega-Nodes (Consolidated) - Huemn Intelligence Language
+  { type: "hil_io", label: "HIL IO", icon: "📥", color: "#3b82f6", category: "hil", description: "Huemn Intelligence Language I/O: Handles variables, rich media, and customer intake." },
+  { type: "hil_genai", label: "HIL GenAI", icon: "🧠", color: "#8b5cf6", category: "hil", description: "Huemn Intelligence Language AI: Vision, Voice reasoning, and Code generation in one node." },
+  { type: "hil_knowledge", label: "HIL Knowledge", icon: "📚", color: "#10b981", category: "hil", description: "Huemn Intelligence Language Memory: Uses Docling for PDF/Docs and RAG for SOP retrieval." },
+  { type: "hil_automation", label: "HIL Automation", icon: "⚡", color: "#f59e0b", category: "hil", description: "Huemn Intelligence Language Execution: Plugs directly into Browser Studio for Hybrid RPA." },
+  { type: "hil_approval", label: "HIL Approval", icon: "🛡️", color: "#ef4444", category: "hil", description: "Huemn Intelligence Language Governance: Pauses bot for human review in the Interaction Inbox." },
+  
+  // Basic Flow Control
+  { type: "start", label: "Start", icon: "▶", color: "#10b981", category: "basic", description: "Entry point of your agent flow. Marks where execution begins." },
+  { type: "end", label: "End", icon: "⏹️", color: "#ef4444", category: "basic", description: "Termination point of your agent flow. Marks where execution completes." },
+  { type: "condition", label: "Condition", icon: "⚡", color: "#f59e0b", category: "basic", description: "Evaluates a condition and routes flow based on true/false outcomes." },
+  { type: "loop", label: "Loop", icon: "🔁", color: "#a855f7", category: "basic", description: "Repeats a sequence of nodes until a condition is met." },
+  { type: "delay", label: "Delay", icon: "⏱️", color: "#64748b", category: "basic", description: "Pauses execution for a specified duration." },
+  { type: "branch", label: "Branch", icon: "🌿", color: "#f59e0b", category: "basic", description: "Splits the flow into multiple parallel paths." },
+  { type: "merge", label: "Merge", icon: "🔀", color: "#06b6d4", category: "basic", description: "Combines multiple flow paths back into a single path." },
+  { type: "variable", label: "Variable", icon: "📦", color: "#84cc16", category: "basic", description: "Sets or modifies variables in the flow context." },
   
   // AI & ML Nodes
-  { type: "llm", label: "LLM", icon: "🧠", color: "#3b82f6", category: "ai", description: "Large Language Model node for generating text, answering questions, or performing language tasks. Supports OpenAI, Anthropic, and Azure." },
-  { type: "entity", label: "Entity", icon: "🏷️", color: "#8b5cf6", category: "ai", description: "Extracts named entities (people, places, organizations) from text using NLP. Useful for information extraction and data parsing." },
-  { type: "intent", label: "Intent", icon: "💭", color: "#ec4899", category: "ai", description: "Identifies user intent from text input. Determines what the user wants to accomplish. Essential for conversational agents." },
-  { type: "ai_vision", label: "AI Vision", icon: "👁️", color: "#8b5cf6", category: "ai", description: "Analyzes images and visual content. Performs object detection, image classification, OCR, and visual understanding tasks." },
-  { type: "ai_voice", label: "AI Voice", icon: "🎤", color: "#ec4899", category: "ai", description: "Processes audio and voice inputs. Handles speech-to-text, text-to-speech, voice commands, and audio analysis." },
-  { type: "ai_code", label: "AI Code Gen", icon: "💻", color: "#06b6d4", category: "ai", description: "Generates code in various programming languages based on natural language descriptions. Automates software development tasks." },
-  { type: "ai_rag", label: "AI RAG", icon: "🔍", color: "#6366f1", category: "ai", description: "Retrieval-Augmented Generation: Enhances LLM responses by retrieving relevant context from knowledge bases before generating answers." },
-  { type: "ai_embedding", label: "AI Embedding", icon: "📊", color: "#a855f7", category: "ai", description: "Converts text into numerical vectors (embeddings) for semantic search and similarity matching. Enables vector-based operations." },
-  { type: "ai_vector_search", label: "Vector Search", icon: "🔎", color: "#8b5cf6", category: "ai", description: "Searches through vector embeddings to find semantically similar content. Powers recommendation systems and semantic search." },
-  { type: "ai_function", label: "AI Function", icon: "⚙️", color: "#3b82f6", category: "ai", description: "Enables LLMs to call external functions and APIs. Implements function calling capabilities for tool use and integrations." },
-  { type: "ai_memory", label: "AI Memory", icon: "🧩", color: "#14b8a6", category: "ai", description: "Stores and retrieves conversation context and user preferences. Maintains long-term memory across agent interactions." },
-  { type: "ai_decision", label: "AI Decision", icon: "🎯", color: "#f59e0b", category: "ai", description: "Makes intelligent decisions using AI reasoning. Evaluates options and selects the best course of action based on context." },
-  { type: "ai_multi_agent", label: "Multi-Agent", icon: "🤝", color: "#6366f1", category: "ai", description: "Orchestrates multiple AI agents working together. Enables collaborative problem-solving and distributed AI workflows." },
+  { type: "llm", label: "LLM", icon: "🧠", color: "#3b82f6", category: "ai", description: "Large Language Model node for generating text or answering questions." },
+  { type: "entity", label: "Entity", icon: "🏷️", color: "#8b5cf6", category: "ai", description: "Extracts named entities (people, places, organizations) from text." },
+  { type: "intent", label: "Intent", icon: "💭", color: "#ec4899", category: "ai", description: "Identifies user intent from text input." },
+  { type: "ai_vision", label: "AI Vision", icon: "👁️", color: "#8b5cf6", category: "ai", description: "Analyzes images and visual content." },
+  { type: "ai_voice", label: "AI Voice", icon: "🎤", color: "#ec4899", category: "ai", description: "Processes audio and voice inputs." },
+  { type: "ai_code", label: "AI Code Gen", icon: "💻", color: "#06b6d4", category: "ai", description: "Generates code based on natural language descriptions." },
+  { type: "ai_rag", label: "AI RAG", icon: "🔍", color: "#6366f1", category: "ai", description: "Retrieval-Augmented Generation using knowledge bases." },
   
   // Integration Nodes
-  { type: "api", label: "API", icon: "🔌", color: "#f97316", category: "integration", description: "Makes HTTP requests to external APIs. Supports GET, POST, PUT, DELETE methods with authentication and custom headers." },
-  { type: "service", label: "Service", icon: "⚙️", color: "#06b6d4", category: "integration", description: "Connects to external services and microservices. Integrates with third-party platforms and internal service architectures." },
-  { type: "connector", label: "Connector", icon: "🔗", color: "#6366f1", category: "integration", description: "Generic connector for integrating with various platforms. Provides flexible connection options for diverse systems." },
-  { type: "database", label: "Database", icon: "🗄️", color: "#10b981", category: "integration", description: "Connects to databases (SQL, NoSQL) to read, write, and query data. Supports PostgreSQL, MySQL, MongoDB, and more." },
-  { type: "webhook", label: "Webhook", icon: "🪝", color: "#f97316", category: "integration", description: "Receives incoming webhook calls from external services. Triggers agent flows based on external events and notifications." },
-  { type: "agent_delegate", label: "Delegate to Agent", icon: "🤖", color: "#9333ea", category: "integration", description: "Delegates execution to another agent/sub-bot. Routes the conversation to a specialized agent based on the task. Perfect for multi-bot orchestration." },
+  { type: "api", label: "API", icon: "🔌", color: "#f97316", category: "integration", description: "Makes HTTP requests to external APIs." },
+  { type: "service", label: "Service", icon: "⚙️", color: "#06b6d4", category: "integration", description: "Connects to external services and microservices." },
+  { type: "connector", label: "Connector", icon: "🔗", color: "#6366f1", category: "integration", description: "Generic connector for integrating with various platforms." },
+  { type: "webhook", label: "Webhook", icon: "🪝", color: "#f97316", category: "integration", description: "Receives incoming webhook calls from external services." },
   
   // Data Processing Nodes
-  { type: "data_analysis", label: "Data Analysis", icon: "📈", color: "#06b6d4", category: "data", description: "Analyzes data sets to extract insights, patterns, and statistics. Performs data mining, trend analysis, and reporting." },
-  { type: "document_processor", label: "Document AI", icon: "📄", color: "#8b5cf6", category: "data", description: "Processes documents using AI. Extracts text, tables, and structured data from PDFs, images, and various document formats." },
-  { type: "file_processor", label: "File Processor", icon: "📁", color: "#64748b", category: "data", description: "Handles file operations: read, write, transform, and convert files. Supports multiple formats and file manipulations." },
-  { type: "web_scraper", label: "Web Scraper", icon: "🕷️", color: "#f97316", category: "data", description: "Extracts data from websites and web pages. Scrapes content, follows links, and collects information from the internet." },
-  { type: "email_processor", label: "Email AI", icon: "📧", color: "#ec4899", category: "data", description: "Processes emails using AI. Reads, sends, categorizes, and extracts information from email messages automatically." },
+  { type: "document_processor", label: "Document AI", icon: "📄", color: "#8b5cf6", category: "data", description: "Processes documents using AI to extract text and data." },
+  { type: "web_scraper", label: "Web Scraper", icon: "🕷️", color: "#f97316", category: "data", description: "Extracts data from websites and web pages." },
   
   // Communication Nodes
-  { type: "response", label: "Response", icon: "💬", color: "#14b8a6", category: "communication", description: "Sends responses back to users or external systems. Formats and delivers output from your agent flow." },
-  { type: "notification", label: "Notification", icon: "🔔", color: "#f59e0b", category: "communication", description: "Sends notifications via various channels (email, SMS, push, Slack, etc.). Alerts users about events and updates." },
-  { type: "calendar", label: "Calendar AI", icon: "📅", color: "#3b82f6", category: "communication", description: "Manages calendar events, schedules meetings, and handles time-based operations. Integrates with calendar services." },
-  { type: "streaming", label: "Streaming", icon: "📡", color: "#06b6d4", category: "communication", description: "Streams data in real-time. Provides continuous output for live updates, progress tracking, and real-time communication." },
-  { type: "ivr_call", label: "IVR Call", icon: "📞", color: "#10b981", category: "communication", description: "Initiates a phone call to redirect the conversation from chat to voice. Connects users to IVR agents for phone-based interactions." },
-  { type: "premium_voice_tts", label: "Premium Voice TTS", icon: "🗣️", color: "#ec4899", category: "communication", description: "Generates ultra-realistic voice using HuemnVoice. Supports streaming, emotion, and voice cloning." },
-  
-  // Automation Nodes
-  { type: "workflow_automation", label: "Workflow AI", icon: "🤖", color: "#6366f1", category: "automation", description: "Orchestrates complex workflows with AI-driven decision making. Automates multi-step processes and business logic." },
-  { type: "task_scheduler", label: "Task Scheduler", icon: "⏰", color: "#f59e0b", category: "automation", description: "Schedules tasks to run at specific times or intervals. Enables cron-like scheduling and time-based automation." },
+  { type: "response", label: "Response", icon: "💬", color: "#14b8a6", category: "communication", description: "Sends responses back to users or external systems." },
+  { type: "notification", label: "Notification", icon: "🔔", color: "#f59e0b", category: "communication", description: "Sends notifications via various channels (email, SMS, etc.)." },
+  { type: "premium_voice_tts", label: "Premium Voice TTS", icon: "🗣️", color: "#ec4899", category: "communication", description: "Generates ultra-realistic voice using HuemnVoice." },
 ];
 
 const getNodeColor = (nodeType: string) => {
@@ -172,10 +161,13 @@ const CustomNode = ({ data, selected }: { data: any; selected: boolean }) => {
   // Check if we are in "Click-to-Connect" mode (Global state passed via data)
   const isClickConnecting = data?.isClickConnectingSource;
 
+  const isHilNode = data?.nodeType?.startsWith('hil_');
+  const membraneSize = isHilNode ? 'min-w-[180px] min-h-[180px]' : 'min-w-[140px] min-h-[140px]';
+
   return (
     <>
       <div 
-        className={`organic-membrane group flex flex-col items-center justify-center p-4 min-w-[140px] min-h-[140px] transition-all duration-500 ${selected ? 'selected' : ''}`}
+        className={`organic-membrane group flex flex-col items-center justify-center p-4 ${membraneSize} transition-all duration-500 ${selected ? 'selected' : ''}`}
         onMouseEnter={() => setIsHovered(true)}
         onMouseLeave={() => setIsHovered(false)}
         style={{
@@ -191,16 +183,17 @@ const CustomNode = ({ data, selected }: { data: any; selected: boolean }) => {
           animationDirection: 'alternate, normal', // morph alternates, pulse loops normally
           
           boxShadow: isClickConnecting
-            ? `0 0 40px ${nodeConfig.color}, inset 0 0 20px ${nodeConfig.color}40` // Stronger glow in connect mode
+            ? `0 0 60px ${nodeConfig.color}, inset 0 0 30px ${nodeConfig.color}40` // Stronger glow for HIL/Connect mode
             : selected 
-              ? `0 0 50px ${nodeConfig.color}60, inset 0 0 30px ${nodeConfig.color}40`
+              ? `0 0 ${isHilNode ? '80px' : '50px'} ${nodeConfig.color}60, inset 0 0 30px ${nodeConfig.color}40`
               : isHovered 
-                ? `0 0 30px ${nodeConfig.color}40, inset 0 0 20px ${nodeConfig.color}20`
+                ? `0 0 40px ${nodeConfig.color}40, inset 0 0 20px ${nodeConfig.color}20`
                 : undefined,
           cursor: isClickConnecting ? 'crosshair' : 'grab',
-          borderColor: isClickConnecting ? nodeConfig.color : undefined,
-          borderWidth: isClickConnecting ? '2px' : undefined,
-          borderStyle: isClickConnecting ? 'dashed' : undefined,
+          borderColor: isClickConnecting || isHilNode ? nodeConfig.color : undefined,
+          borderWidth: isClickConnecting || isHilNode ? '2px' : undefined,
+          borderStyle: isClickConnecting ? 'dashed' : isHilNode ? 'solid' : undefined,
+          scale: isHilNode ? '1.1' : '1',
         }}
       >
         {/* Click-Connect Mode Indicator */}
@@ -581,27 +574,42 @@ function FlowCanvas({
   useEffect(() => {
     if (!agent?.nodes) return;
 
-      // Convert backend nodes to ReactFlow nodes
-    const flowNodes: Node[] = agent.nodes.map((node: AgentNode) => ({
-      id: node.id.toString(),
-      type: "custom", // Using our enhanced CustomNode
-      position: { x: node.position_x || 0, y: node.position_y || 0 },
-      dragHandle: undefined, // Allow dragging entire node
-      data: {
-        label: node.label || node.name,
-        nodeType: node.node_type,
-        config: node.config || {},
-        backendId: node.id,
-        name: node.name,
-        description: (node as any).description || "",
-        timeout: (node as any).timeout || 30,
-        retry_count: (node as any).retry_count || 0,
-        error_handling: (node as any).error_handling || {},
-        tags: (node as any).tags || [],
-        code: node.config?.generated_code || (node as any).generated_code || "",
-      },
-      draggable: true,
-    }));
+    // Convert backend nodes to ReactFlow nodes
+    const flowNodes: Node[] = agent.nodes.map((node: AgentNode) => {
+      // HIL Migration: Map old node types to new Mega-Nodes for visual consistency
+      let displayType = node.node_type;
+      if (node.node_type === "intent" || node.node_type === "llm" || node.node_type === "ai_vision" || node.node_type === "ai_voice" || node.node_type === "ai_code") {
+        displayType = "hil_genai";
+      } else if (node.node_type === "response" || node.node_type === "collect") {
+        displayType = "hil_io";
+      } else if (node.node_type === "ai_rag" || node.node_type === "document_processor") {
+        displayType = "hil_knowledge";
+      } else if (node.node_type === "workflow_automation" || node.node_type === "web_scraper" || node.node_type === "automation") {
+        displayType = "hil_automation";
+      }
+
+      return {
+        id: node.id.toString(),
+        type: "custom", // Using our enhanced CustomNode
+        position: { x: node.position_x || 0, y: node.position_y || 0 },
+        dragHandle: undefined, // Allow dragging entire node
+        data: {
+          label: node.label || node.name,
+          nodeType: displayType,
+          originalType: node.node_type,
+          config: node.config || {},
+          backendId: node.id,
+          name: node.name,
+          description: (node as any).description || "",
+          timeout: (node as any).timeout || 30,
+          retry_count: (node as any).retry_count || 0,
+          error_handling: (node as any).error_handling || {},
+          tags: (node as any).tags || [],
+          code: node.config?.generated_code || (node as any).generated_code || "",
+        },
+        draggable: true,
+      };
+    });
       
       // Convert backend connections to ReactFlow edges
     const flowEdges: Edge[] = (agent.connections || []).map((conn: ConnectionData) => {
@@ -1387,6 +1395,209 @@ function FlowCanvas({
             }}
           />
         </ReactFlow>
+
+        {/* HIL Mega-Node Configuration Overlay */}
+        {selectedNode && (
+          <div className="absolute top-4 right-4 bottom-4 w-96 bg-[#03060b]/90 backdrop-blur-3xl border border-white/10 rounded-[2.5rem] z-[100] flex flex-col shadow-[-20px_0_80px_rgba(0,0,0,0.9)] animate-in slide-in-from-right-8 fade-in duration-500 overflow-hidden">
+            {/* Header */}
+            <div className="p-6 border-b border-white/5 flex items-center justify-between bg-gradient-to-b from-white/5 to-transparent">
+              <div className="flex items-center gap-4">
+                <div 
+                  className="w-12 h-12 rounded-2xl flex items-center justify-center text-2xl shadow-2xl border border-white/10"
+                  style={{ background: `linear-gradient(135deg, ${getNodeColor(selectedNode.data.nodeType)}60, ${getNodeColor(selectedNode.data.nodeType)}20)` }}
+                >
+                  {NODE_TYPES.find(n => n.type === selectedNode.data.nodeType)?.icon || '⚙️'}
+                </div>
+                <div>
+                  <div className="text-[10px] font-black text-white/30 uppercase tracking-[0.3em] mb-0.5">HIL Mega-Node</div>
+                  <div className="text-lg font-black text-white uppercase tracking-tight leading-none">{selectedNode.data.label || 'Config'}</div>
+                </div>
+              </div>
+              <button onClick={() => setSelectedNode(null)} className="w-10 h-10 flex items-center justify-center hover:bg-white/10 rounded-full text-white/40 hover:text-white transition-all">✕</button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-8 space-y-10 custom-scrollbar">
+              {/* 1. HIL IO Features */}
+              {selectedNode.data.nodeType === "hil_io" && (
+                <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-700">
+                  <div className="p-5 bg-blue-500/10 border border-blue-500/20 rounded-[2rem] relative overflow-hidden group">
+                    <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-100 transition-opacity text-2xl">📥</div>
+                    <div className="text-[10px] font-black text-blue-400 uppercase tracking-[0.3em] mb-5">Huemn Intelligence Language I/O</div>
+                    <div className="space-y-5">
+                      {[
+                        { label: 'Rich Media Support', enabled: true },
+                        { label: 'Variable Mapping', enabled: true },
+                        { label: 'Input Validation', enabled: false }
+                      ].map((feat, i) => (
+                        <div key={i} className="flex items-center justify-between">
+                          <span className="text-xs text-white/70 font-bold uppercase tracking-wider">{feat.label}</span>
+                          <div className={`w-10 h-5 rounded-full flex items-center px-1 shadow-inner cursor-pointer transition-colors ${feat.enabled ? 'bg-blue-500' : 'bg-white/10'}`}>
+                            <div className={`w-3 h-3 bg-white rounded-full shadow-lg transform transition-transform ${feat.enabled ? 'translate-x-5' : 'translate-x-0'}`}></div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="space-y-4">
+                    <label className="text-[10px] font-black text-white/20 uppercase tracking-[0.3em] px-2">Default Bot Response</label>
+                    <textarea 
+                      className="w-full bg-black/40 border border-white/10 rounded-2xl p-5 text-sm text-white focus:border-blue-500/50 outline-none h-40 resize-none transition-all shadow-inner leading-relaxed"
+                      placeholder="What should the bot say? Use {{variable}} for dynamic data..."
+                      value={selectedNode.data.config?.message || ""}
+                      onChange={(e) => updateNodeConfiguration(selectedNode.id, { config: { ...selectedNode.data.config, message: e.target.value } })}
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* 2. HIL GenAI Features */}
+              {selectedNode.data.nodeType === "hil_genai" && (
+                <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-700">
+                  <div className="p-5 bg-purple-500/10 border border-purple-500/20 rounded-[2rem] relative overflow-hidden group">
+                    <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-100 transition-opacity text-2xl">🧠</div>
+                    <div className="text-[10px] font-black text-purple-400 uppercase tracking-[0.3em] mb-5">HIL Multimodal Intelligence</div>
+                    <div className="grid grid-cols-2 gap-3">
+                      {['Vision', 'Voice', 'Code', 'Reasoning'].map(mode => (
+                        <button key={mode} className={`py-3 rounded-xl text-[10px] font-black uppercase tracking-[0.2em] transition-all border ${mode === 'Reasoning' ? 'bg-purple-600 text-white border-purple-400 shadow-2xl shadow-purple-600/40' : 'bg-white/5 border-white/10 text-white/40 hover:bg-white/10'}`}>
+                          {mode}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="space-y-4">
+                    <label className="text-[10px] font-black text-white/20 uppercase tracking-[0.3em] px-2">System Instruction (Prompt)</label>
+                    <textarea 
+                      className="w-full bg-black/40 border border-white/10 rounded-2xl p-5 text-sm text-white focus:border-purple-500/50 outline-none h-56 resize-none transition-all shadow-inner font-mono leading-relaxed"
+                      placeholder="Describe the AI's persona, constraints, and operational goals..."
+                      value={selectedNode.data.config?.prompt || ""}
+                      onChange={(e) => updateNodeConfiguration(selectedNode.id, { config: { ...selectedNode.data.config, prompt: e.target.value } })}
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* 3. HIL Knowledge Features */}
+              {selectedNode.data.nodeType === "hil_knowledge" && (
+                <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-700">
+                  <div className="p-6 bg-emerald-500/10 border border-emerald-500/20 rounded-[2rem] relative overflow-hidden group">
+                    <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-100 transition-opacity text-2xl">📚</div>
+                    <div className="text-[10px] font-black text-emerald-400 uppercase tracking-[0.3em] mb-6">HIL Neural Memory & RAG</div>
+                    <div className="space-y-4">
+                      <button className="w-full py-4 bg-emerald-600 text-white rounded-2xl text-[10px] font-black uppercase tracking-[0.2em] shadow-2xl shadow-emerald-600/30 hover:bg-emerald-500 transition-all transform active:scale-95">
+                        Link Knowledge Base
+                      </button>
+                      <div className="flex items-center gap-4 p-4 bg-black/30 rounded-[1.5rem] border border-white/5 group-hover:border-emerald-500/30 transition-colors">
+                        <div className="w-10 h-10 bg-emerald-500/20 rounded-xl flex items-center justify-center text-emerald-400 shadow-inner">📄</div>
+                        <div className="flex-1">
+                          <div className="text-xs text-white font-black uppercase tracking-wider">Docling Parser</div>
+                          <div className="text-[9px] text-white/40 uppercase tracking-widest mt-0.5">High Fidelity PDF Engine</div>
+                        </div>
+                        <div className="w-2.5 h-2.5 bg-emerald-500 rounded-full animate-pulse shadow-[0_0_10px_#10b981]"></div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* 4. HIL Automation Features */}
+              {selectedNode.data.nodeType === "hil_automation" && (
+                <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-700">
+                  <div className="p-6 bg-amber-500/10 border border-amber-500/20 rounded-[2rem] relative overflow-hidden group">
+                    <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-100 transition-opacity text-2xl">⚡</div>
+                    <div className="text-[10px] font-black text-amber-400 uppercase tracking-[0.3em] mb-6">HIL Hybrid RPA Orchestrator</div>
+                    <div className="space-y-8">
+                      <div className="space-y-4">
+                        <div className="flex justify-between text-[10px] font-black text-white/40 uppercase tracking-[0.2em] px-1">
+                          <span>AI Vision Threshold</span>
+                          <span className="text-amber-400 font-mono">{Math.round((selectedNode.data.config?.ai_threshold || 0.7) * 100)}%</span>
+                        </div>
+                        <input 
+                          type="range" 
+                          className="w-full h-1.5 bg-white/10 rounded-full appearance-none accent-amber-500 cursor-pointer shadow-inner" 
+                          min="0" max="1" step="0.05" 
+                          value={selectedNode.data.config?.ai_threshold || 0.7} 
+                          onChange={(e) => updateNodeConfiguration(selectedNode.id, { config: { ...selectedNode.data.config, ai_threshold: parseFloat(e.target.value) } })} 
+                        />
+                        <div className="flex justify-between text-[8px] text-white/20 uppercase tracking-tighter px-1">
+                          <span>Autonomous</span>
+                          <span>Strictly Deterministic</span>
+                        </div>
+                      </div>
+                      <div className="space-y-4 pt-6 border-t border-white/5">
+                        <label className="text-[10px] font-black text-white/40 uppercase tracking-[0.2em] px-1">Hardware Profile (vCPU/RAM)</label>
+                        <div className="grid grid-cols-1 gap-3">
+                          {[
+                            { label: 'Basic Profile', specs: '2 vCPU • 4GB RAM', price: '$0.25/GB', active: true },
+                            { label: 'Standard Profile', specs: '4 vCPU • 8GB RAM', price: '$0.25/GB', active: false },
+                            { label: 'Ultra Profile', specs: '8 vCPU • 16GB RAM', price: '$0.25/GB', active: false }
+                          ].map((p, i) => (
+                            <button key={i} className={`w-full p-4 text-left rounded-2xl border transition-all ${p.active ? 'bg-amber-600 border-amber-400 text-white shadow-xl shadow-amber-600/30' : 'bg-white/5 border-white/10 text-white/40 hover:bg-white/10'}`}>
+                              <div className="text-[10px] font-black uppercase tracking-widest">{p.label}</div>
+                              <div className="flex justify-between items-center mt-1">
+                                <span className="text-[9px] opacity-60 font-mono">{p.specs}</span>
+                                <span className="text-[9px] font-black">{p.price}</span>
+                              </div>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* 5. HIL Approval Features */}
+              {selectedNode.data.nodeType === "hil_approval" && (
+                <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-700">
+                  <div className="p-6 bg-red-500/10 border border-red-500/20 rounded-[2rem] relative overflow-hidden group">
+                    <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-100 transition-opacity text-2xl">🛡️</div>
+                    <div className="text-[10px] font-black text-red-400 uppercase tracking-[0.3em] mb-4">HIL Human-in-the-Loop</div>
+                    <p className="text-[10px] text-white/50 leading-relaxed font-bold uppercase tracking-wider">
+                      This node triggers an escalation. The bot will pause execution and notify a human supervisor in the Interaction Center.
+                    </p>
+                  </div>
+                  <div className="space-y-4">
+                    <label className="text-[10px] font-black text-white/20 uppercase tracking-[0.3em] px-2">Escalation Memo</label>
+                    <textarea 
+                      className="w-full bg-black/40 border border-white/10 rounded-2xl p-5 text-sm text-white focus:border-red-500/50 outline-none h-40 resize-none transition-all shadow-inner leading-relaxed"
+                      placeholder="Explain to the supervisor why their intervention is required..."
+                      value={selectedNode.data.config?.instructions || ""}
+                      onChange={(e) => updateNodeConfiguration(selectedNode.id, { config: { ...selectedNode.data.config, instructions: e.target.value } })}
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* Node Global Label Settings */}
+              <div className="space-y-4 pt-10 border-t border-white/10">
+                <label className="text-[10px] font-black text-white/10 uppercase tracking-[0.5em] px-2">Global Identifier</label>
+                <input 
+                  type="text" 
+                  className="w-full bg-white/5 border border-white/10 rounded-2xl px-6 py-4 text-sm text-white font-black uppercase focus:border-white/30 outline-none transition-all shadow-xl"
+                  value={selectedNode.data.label || ""}
+                  onChange={(e) => updateNodeConfiguration(selectedNode.id, { label: e.target.value })}
+                />
+              </div>
+            </div>
+
+            {/* Footer Actions */}
+            <div className="p-8 border-t border-white/5 bg-gradient-to-t from-white/5 to-transparent flex gap-4">
+              <button
+                onClick={() => handleDeleteNode(selectedNode.id)}
+                className="w-14 h-14 flex items-center justify-center bg-red-600/10 hover:bg-red-600 border border-red-500/20 rounded-2xl text-red-500 hover:text-white transition-all transform active:scale-90 shadow-2xl"
+                title="Delete Node"
+              >
+                🗑️
+              </button>
+              <button
+                onClick={() => setSelectedNode(null)}
+                className="flex-1 bg-white text-black rounded-2xl text-xs font-black uppercase tracking-[0.2em] hover:bg-neutral-200 transition-all shadow-2xl transform active:scale-[0.98]"
+              >
+                Sync & Deploy
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Edge/Connection Properties Panel */}
@@ -7333,116 +7544,114 @@ export default function AgentBuilderPage() {
 
                   <div className="text-xs text-white/50 mb-3 px-2 font-semibold uppercase tracking-wider">All Node Types</div>
                   <div className="space-y-3">
-                    {["basic", "ai", "integration", "data", "communication", "automation"].map((category) => {
-                      const categoryNodes = NODE_TYPES.filter((n) => {
+                    {["hil", "basic", "ai", "integration", "data", "communication", "automation"].map((category) => {
+                      const categoryNodes = NODE_TYPES.filter((n: any) => {
                         const matchesCategory = n.category === category;
+                        const isNotHidden = !n.hidden;
                         const matchesSearch = !searchQuery || 
                                               n.label.toLowerCase().includes(searchQuery.toLowerCase()) || 
                                               n.description?.toLowerCase().includes(searchQuery.toLowerCase()) ||
                                               n.type.toLowerCase().includes(searchQuery.toLowerCase());
-                        return matchesCategory && matchesSearch;
+                        return matchesCategory && isNotHidden && matchesSearch;
                       });
                       if (categoryNodes.length === 0) return null;
                       
+                      const isExpanded = expandedSections[`cat_${category}`] !== false;
+                      
                       return (
-                        <div key={category} className="bg-[#0a0f1a]/50 border border-white/5 rounded-lg p-2">
-                          <h4 className="text-xs font-semibold text-white/70 mb-2 uppercase tracking-wider flex items-center gap-2 px-1">
-                            {category === "basic" && "⚡ Flow Control"}
-                            {category === "ai" && "🤖 AI & Machine Learning"}
-                            {category === "integration" && "🔌 Integrations"}
-                            {category === "data" && "📊 Data Processing"}
-                            {category === "communication" && "💬 Communication"}
-                            {category === "automation" && "⚡ Automation"}
-                          </h4>
-                          <div className="space-y-1">
-                            {categoryNodes.map((nodeType) => (
-                              <button
-                                key={nodeType.type}
-                                draggable={true}
-                                onDragStart={(e) => {
-                                  // Critical: Stop all propagation to prevent parent handlers from blocking
-                                  e.stopPropagation();
-                                  (e.nativeEvent as any).stopImmediatePropagation?.();
+                        <div key={category} className="bg-[#0a0f1a]/50 border border-white/5 rounded-xl overflow-hidden transition-all duration-300">
+                          <button 
+                            onClick={() => setExpandedSections(prev => ({ ...prev, [`cat_${category}`]: !isExpanded }))}
+                            className="w-full flex items-center justify-between px-3 py-3 hover:bg-white/5 transition-colors group"
+                          >
+                            <h4 className="text-[10px] font-black text-white/70 uppercase tracking-[0.2em] flex items-center gap-2">
+                              {category === "hil" && <span className="text-blue-400">💎 HIL Mega-Nodes</span>}
+                              {category === "basic" && <span className="text-emerald-400">⚡ Flow Control</span>}
+                              {category === "ai" && <span className="text-purple-400">🤖 AI & Machine Learning</span>}
+                              {category === "integration" && <span className="text-orange-400">🔌 Integrations</span>}
+                              {category === "data" && <span className="text-cyan-400">📊 Data Processing</span>}
+                              {category === "communication" && <span className="text-pink-400">💬 Communication</span>}
+                              {category === "automation" && <span className="text-amber-400">⚡ Automation</span>}
+                            </h4>
+                            <span className={`text-[10px] text-white/20 group-hover:text-white/40 transition-transform duration-300 ${isExpanded ? 'rotate-180' : ''}`}>▼</span>
+                          </button>
+                          
+                          {isExpanded && (
+                            <div className="p-2 space-y-1 bg-black/20 border-t border-white/5 animate-in fade-in slide-in-from-top-1 duration-200">
+                              {categoryNodes.map((nodeType) => (
+                                <button
+                                  key={nodeType.type}
+                                  draggable={true}
+                                  onDragStart={(e) => {
+                                    // Critical: Stop all propagation to prevent parent handlers from blocking
+                                    e.stopPropagation();
+                                    (e.nativeEvent as any).stopImmediatePropagation?.();
+                                    
+                                    // Set data in multiple formats for compatibility
+                                    if (e.dataTransfer) {
+                                      e.dataTransfer.setData("application/reactflow", nodeType.type);
+                                      e.dataTransfer.setData("text/plain", nodeType.type);
+                                      e.dataTransfer.setData("text", nodeType.type);
+                                      e.dataTransfer.effectAllowed = "move";
+                                    }
+                                    
+                                    console.log("✅ Drag started for node:", nodeType.type);
+                                  }}
+                                  onDragEnd={(e) => {
+                                    e.stopPropagation();
+                                    console.log("✅ Drag ended for node:", nodeType.type);
+                                  }}
+                                  onMouseDown={(e) => {
+                                    // Ensure drag can start - don't prevent default
+                                    e.stopPropagation();
+                                  }}
+                                  title={nodeType.description || ""}
+                                  className="w-full px-3 py-2.5 rounded-lg text-left transition-all duration-300 hover:scale-[1.02] active:scale-95 group relative cursor-grab active:cursor-grabbing node-draggable-button overflow-hidden backdrop-blur-md"
+                                  style={{
+                                    background: `linear-gradient(135deg, ${nodeType.color}15 0%, rgba(0,0,0,0.4) 100%)`,
+                                    border: `1px solid ${nodeType.color}30`,
+                                    boxShadow: `0 0 0 1px transparent`,
+                                    color: "#fff",
+                                    userSelect: 'none',
+                                    WebkitUserSelect: 'none',
+                                    touchAction: 'none',
+                                    pointerEvents: 'auto',
+                                    cursor: 'grab',
+                                  }}
+                                  onMouseEnter={(e) => {
+                                    e.currentTarget.style.borderColor = `${nodeType.color}80`;
+                                    e.currentTarget.style.boxShadow = `0 0 15px ${nodeType.color}20, inset 0 0 10px ${nodeType.color}10`;
+                                    e.currentTarget.style.background = `linear-gradient(135deg, ${nodeType.color}25 0%, rgba(0,0,0,0.6) 100%)`;
+                                  }}
+                                  onMouseLeave={(e) => {
+                                    e.currentTarget.style.borderColor = `${nodeType.color}30`;
+                                    e.currentTarget.style.boxShadow = `0 0 0 1px transparent`;
+                                    e.currentTarget.style.background = `linear-gradient(135deg, ${nodeType.color}15 0%, rgba(0,0,0,0.4) 100%)`;
+                                  }}
+                                >
+                                  {/* Tech overlay pattern */}
+                                  <div className="absolute inset-0 opacity-10 pointer-events-none" 
+                                    style={{ backgroundImage: `radial-gradient(circle at 2px 2px, ${nodeType.color} 1px, transparent 0)`, backgroundSize: '8px 8px' }} 
+                                  />
                                   
-                                  // Set data in multiple formats for compatibility
-                                  if (e.dataTransfer) {
-                                    e.dataTransfer.setData("application/reactflow", nodeType.type);
-                                    e.dataTransfer.setData("text/plain", nodeType.type);
-                                    e.dataTransfer.setData("text", nodeType.type);
-                                    e.dataTransfer.effectAllowed = "move";
-                                  }
-                                  
-                                  console.log("✅ Drag started for node:", nodeType.type);
-                                }}
-                                onDragEnd={(e) => {
-                                  e.stopPropagation();
-                                  console.log("✅ Drag ended for node:", nodeType.type);
-                                }}
-                                onMouseDown={(e) => {
-                                  // Ensure drag can start - don't prevent default
-                                  e.stopPropagation();
-                                }}
-                                title={nodeType.description || ""}
-                                className="w-full px-3 py-2.5 rounded-lg text-left transition-all duration-300 hover:scale-[1.02] active:scale-95 group relative cursor-grab active:cursor-grabbing node-draggable-button overflow-hidden backdrop-blur-md"
-                                style={{
-                                  background: `linear-gradient(135deg, ${nodeType.color}15 0%, rgba(0,0,0,0.4) 100%)`,
-                                  border: `1px solid ${nodeType.color}30`,
-                                  boxShadow: `0 0 0 1px transparent`,
-                                  color: "#fff",
-                                  userSelect: 'none',
-                                  WebkitUserSelect: 'none',
-                                  touchAction: 'none',
-                                  pointerEvents: 'auto',
-                                  cursor: 'grab',
-                                }}
-                                onMouseEnter={(e) => {
-                                  e.currentTarget.style.borderColor = `${nodeType.color}80`;
-                                  e.currentTarget.style.boxShadow = `0 0 15px ${nodeType.color}20, inset 0 0 10px ${nodeType.color}10`;
-                                  e.currentTarget.style.background = `linear-gradient(135deg, ${nodeType.color}25 0%, rgba(0,0,0,0.6) 100%)`;
-                                }}
-                                onMouseLeave={(e) => {
-                                  e.currentTarget.style.borderColor = `${nodeType.color}30`;
-                                  e.currentTarget.style.boxShadow = `0 0 0 1px transparent`;
-                                  e.currentTarget.style.background = `linear-gradient(135deg, ${nodeType.color}15 0%, rgba(0,0,0,0.4) 100%)`;
-                                }}
-                              >
-                                {/* Tech overlay pattern */}
-                                <div className="absolute inset-0 opacity-10 pointer-events-none" 
-                                  style={{ backgroundImage: `radial-gradient(circle at 2px 2px, ${nodeType.color} 1px, transparent 0)`, backgroundSize: '8px 8px' }} 
-                                />
-                                
-                                <div className="flex items-center gap-3 relative z-10">
-                                  <div 
-                                    className="w-8 h-8 rounded flex items-center justify-center text-lg shadow-lg border border-white/10"
-                                    style={{ 
-                                      background: `linear-gradient(135deg, ${nodeType.color}40, ${nodeType.color}10)`,
-                                      textShadow: `0 0 10px ${nodeType.color}`
-                                    }}
-                                  >
-                                    {nodeType.icon}
-                                  </div>
-                                  <span className="text-xs font-semibold tracking-wide flex-1 text-white/90 group-hover:text-white transition-colors uppercase">
-                                    {nodeType.label}
-                                  </span>
-                                  {nodeType.description && (
-                                    <span className="text-[10px] text-white/30 group-hover:text-white/60 transition-colors opacity-0 group-hover:opacity-100 transform translate-x-2 group-hover:translate-x-0 duration-300">
-                                      INFO
+                                  <div className="flex items-center gap-3 relative z-10">
+                                    <div 
+                                      className="w-8 h-8 rounded flex items-center justify-center text-lg shadow-lg border border-white/10"
+                                      style={{ 
+                                        background: `linear-gradient(135deg, ${nodeType.color}40, ${nodeType.color}10)`,
+                                        textShadow: `0 0 10px ${nodeType.color}`
+                                      }}
+                                    >
+                                      {nodeType.icon}
+                                    </div>
+                                    <span className="text-xs font-semibold tracking-wide flex-1 text-white/90 group-hover:text-white transition-colors uppercase">
+                                      {nodeType.label}
                                     </span>
-                                  )}
-                                </div>
-                                
-                                {/* Active corner accent */}
-                                <div 
-                                  className="absolute top-0 right-0 w-2 h-2 border-t border-r transition-all duration-300 opacity-0 group-hover:opacity-100"
-                                  style={{ borderColor: nodeType.color }}
-                                />
-                                <div 
-                                  className="absolute bottom-0 left-0 w-2 h-2 border-b border-l transition-all duration-300 opacity-0 group-hover:opacity-100"
-                                  style={{ borderColor: nodeType.color }}
-                                />
-                              </button>
-                            ))}
-                          </div>
+                                  </div>
+                                </button>
+                              ))}
+                            </div>
+                          )}
                         </div>
                       );
                     })}
@@ -7718,9 +7927,9 @@ export default function AgentBuilderPage() {
                     </div>
 
           {/* Right Content Area */}
-          <div className="flex-1 min-h-0 overflow-hidden">
+          <div className="flex-1 min-h-0 overflow-hidden flex relative">
             {activeTab === "dialogs" && (
-              <div className="h-full">
+              <div className="flex-1 h-full flex">
                 <ReactFlowProvider>
                   <FlowCanvas
                     agentId={agentId}

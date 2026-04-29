@@ -18,6 +18,7 @@ import {
   Headphones,
   Ticket,
   BookOpen,
+  Monitor,
   ArrowLeftCircle
 } from "lucide-react";
 import TicketConsole from "@/components/TicketConsole";
@@ -29,6 +30,8 @@ import { addAgentConversationMessage, getAgentConversation, getConnectorConfigs,
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import StatusWidget from "@/components/StatusWidget";
@@ -75,13 +78,16 @@ export default function AgentConsolePage({ onSwitchToCustomerView }: { onSwitchT
   const [voiceError, setVoiceError] = useState<string | null>(null);
   const [isMuted, setIsMuted] = useState(false);
   const [callDuration, setCallDuration] = useState(0);
-  const [activeTab, setActiveTab] = useState<"voice" | "tickets" | "knowledge">("voice");
+  const [activeTab, setActiveTab] = useState<"voice" | "tickets" | "knowledge" | "cobrowse">("voice");
   const [transcript, setTranscript] = useState<Array<{role: string, text: string, timestamp: number}>>([]);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [sessionInput, setSessionInput] = useState("");
   const [chatMessages, setChatMessages] = useState<Array<{role: string, text: string, timestamp: number}>>([]);
   const [chatInput, setChatInput] = useState("");
   const [voiceMasking, setVoiceMasking] = useState(false);
+  const [isRemoteControlEnabled, setIsRemoteControlEnabled] = useState(false);
+  const [coBrowseActive, setCoBrowseActive] = useState(false);
+  const [coBrowseScreen, setCoBrowseScreen] = useState<string | null>(null);
   const [ivrCallSid, setIvrCallSid] = useState<string | null>(null);
   const [ivrVoiceId, setIvrVoiceId] = useState<string | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
@@ -93,6 +99,33 @@ export default function AgentConsolePage({ onSwitchToCustomerView }: { onSwitchT
   const [connectorConfigs, setConnectorConfigs] = useState<any[]>([]);
   const [connectorLoading, setConnectorLoading] = useState(false);
   const audioContextRef = useRef<AudioContext | null>(null);
+  const castWsRef = useRef<WebSocket | null>(null);
+
+  // Connect to Cast socket for Co-browse
+  useEffect(() => {
+    if (!sessionId || !token || activeTab !== "cobrowse") return;
+
+    const wsUrl = `${process.env.NEXT_PUBLIC_API_URL?.replace("http", "ws")}/ws/execution/${sessionId}/cast`;
+    const ws = new WebSocket(wsUrl);
+    castWsRef.current = ws;
+
+    ws.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        if (data.type === "frame") {
+          setCoBrowseScreen(data.data);
+          setCoBrowseActive(true);
+        }
+      } catch (e) {
+        console.error("Cast socket error:", e);
+      }
+    };
+
+    return () => {
+      ws.close();
+      castWsRef.current = null;
+    };
+  }, [sessionId, token, activeTab]);
 
   // Handle status errors
   useEffect(() => {
@@ -594,6 +627,14 @@ export default function AgentConsolePage({ onSwitchToCustomerView }: { onSwitchT
               <BookOpen className={`h-4 w-4 ${activeTab === "knowledge" ? "text-pink-400" : ""}`} />
               Knowledge Base
            </Button>
+           <Button 
+              variant="ghost"
+              onClick={() => setActiveTab("cobrowse")}
+              className={`gap-2 transition-all duration-300 ${activeTab === "cobrowse" ? "bg-blue-500/20 text-blue-300 shadow-[0_0_15px_rgba(59,130,246,0.3)] border border-blue-500/30" : "text-white/60 hover:text-white hover:bg-white/10"}`}
+           >
+              <Monitor className={`h-4 w-4 ${activeTab === "cobrowse" ? "text-blue-400" : ""}`} />
+              Co-browse
+           </Button>
          </div>
          
         <div className="flex items-center gap-2">
@@ -979,9 +1020,85 @@ export default function AgentConsolePage({ onSwitchToCustomerView }: { onSwitchT
         <div className="flex-1 overflow-hidden p-4">
             <TicketConsole />
         </div>
-      ) : (
+      ) : activeTab === "knowledge" ? (
         <div className="flex-1 overflow-hidden p-4">
             <EnhancedKnowledgeAI embedded={true} />
+        </div>
+      ) : (
+        <div className="flex-1 overflow-hidden p-6 flex flex-col gap-6">
+            <div className="flex justify-between items-center">
+                <div>
+                    <h2 className="text-2xl font-bold text-white mb-1">Co-browse & Remote Control</h2>
+                    <p className="text-white/60">Interact with the customer's screen in real-time.</p>
+                </div>
+                <div className="flex items-center gap-4 bg-white/5 p-4 rounded-xl border border-white/10">
+                    <div className="flex items-center gap-2">
+                        <Label className="text-white/80">Remote Control</Label>
+                        <Switch 
+                            checked={isRemoteControlEnabled} 
+                            onCheckedChange={setIsRemoteControlEnabled}
+                        />
+                    </div>
+                    <Separator orientation="vertical" className="h-8 bg-white/10" />
+                    <Button className="bg-blue-600 hover:bg-blue-700">Request Permission</Button>
+                </div>
+            </div>
+
+            <div className="flex-1 grid grid-cols-1 lg:grid-cols-4 gap-6 min-h-0">
+                <Card className="lg:col-span-3 bg-[#0f1419]/60 border-white/10 overflow-hidden relative group">
+                    {coBrowseScreen ? (
+                        <div className="w-full h-full relative">
+                            <img 
+                                src={coBrowseScreen} 
+                                alt="Customer Screen" 
+                                className="w-full h-full object-contain"
+                            />
+                            {isRemoteControlEnabled && (
+                                <div className="absolute top-4 right-4 bg-red-600/80 px-3 py-1 rounded-full text-xs font-bold animate-pulse">
+                                    REMOTE CONTROL ACTIVE
+                                </div>
+                            )}
+                        </div>
+                    ) : (
+                        <div className="w-full h-full flex flex-col items-center justify-center text-white/20">
+                            <Monitor className="w-24 h-24 mb-6 opacity-20" />
+                            <p className="text-xl font-light">Awaiting customer connection...</p>
+                            <p className="text-sm mt-2 max-w-xs text-center opacity-50">
+                                Once the customer grants permission, their screen will be cast here using the secure Cast protocol.
+                            </p>
+                        </div>
+                    )}
+                </Card>
+
+                <div className="space-y-6">
+                    <Card className="bg-white/5 border-white/10">
+                        <CardHeader>
+                            <CardTitle className="text-sm text-white/60 uppercase tracking-wider">Active Session</CardTitle>
+                        </CardHeader>
+                        <CardContent className="space-y-4">
+                            <div className="p-3 rounded-lg bg-black/40 border border-white/5">
+                                <p className="text-xs text-white/40 mb-1">Session ID</p>
+                                <p className="text-sm font-mono text-white">{sessionId || "None"}</p>
+                            </div>
+                            <div className="p-3 rounded-lg bg-black/40 border border-white/5">
+                                <p className="text-xs text-white/40 mb-1">Status</p>
+                                <Badge variant="outline" className="text-yellow-400 border-yellow-500/30">DISCONNECTED</Badge>
+                            </div>
+                        </CardContent>
+                    </Card>
+
+                    <Card className="bg-white/5 border-white/10">
+                        <CardHeader>
+                            <CardTitle className="text-sm text-white/60 uppercase tracking-wider">Interaction Logs</CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                            <ScrollArea className="h-48 text-xs font-mono text-white/40">
+                                <p>[{new Date().toLocaleTimeString()}] System: Waiting for connection...</p>
+                            </ScrollArea>
+                        </CardContent>
+                    </Card>
+                </div>
+            </div>
         </div>
       )}
     </div>

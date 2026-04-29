@@ -48,7 +48,15 @@ const nextConfig = {
         ]
       }
     ];
-  }
+  },
+  async rewrites() {
+    return [
+      {
+        source: '/api-proxy/:path*',
+        destination: 'http://localhost:8001/:path*',
+      },
+    ];
+  },
 };
 
 module.exports = nextConfig;

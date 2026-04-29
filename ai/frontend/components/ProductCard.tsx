@@ -20,7 +20,7 @@ export default function ProductCard({
   const { isAuthenticated, subscriptionStatus, token, subscribedTools } = useAuthStore();
   const ref = useRef<HTMLDivElement | null>(null);
   const [toolTokens, setToolTokens] = useState<{tokens_remaining: number, tokens_total: number} | null>(null);
-  const API_BASE = process.env.NEXT_PUBLIC_API_URL;
+  const API_BASE = process.env.NEXT_PUBLIC_API_URL || process.env.NEXT_PUBLIC_API_BASE || 'http://localhost:8001';
 
   // Get tool name from slug
   const getToolName = () => {
@@ -139,6 +139,48 @@ export default function ProductCard({
     // CRM goes to dedicated page
     if (toolSlug === "crm") {
       router.push("/crm");
+      return;
+    }
+
+    // HR Services goes to dedicated page
+    if (toolSlug === "hr-services") {
+      router.push("/hr");
+      return;
+    }
+
+    // Knowledge AI goes to dedicated page
+    if (toolSlug === "knowledge-ai") {
+      router.push("/knowledge");
+      return;
+    }
+
+    // Voice Studio goes to dedicated page
+    if (toolSlug === "voice") {
+      router.push("/voice");
+      return;
+    }
+
+    // Browser Studio goes to agents/automation page
+    if (toolSlug === "browser-studio") {
+      router.push("/agents");
+      return;
+    }
+
+    // Engagement Suite goes to voice/outreach page
+    if (toolSlug === "engagement-suite") {
+      router.push("/voice");
+      return;
+    }
+
+    // Interaction Center goes to customer-service/agent-console
+    if (toolSlug === "interaction-center") {
+      router.push("/customer-service/agent-console");
+      return;
+    }
+
+    // Analytics Dashboard goes to dedicated page
+    if (toolSlug === "analytics-dashboard") {
+      router.push("/chat/analytics-dashboard");
       return;
     }
     
