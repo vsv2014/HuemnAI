@@ -5,6 +5,7 @@ SHA-256 form is accepted only to authenticate and opportunistically migrate
 existing accounts. Migrations must not reset users' passwords or lock them out.
 """
 import base64
+import binascii
 import hashlib
 import hmac
 import secrets
@@ -42,7 +43,7 @@ def verify_password(password: str, stored_hash: str) -> bool:
                 return False
             salt = base64.b64decode(parts[2], validate=True)
             expected = base64.b64decode(parts[3], validate=True)
-        except (ValueError, TypeError):
+        except (ValueError, TypeError, binascii.Error):
             return False
         if len(salt) < 16 or len(expected) != 32:
             return False
