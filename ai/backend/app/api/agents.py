@@ -638,13 +638,11 @@ async def delete_agent(
 async def create_node(
     node_data: NodeCreate, 
     request: Request,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db), current_user: UserAccount = Depends(get_current_user)
 ):
     """Create a new node"""
     # Verify agent exists
-    agent = db.query(Agent).filter(Agent.id == node_data.agent_id).first()
-    if not agent:
-        raise HTTPException(status_code=404, detail="Agent not found")
+    agent = _get_owned_agent(db, node_data.agent_id, current_user)
     
     node = AgentNode(
         agent_id=node_data.agent_id,
@@ -692,12 +690,13 @@ async def update_node(
     node_id: int, 
     node_data: NodeUpdate, 
     request: Request,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db), current_user: UserAccount = Depends(get_current_user)
 ):
     """Update a node"""
     node = db.query(AgentNode).filter(AgentNode.id == node_id).first()
     if not node:
         raise HTTPException(status_code=404, detail="Node not found")
+    _get_owned_agent(db, node.agent_id, current_user)
     
     update_data = node_data.dict(exclude_unset=True)
     for key, value in update_data.items():
@@ -729,12 +728,13 @@ async def update_node(
 async def delete_node(
     node_id: int, 
     request: Request,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db), current_user: UserAccount = Depends(get_current_user)
 ):
     """Delete a node"""
     node = db.query(AgentNode).filter(AgentNode.id == node_id).first()
     if not node:
         raise HTTPException(status_code=404, detail="Node not found")
+    _get_owned_agent(db, node.agent_id, current_user)
     
     agent_id = node.agent_id
     node_name = node.name
@@ -760,13 +760,11 @@ async def delete_node(
 async def create_connection(
     conn_data: ConnectionCreate, 
     request: Request,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db), current_user: UserAccount = Depends(get_current_user)
 ):
     """Create a connection between nodes"""
     # Verify agent exists
-    agent = db.query(Agent).filter(Agent.id == conn_data.agent_id).first()
-    if not agent:
-        raise HTTPException(status_code=404, detail="Agent not found")
+    agent = _get_owned_agent(db, conn_data.agent_id, current_user)
     
     # Verify nodes exist and belong to the agent
     source_node = db.query(AgentNode).filter(
@@ -819,12 +817,13 @@ async def update_connection(
     connection_id: int, 
     conn_data: ConnectionUpdate, 
     request: Request,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db), current_user: UserAccount = Depends(get_current_user)
 ):
     """Update a connection"""
     connection = db.query(AgentConnection).filter(AgentConnection.id == connection_id).first()
     if not connection:
         raise HTTPException(status_code=404, detail="Connection not found")
+    _get_owned_agent(db, connection.agent_id, current_user)
     
     update_data = conn_data.dict(exclude_unset=True)
     for key, value in update_data.items():
@@ -856,12 +855,13 @@ async def update_connection(
 async def delete_connection(
     connection_id: int, 
     request: Request,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db), current_user: UserAccount = Depends(get_current_user)
 ):
     """Delete a connection"""
     connection = db.query(AgentConnection).filter(AgentConnection.id == connection_id).first()
     if not connection:
         raise HTTPException(status_code=404, detail="Connection not found")
+    _get_owned_agent(db, connection.agent_id, current_user)
     
     agent_id = connection.agent_id
     
@@ -884,12 +884,10 @@ async def delete_connection(
 @router.post("/generate-flow", response_model=Dict[str, Any])
 async def generate_flow(
     request: GenerateFlowRequest,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db), current_user: UserAccount = Depends(get_current_user)
 ):
     """Generate agent flow from prompt"""
-    agent = db.query(Agent).filter(Agent.id == request.agent_id).first()
-    if not agent:
-        raise HTTPException(status_code=404, detail="Agent not found")
+    agent = _get_owned_agent(db, request.agent_id, current_user)
         
     generator = FlowGenerator(db)
     result = await generator.generate_from_prompt(agent, request.prompt)
