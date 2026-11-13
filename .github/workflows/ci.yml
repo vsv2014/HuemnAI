@@ -24,6 +24,8 @@ jobs:
       - name: Static checks
         run: |
           python -m py_compile $(git ls-files '*.py')
+      - name: Embedding regression tests
+        run: python -m unittest discover -s tests -p 'test_embedding_similarity.py'
       - name: Build Docker image
         run: |
           docker build -t huemn-backend:ci .
