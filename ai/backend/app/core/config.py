@@ -26,6 +26,12 @@ class Settings:
 
     # Security
     SECRET_KEY = os.getenv("SECRET_KEY", "fixed-dev-secret-key-do-not-use-in-prod-123")
+    if IS_PROD and (
+        not os.getenv("SECRET_KEY")
+        or SECRET_KEY == "fixed-dev-secret-key-do-not-use-in-prod-123"
+        or len(SECRET_KEY) < 32
+    ):
+        raise RuntimeError("Production requires an explicit, strong SECRET_KEY (at least 32 characters)")
 
     # LLM - Supports multiple providers
     LLM_MODE: Literal["llm", "rules", "hybrid"] = os.getenv("LLM_MODE", "hybrid")
@@ -76,7 +82,7 @@ class Settings:
     ENABLED_CHANNELS = ["web", "mobile", "whatsapp", "slack", "teams", "email", "api"]
     
     # Subscription & Development
-    BYPASS_SUBSCRIPTION = os.getenv("BYPASS_SUBSCRIPTION", "1") == "1"  # Set to "0" to enable subscription checks
+    BYPASS_SUBSCRIPTION = os.getenv("BYPASS_SUBSCRIPTION", "0" if IS_PROD else "1") == "1"  # Never bypass by default in prod
     RAZORPAY_KEY_ID = os.getenv("RAZORPAY_KEY_ID")
     RAZORPAY_KEY_SECRET = os.getenv("RAZORPAY_KEY_SECRET")
 
