@@ -308,12 +308,13 @@ def query_crawled_knowledge(query: str, user_id: int, limit: int = 5) -> List[Di
                             logger.warning(f"Error calculating similarity: {e}")
                             continue
             
-                # Sort by score (highest first)
-                scored_content.sort(key=lambda x: x[0], reverse=True)
-            
-            # Return top results
+                # Only tenant-authorized, embedding-compatible chunks enter
+                # hybrid ranking; the RRF score is relative, not a probability.
+                from app.services.hybrid_retrieval import rank_hybrid
+                ranked_content = rank_hybrid(query, scored_content, limit=limit)
+
             results = []
-            for score, content in scored_content[:limit]:
+            for fusion_score, content, dense_score, lexical_score in ranked_content:
                 results.append({
                     "id": f"KB-{content.id}",
                     "title": content.title or "Untitled",
@@ -321,10 +322,13 @@ def query_crawled_knowledge(query: str, user_id: int, limit: int = 5) -> List[Di
                     "url": content.url,
                     "source_name": content.source.name,
                     "source_type": content.source.source_type.value,
-                    "relevance_score": round(score, 3),
+                    "relevance_score": round(dense_score, 3),
+                    "hybrid_rank_score": fusion_score,
+                    "bm25_score": lexical_score,
+                    "ranking_strategy": "bm25_dense_rrf_v1",
                     "metadata": content.content_metadata or {}
                 })
-            
+
             return results
         finally:
             db.close()
