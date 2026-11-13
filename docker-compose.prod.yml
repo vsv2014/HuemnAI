@@ -36,10 +36,14 @@ services:
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       REDIS_URL: redis://redis:6379/0
       ENV: production
+      SECRET_KEY: ${SECRET_KEY:?Set a strong, random SECRET_KEY of at least 32 characters}
+      BYPASS_SUBSCRIPTION: "0"
       # Google OAuth Prod
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID}
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET}
       FRONTEND_URL: https://huemn.ai
+    volumes:
+      - private_knowledge_data:/app/private_uploads
     depends_on:
       postgres:
         condition: service_healthy
@@ -76,3 +80,4 @@ services:
 volumes:
   pgdata:
   redis_data:
+  private_knowledge_data:
