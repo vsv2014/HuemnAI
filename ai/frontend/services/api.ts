@@ -740,15 +740,27 @@ export async function getTrace(id: string | number, token: string) {
 
 export async function getVersions(agentId: string | number, token: string) {
   if (!token) return { error: "No authentication token" };
-  // Stub implementation
   return safeFetch(`${API_BASE}/api/agents/${agentId}/versions`, {
     headers: { "Authorization": `Bearer ${token}` }
   });
 }
 
+export async function createVersion(
+  agentId: string | number,
+  versionNumber: string,
+  notes: string,
+  token: string,
+) {
+  if (!token) return { error: "No authentication token" };
+  const params = new URLSearchParams({ version_number: versionNumber.trim(), notes: notes.trim() });
+  return safeFetch(`${API_BASE}/api/agents/${agentId}/versions?${params.toString()}`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+}
+
 export async function publishVersion(agentId: string | number, versionId: string | number, token: string) {
   if (!token) return { error: "No authentication token" };
-  // Stub implementation
   return safeFetch(`${API_BASE}/api/agents/${agentId}/versions/${versionId}/publish`, {
     method: "POST",
     headers: { "Authorization": `Bearer ${token}` }
