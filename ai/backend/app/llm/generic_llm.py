@@ -9,6 +9,10 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+class LLMProviderError(RuntimeError):
+    """A provider failed, misconfigured, or returned an incompatible stream."""
+
+
 class GenericLLM(BaseLLM):
     """
     Generic LLM class for OpenAI-compatible APIs (Groq, Together, Ollama, etc.)
@@ -30,11 +34,10 @@ class GenericLLM(BaseLLM):
         
         if not config or not config.get("is_database"):
             logger.warning(f"{self.provider} config not found in database.")
-            yield f"⚠️ {self.provider} is not configured. Please add configuration in Settings."
-            return
+            raise LLMProviderError(f"{self.provider} is not configured in Settings")
 
         api_key = config.get("api_key")
-        config_data = config.get("config_data", {})
+        config_data = config.get("config_data") or {}
         
         # Determine endpoint and model
         endpoint = config.get("endpoint")
@@ -54,9 +57,11 @@ class GenericLLM(BaseLLM):
 
         target_model = model or config_data.get("model")
         
+        if self.provider != "ollama" and not api_key:
+            raise LLMProviderError(f"{self.provider} API key is missing")
+
         if not endpoint or not target_model:
-            yield f"⚠️ {self.provider} configuration is incomplete (missing endpoint or model)."
-            return
+            raise LLMProviderError(f"{self.provider} configuration is incomplete")
 
         # Prepare payload
         if not messages:
@@ -83,10 +88,9 @@ class GenericLLM(BaseLLM):
             async with httpx.AsyncClient(timeout=60.0) as client:
                 async with client.stream("POST", endpoint, json=payload, headers=headers) as response:
                     if response.status_code != 200:
-                        error_text = await response.aread()
-                        logger.error(f"{self.provider} API error: {response.status_code} - {error_text.decode()}")
-                        yield f"⚠️ {self.provider} API Error: {response.status_code}"
-                        return
+                        # Never log provider response bodies: they can contain private prompts.
+                        logger.warning("LLM provider %s returned HTTP %d", self.provider, response.status_code)
+                        raise LLMProviderError(f"{self.provider} API returned HTTP {response.status_code}")
                         
                     async for line in response.aiter_lines():
                         if line.startswith("data: "):
@@ -99,6 +103,8 @@ class GenericLLM(BaseLLM):
                                     yield data["choices"][0]["delta"]["content"]
                             except json.JSONDecodeError:
                                 continue
-        except Exception as e:
-            logger.error(f"Error in {self.provider} stream: {str(e)}")
-            yield f"⚠️ Connection Error: {str(e)}"
+        except LLMProviderError:
+            raise
+        except (httpx.HTTPError, asyncio.TimeoutError) as exc:
+            logger.warning("LLM streaming failed for %s (%s)", self.provider, type(exc).__name__)
+            raise LLMProviderError(f"Unable to stream from {self.provider}") from exc
