@@ -24,6 +24,8 @@ from app.services.status_service import start_token_consumer
 from app.db.session import ping_database
 from app.core.redis import redis_client
 from app.core.config import settings
+from app.core.request_scope import tenant_scope
+import jwt
 from app.core.provider_scope import bind_provider_user, reset_provider_user
 from app.core.logging import get_logger
 import os
@@ -92,6 +94,29 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+@app.middleware("http")
+async def bind_signed_tenant_identity(request: Request, call_next):
+    """Never select another user's API keys for an HTTP request.
+
+    JWTs are verified before extracting the tenant. The route dependency is
+    still responsible for verifying the active account and authorization.
+    """
+    user_id = None
+    authorization = request.headers.get("authorization", "")
+    if authorization.lower().startswith("bearer "):
+        token = authorization[7:].strip()
+        try:
+            payload = jwt.decode(token, settings.SECRET_KEY, algorithms=["HS256"])
+            if payload.get("type") != "password_reset":
+                claimed_id = payload.get("user_id")
+                if type(claimed_id) is int and claimed_id > 0:
+                    user_id = claimed_id
+        except jwt.InvalidTokenError:
+            pass
+    with tenant_scope(user_id):
+        return await call_next(request)
+
 
 @app.middleware("http")
 async def log_requests(request: Request, call_next):
