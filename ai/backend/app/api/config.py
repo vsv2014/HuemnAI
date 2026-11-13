@@ -26,13 +26,10 @@ PROVIDER_DEFINITIONS = {
             "name": "OpenAI",
             "fields": {
                 "api_key": {"type": "password", "required": True, "label": "API Key"},
-                "model": {"type": "select", "required": True, "label": "Model", 
-                         "options": ["gpt-4o", "gpt-4o-mini", "gpt-3.5-turbo", "gpt-4.1", "gpt-4.1-mini"],
-                         "default": "gpt-4o"},
-                "fallback_models": {"type": "text", "required": False, "label": "Fallback Models (comma-separated)",
-                                   "default": "gpt-4o-mini, gpt-3.5-turbo"},
+                "model": {"type": "text", "required": True, "label": "Model ID (verify with provider)"},
+                "fallback_models": {"type": "text", "required": False, "label": "Optional fallback model IDs", "default": ""},
                 "embedding_model": {"type": "select", "required": False, "label": "Embedding Model",
-                                   "options": ["text-embedding-3-small", "text-embedding-3-large", "text-embedding-ada-002"],
+                                   "options": ["text-embedding-3-small", "text-embedding-3-large"],
                                    "default": "text-embedding-3-small"}
             }
         },
@@ -44,43 +41,35 @@ PROVIDER_DEFINITIONS = {
                 "api_version": {"type": "text", "required": False, "label": "API Version",
                               "default": "2024-02-15-preview"},
                 "deployment_name": {"type": "text", "required": True, "label": "Deployment Name",
-                                   "default": "gpt-4"}
+                                   "default": ""}
             }
         },
         "anthropic": {
             "name": "Anthropic Claude",
             "fields": {
                 "api_key": {"type": "password", "required": True, "label": "API Key"},
-                "model": {"type": "select", "required": True, "label": "Model",
-                         "options": ["claude-3-5-sonnet-20240620", "claude-3-opus-20240229", "claude-3-sonnet-20240229", "claude-3-haiku-20240307"],
-                         "default": "claude-3-5-sonnet-20240620"}
+                "model": {"type": "text", "required": True, "label": "Model ID (verify with provider)"}
             }
         },
         "google": {
             "name": "Google Gemini",
             "fields": {
                 "api_key": {"type": "password", "required": True, "label": "API Key"},
-                "model": {"type": "select", "required": True, "label": "Model",
-                         "options": ["gemini-1.5-pro", "gemini-1.5-flash", "gemini-1.0-pro"],
-                         "default": "gemini-1.5-pro"}
+                "model": {"type": "text", "required": True, "label": "Model ID (verify with provider)"}
             }
         },
         "mistral": {
             "name": "Mistral AI",
             "fields": {
                 "api_key": {"type": "password", "required": True, "label": "API Key"},
-                "model": {"type": "select", "required": True, "label": "Model",
-                         "options": ["mistral-large-latest", "mistral-small-latest", "codestral-latest"],
-                         "default": "mistral-large-latest"}
+                "model": {"type": "text", "required": True, "label": "Model ID (verify with provider)"}
             }
         },
         "cohere": {
             "name": "Cohere",
             "fields": {
                 "api_key": {"type": "password", "required": True, "label": "API Key"},
-                "model": {"type": "select", "required": True, "label": "Model",
-                         "options": ["command-r-plus", "command-r", "command"],
-                         "default": "command-r-plus"}
+                "model": {"type": "text", "required": True, "label": "Model ID (verify with provider)"}
             }
         },
         "bedrock": {
@@ -89,40 +78,28 @@ PROVIDER_DEFINITIONS = {
                 "access_key_id": {"type": "text", "required": True, "label": "Access Key ID"},
                 "secret_access_key": {"type": "password", "required": True, "label": "Secret Access Key"},
                 "region": {"type": "text", "required": True, "label": "Region", "default": "us-east-1"},
-                "model_id": {"type": "text", "required": True, "label": "Model ID", "default": "anthropic.claude-3-sonnet-20240229-v1:0"}
+                "model_id": {"type": "text", "required": True, "label": "Model ID", "default": ""}
             }
         },
         "groq": {
             "name": "Groq",
             "fields": {
                 "api_key": {"type": "password", "required": True, "label": "API Key"},
-                "model": {"type": "select", "required": True, "label": "Model",
-                         "options": [
-                             "llama3-70b-8192", "llama3-8b-8192", "llama-3.1-70b-versatile", "llama-3.1-8b-instant",
-                             "mixtral-8x7b-32768", "gemma-7b-it", "gemma2-9b-it"
-                         ],
-                         "default": "llama3-70b-8192"}
+                "model": {"type": "text", "required": True, "label": "Model ID (verify with provider)"}
             }
         },
         "together": {
             "name": "Together AI",
             "fields": {
                 "api_key": {"type": "password", "required": True, "label": "API Key"},
-                "model": {"type": "select", "required": True, "label": "Model",
-                         "options": [
-                             "meta-llama/Llama-3-70b-chat-hf", "meta-llama/Llama-3-8b-chat-hf",
-                             "codellama/CodeLlama-34b-Instruct-hf", "mistralai/Mistral-7B-Instruct-v0.2",
-                             "mistralai/Mixtral-8x7B-Instruct-v0.1", "microsoft/Phi-3-mini-4k-instruct",
-                             "google/gemma-7b-it", "Qwen/Qwen2-72B-Instruct", "deepseek-ai/deepseek-coder-33b-instruct"
-                         ],
-                         "default": "meta-llama/Llama-3-70b-chat-hf"}
+                "model": {"type": "text", "required": True, "label": "Model ID (verify with provider)"}
             }
         },
         "ollama": {
             "name": "Ollama (Local)",
             "fields": {
                 "endpoint": {"type": "text", "required": True, "label": "Ollama URL", "default": "http://localhost:11434"},
-                "model": {"type": "text", "required": True, "label": "Model Name", "default": "llama3"}
+                "model": {"type": "text", "required": True, "label": "Model Name", "default": ""}
             }
         }
     },
@@ -641,57 +618,43 @@ async def test_config(
     db: Session = Depends(get_db),
     current_user: UserAccount = Depends(get_current_user),
 ):
-    """Test API configuration for the current user by making a test API call"""
+    """Verify a real provider lookup. Never return success for a stubbed test.
+
+    A successful model lookup verifies API access and model visibility, NOT
+    streaming, tool calling, generation quality or cost characteristics.
+    """
+    import asyncio
     config = db.query(APIConfig).filter(
         APIConfig.id == config_id,
         APIConfig.user_id == str(current_user.id),
     ).first()
     if not config:
         raise HTTPException(status_code=404, detail="Configuration not found")
-    
+    if config.provider_type != "llm" or config.provider != "openai":
+        return {
+            "success": False,
+            "verified": False,
+            "status": "not_implemented",
+            "message": "Live verification for this provider is not implemented yet.",
+        }
+    model = str((config.config_data or {}).get("model") or "").strip()
+    secret = config.get_api_key()
+    if not model or not secret:
+        return {
+            "success": False, "verified": False, "status": "incomplete",
+            "message": "Save a valid model ID and provider credential first.",
+        }
     try:
-        if config.provider_type == "llm":
-            if config.provider == "openai":
-                from openai import OpenAI
-                client = OpenAI(api_key=config.get_api_key())
-                # Normalize deprecated model names to current equivalents
-                def normalize_model_name(name: str) -> str:
-                    if not name:
-                        return name
-                    n = name.strip().lower()
-                    mapping = {
-                        "gpt-4-turbo": "gpt-4o",
-                        "gpt-4": "gpt-4o",
-                        "chatgpt-4": "gpt-4o",
-                        "gpt4": "gpt-4o",
-                        "gpt-35-turbo": "gpt-3.5-turbo",
-                    }
-                    return mapping.get(n, name)
-                # Test with a simple completion
-                response = client.chat.completions.create(
-                    model=normalize_model_name(config.config_data.get("model", "gpt-3.5-turbo")),
-                    messages=[{"role": "user", "content": "test"}],
-                    max_tokens=5
-                )
-                return {"success": True, "message": "OpenAI connection successful"}
-            elif config.provider == "azure":
-                from openai import AzureOpenAI
-                client = AzureOpenAI(
-                    api_key=config.get_api_key(),
-                    api_version=config.config_data.get("api_version", "2024-02-15-preview"),
-                    azure_endpoint=config.config_data.get("endpoint")
-                )
-                response = client.chat.completions.create(
-                    model=config.config_data.get("deployment_name", "gpt-35-turbo"),
-                    messages=[{"role": "user", "content": "test"}],
-                    max_tokens=5
-                )
-                return {"success": True, "message": "Azure OpenAI connection successful"}
-        elif config.provider_type in ["connector", "vector_db", "speech", "search", "storage"]:
-            # Placeholder for other provider types
-            return {"success": True, "message": f"Configuration saved for {config.provider}. Connection test not yet implemented."}
-        
-        return {"success": False, "message": f"Unknown provider type: {config.provider_type}"}
-    except Exception as e:
-        logger.error(f"Error testing config {config_id}: {e}", exc_info=True)
-        return {"success": False, "message": f"Connection test failed: {str(e)}"}
+        from openai import OpenAI
+        client = OpenAI(api_key=secret, timeout=12.0, max_retries=0)
+        await asyncio.wait_for(asyncio.to_thread(client.models.retrieve, model), timeout=15.0)
+        return {
+            "success": True, "verified": True, "status": "model_visible",
+            "message": "Model is visible to the configured account. Inference is not yet verified.",
+        }
+    except Exception as exc:
+        logger.warning("Model credential check failed for config %s (%s)", config_id, type(exc).__name__)
+        return {
+            "success": False, "verified": False, "status": "provider_check_failed",
+            "message": "Model lookup failed. Verify credentials, model ID and account permissions.",
+        }
