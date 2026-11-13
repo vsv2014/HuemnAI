@@ -35,7 +35,7 @@ class AgentSnapshotTests(unittest.TestCase):
             condition={}, priority=1, label="loop",
         )
         db.query.return_value.filter.return_value.order_by.return_value.all.side_effect = [
-            [node], [edge]
+            [node], [edge], []
         ]
         agent = SimpleNamespace(
             id=5, name="Demo", description="Test",
@@ -55,7 +55,7 @@ class AgentSnapshotTests(unittest.TestCase):
     def test_invalid_graph_fails_before_snapshot(self):
         db = MagicMock()
         db.query.return_value.filter.return_value.order_by.return_value.all.side_effect = [
-            [], []
+            [], [], []
         ]
         agent = SimpleNamespace(id=5, entry_node_id=None)
         with self.assertRaises(ValueError):
