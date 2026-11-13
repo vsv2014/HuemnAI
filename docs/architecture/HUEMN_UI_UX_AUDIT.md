@@ -73,3 +73,19 @@ Avoid red/green as the only error signal. Use icon, heading and explanatory text
 **Lower severity:** Branding/animation polish, low-priority transitions and decorative icon consistency.
 
 This is a first engineering/UI pass, **not a claim that all screens are visually perfect or production-ready**.
+
+## Follow-up audit: all page inventory and additional functional fixes
+
+The latest repository tree contains **78 Next.js page route files**. The previous table is a representative source review, **not** a claim of screenshot coverage for all 78 pages.
+
+The new `ai/frontend/scripts/audit-ui.mjs` script can enumerate every route and produce `ai/frontend/reports/UI_AUDIT.md` with source-size, color-token and breakpoint heuristics. The report is posted to GitHub Actions job summaries; its flags are review prompts, not visual contrast measurements.
+
+New observed issues and source changes on this consolidated branch:
+
+- **Agent editor** (`app/agents/[id]/page.tsx`): approximately **414 KB** TSX page, source scan encountered over 100 distinct palette expressions and relatively few responsive breakpoints. Component extraction and mobile screenshots remain mandatory.
+- **Orchestrator builder** (`app/agent-builder/page.tsx`): prominent `Save System` button had **no click handler**, while the header claimed `Turbo Mode Active` without a substantiated measurement. These misleading controls were removed or relabeled; header wrapping and shell sizing were improved, not yet browser-tested.
+- **Legacy agent test** (`app/agents/[id]/test/page.tsx`): `Simulate Voice Input` was just a delayed preset text send and could read stale state. It was replaced with a clearly labeled, manually sent **sample greeting**.
+- **Agent runtime**: exceptions could send Python traceback strings to clients and silently return a fallback as a successful answer. The error contract now provides an explicit failure indicator and omits raw server tracebacks.
+- **Trace viewer**: the backend accessed a nonexistent `AgentConversation.status` field, failing requests with events. It now derives session state from persisted `is_active`/`ended_at`.
+
+**Still outstanding:** actual browser QA, WCAG AA contrast calculations, decomposition of the 414 KB graph editor, real voice input on test pages, model/provider integration tests, and full agent workflow restart/approval verification.
