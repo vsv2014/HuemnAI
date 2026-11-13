@@ -4,7 +4,9 @@ import time
 import hashlib
 import logging
 from app.services.connectors import jira, zendesk, salesforce
-from app.services.embeddings_service import get_embedding, cosine_similarity
+from app.services.embeddings_service import (
+    get_embedding, get_embedding_with_profile, embeddings_compatible, cosine_similarity
+)
 from app.services.llm_service import explain
 from app.services.docling_service import docling_service
 
@@ -277,7 +279,7 @@ def query_crawled_knowledge(query: str, user_id: int, limit: int = 5) -> List[Di
                 return []
             
             # Get query embedding
-            query_embedding = get_embedding(query)
+            query_embedding, query_profile = get_embedding_with_profile(query)
             
             # Get all content chunks from user's sources
             all_content = []
@@ -291,6 +293,10 @@ def query_crawled_knowledge(query: str, user_id: int, limit: int = 5) -> List[Di
             scored_content = []
             for content in all_content:
                 if content.embedding:
+                    stored_profile = (content.content_metadata or {}).get("embedding_profile")
+                    # Existing unversioned/fallback vectors require a controlled reindex.
+                    if not embeddings_compatible(stored_profile, query_profile):
+                        continue
                     try:
                         # Calculate similarity
                         similarity = cosine_similarity(query_embedding, content.embedding)
@@ -321,11 +327,11 @@ def query_crawled_knowledge(query: str, user_id: int, limit: int = 5) -> List[Di
         finally:
             db.close()
     except Exception as e:
-        logger.error(f"Error querying crawled knowledge: {e}", exc_info=True)
-        return []
+        logger.error("Knowledge retrieval failed", exc_info=True)
+        raise
 
 
-async def query_with_solution(query: str, limit: int = 3, conversation_history: Optional[List[Dict]] = None, user_id: Optional[int] = None) -> Dict:
+async def query_with_solution(query: str, limit: int = 3, conversation_history: Optional[List[Dict]] = None, user_id: Optional[int] = None, allow_web_fallback: bool = False) -> Dict:
     """
     Query tickets and generate a comprehensive solution using LLM.
     Analyzes full ticket content and provides relevant solutions.
@@ -345,23 +351,29 @@ async def query_with_solution(query: str, limit: int = 3, conversation_history: 
         }
     
     # Get relevant tickets
-    tickets = query_tickets(query, limit=limit, include_solutions=True)
+    # This process-local index is not tenant scoped. It is disabled by default.
+    tickets = (
+        query_tickets(query, limit=limit, include_solutions=True)
+        if os.getenv("HUEMN_ENABLE_SHARED_TICKET_INDEX", "0") == "1"
+        else []
+    )
     
     # Get relevant crawled knowledge content if user_id is provided
     crawled_content = []
     if user_id:
         try:
             crawled_content = query_crawled_knowledge(query, user_id, limit=limit)
-        except Exception as e:
-            logger.warning(f"Error querying crawled knowledge: {e}")
+        except Exception:
+            logger.error("Tenant knowledge retrieval failed", exc_info=True)
+            raise
     
     # Combine tickets and crawled content
     all_results = tickets + crawled_content
     
     # If no local results found, try web search
-    if not all_results:
+    if not all_results and allow_web_fallback:
         try:
-            logger.info(f"No local results found for '{query}'. Attempting web search...")
+            logger.info("Explicit external search fallback requested")
             web_service = WebSearchService()
             web_results = web_service.search(query)
             
