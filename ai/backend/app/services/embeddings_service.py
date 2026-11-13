@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Dict, Any, Tuple
 import os
 
 try:
@@ -20,6 +20,12 @@ class EmbeddingProviderError(EmbeddingError):
 
 
 def get_embedding(text: str) -> List[float]:
+    """Compatibility wrapper for call sites that only need the vector."""
+    vector, _profile = get_embedding_with_profile(text)
+    return vector
+
+
+def get_embedding_with_profile(text: str) -> Tuple[List[float], Dict[str, Any]]:
     """Generate a real model embedding, or fail explicitly.
 
     Query and document embeddings must originate from compatible embedding-model
@@ -55,7 +61,26 @@ def get_embedding(text: str) -> List[float]:
 
     if not vector or any(not math.isfinite(value) for value in vector):
         raise EmbeddingProviderError("Embedding provider returned an invalid vector")
-    return vector
+    return vector, {
+        "provider": "openai",
+        "model": str(getattr(response, "model", None) or model),
+        "dimensions": len(vector),
+    }
+
+
+def embeddings_compatible(stored: Any, query: Any) -> bool:
+    """Unknown, synthetic, or version-mismatched embedding spaces must not mix."""
+    if not isinstance(stored, dict) or not isinstance(query, dict):
+        return False
+    return (
+        stored.get("provider") == query.get("provider") == "openai"
+        and isinstance(stored.get("model"), str)
+        and stored.get("model") == query.get("model")
+        and isinstance(stored.get("dimensions"), int)
+        and not isinstance(stored.get("dimensions"), bool)
+        and stored["dimensions"] > 0
+        and stored["dimensions"] == query.get("dimensions")
+    )
 
 
 def cosine_similarity(a: List[float], b: List[float]) -> float:
