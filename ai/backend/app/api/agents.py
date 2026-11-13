@@ -1040,25 +1040,26 @@ async def process_message(
                         "timestamp": datetime.utcnow().isoformat()
                     }]
                     
-            except Exception as e:
-                logger.error(f"Error executing agent: {str(e)}", exc_info=True)
-                import traceback
-                error_traceback = traceback.format_exc()
-                response_text = agent.fallback_message or "I encountered an error. Please try again."
+            except Exception:
+                # Keep the full traceback server-side only. Client-facing traces
+                # and UI messages must never disclose internal paths or secrets.
+                logger.exception("Agent graph execution failed for agent_id=%s", agent.id)
+                response_text = agent.fallback_message or "The agent could not complete this request."
                 debug_trace = [{
                     "step": 1,
                     "node_id": None,
                     "node_type": "ERROR",
                     "node_name": "Execution Error",
                     "status": "error",
-                    "message": f"Error executing agent: {str(e)}",
-                    "error": str(e),
-                    "error_traceback": error_traceback,
+                    "message": "Agent execution failed. Please retry or contact support.",
                     "timestamp": datetime.utcnow().isoformat()
                 }]
-                result = {"node_id": None, "context": conversation.context, "metadata": {"error": True}}
-                logger.error(f"Error traceback: {error_traceback}")
-    
+                result = {
+                    "node_id": None,
+                    "context": conversation.context,
+                    "metadata": {"error": True, "error_code": "agent_execution_failed"}
+                }
+
     # Update conversation with result
     conversation.current_node_id = result.get("node_id") if isinstance(result, dict) else None
     conversation.context = result.get("context", conversation.context) if isinstance(result, dict) else conversation.context
@@ -1097,7 +1098,8 @@ async def process_message(
         "context": conversation.context or {},
         "node_id": result.get("node_id") if 'result' in locals() else None,
         "metadata": result.get("metadata") if 'result' in locals() else None,
-        "debug_trace": debug_trace  # Always include, even if empty list
+        "debug_trace": debug_trace,  # Always include a list
+        "error": "Agent execution failed. Please retry." if (result.get("metadata") or {}).get("error") else None
     }
     
     # CRITICAL: Double-check debug_trace is in the dict
