@@ -323,17 +323,13 @@ async def execute(req: ExecuteRequest):
         return result
 
 
-@router.post("/run-code", response_model=CodeResponse, dependencies=[Depends(require_agent_builder_access)])
+@router.post("/run-code", response_model=CodeResponse, dependencies=[Depends(get_current_user)])
 async def run_code(req: CodeRequest):
-    try:
-        job = run_orchestrator_code.delay(req.session_id, req.code)
-        return {"status": "queued", "job_id": job.id}
-    except Exception:
-        runner = SandboxRunner(req.session_id)
-        result = await runner.run_python(req.code)
-        MemoryStore.audit("run_code", {"session_id": req.session_id, "result": result})
-        return {"status": result.get("status", "done"), "returncode": result.get("returncode")}
-
+    """Refuse generated Python until a genuine isolated execution service exists."""
+    raise HTTPException(
+        status_code=503,
+        detail="Python code execution is disabled until an isolated sandbox is configured.",
+    )
 
 @router.get("/jobs/{job_id}", response_model=JobStatusResponse, dependencies=[Depends(require_agent_builder_access)])
 async def get_job_status(job_id: str):
