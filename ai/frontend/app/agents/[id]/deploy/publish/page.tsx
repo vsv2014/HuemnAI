@@ -1,136 +1,183 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import AgentLayout from "@/components/AgentLayout";
 import ErrorBoundary from "@/components/ErrorBoundary";
+import { useAuthStore } from "@/store/authStore";
+import { createVersion, getVersions, publishVersion } from "@/services/api";
+
+type Release = {
+  id: number;
+  version_number: string;
+  is_published: boolean;
+  published_at?: string | null;
+  notes?: string | null;
+};
+
+function extractError(result: any, fallback: string): string | null {
+  if (result?.error) return String(result.error);
+  if (result?.detail) return typeof result.detail === "string" ? result.detail : fallback;
+  return null;
+}
 
 export default function PublishPage() {
   const params = useParams();
-  const agentId = parseInt(params?.id as string);
-  const [lastPublished, setLastPublished] = useState("12/03/2025");
-  const [selectedComponents, setSelectedComponents] = useState({
-    flows: { selected: true, count: 1, total: 1 },
-    automationTasks: {
-      selected: true,
-      dialogTasks: { selected: true, count: 14, total: 14 },
-      digitalForms: { selected: true, count: 1, total: 1 },
-      faqs: { selected: true, count: 1, total: 1 },
-      smallTalk: { selected: true, count: 1, total: 1 },
-    },
-  });
+  const agentId = Number(params?.id);
+  const token = useAuthStore((state) => state.token);
+  const [versions, setVersions] = useState<Release[]>([]);
+  const [versionNumber, setVersionNumber] = useState("");
+  const [notes, setNotes] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [publishingId, setPublishingId] = useState<number | null>(null);
+  const [confirmId, setConfirmId] = useState<number | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
 
-  const toggleComponent = useCallback((path: string[]) => {
-    setSelectedComponents((prev) => {
-      const newState = { ...prev };
-      let current: any = newState;
-      for (let i = 0; i < path.length - 1; i++) {
-        current = current[path[i]];
-      }
-      current[path[path.length - 1]].selected = !current[path[path.length - 1]].selected;
-      return newState;
-    });
-  }, []);
+  const refresh = useCallback(async () => {
+    if (!token || !Number.isInteger(agentId) || agentId <= 0) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const data = await getVersions(agentId, token);
+      if (!Array.isArray(data)) throw new Error(extractError(data, "Unable to load versions") || "Invalid version response");
+      setVersions(data);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Unable to load versions");
+    } finally {
+      setLoading(false);
+    }
+  }, [agentId, token]);
 
-  const handlePublish = useCallback(async () => {
-    // Implement publish logic
-    alert("Publishing agent...");
-  }, []);
+  useEffect(() => { void refresh(); }, [refresh]);
 
+  const create = async () => {
+    if (!token || saving || !versionNumber.trim()) return;
+    setSaving(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const result = await createVersion(agentId, versionNumber.trim(), notes, token);
+      const failure = extractError(result, "Unable to create snapshot");
+      if (failure) throw new Error(failure);
+      setNotice("Validated release snapshot created. Review it below before publishing.");
+      setVersionNumber("");
+      setNotes("");
+      await refresh();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Unable to create snapshot");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const publish = async (version: Release) => {
+    if (!token || publishingId !== null || confirmId !== version.id) {
+      setConfirmId(version.id);
+      return;
+    }
+    setPublishingId(version.id);
+    setError(null);
+    setNotice(null);
+    try {
+      const result = await publishVersion(agentId, version.id, token);
+      const failure = extractError(result, "Unable to publish version");
+      if (failure) throw new Error(failure);
+      setNotice("Version marked published in management metadata. Runtime deployment and rollback are not yet version-pinned.");
+      await refresh();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Unable to publish version");
+    } finally {
+      setPublishingId(null);
+      setConfirmId(null);
+    }
+  };
+
+  const active = versions.find((version) => version.is_published);
   return (
     <ErrorBoundary>
       <AgentLayout>
-        <div className="p-8">
-          <div className="mb-8">
-            <h1 className="text-4xl font-bold bg-gradient-to-r from-white to-white/70 bg-clip-text text-transparent mb-3">
-              Publish
-            </h1>
-            <p className="text-white/60 mb-2">Last Published On : {lastPublished}</p>
-            <p className="text-white/60 text-lg">
-              Publish the App to make the latest version of the edits are available for end users
-            </p>
-          </div>
+        <main className="huemn-workspace min-h-full px-4 py-6 sm:px-8">
+          <div className="mx-auto max-w-4xl space-y-6">
+            <header>
+              <p className="mb-2 text-xs font-semibold uppercase tracking-widest text-sky-300">Agent lifecycle</p>
+              <h1 className="text-3xl font-semibold text-slate-50">Release snapshots</h1>
+              <p className="mt-3 text-sm leading-6 text-slate-300">
+                Create a validated, immutable record of the current agent graph.
+                Publishing records an active version, but runtime execution still reads the
+                working graph. Environment promotion and rollback are not available yet.
+              </p>
+            </header>
 
-          {/* Flows */}
-          <div className="bg-[#1a1f3a]/80 backdrop-blur-xl border border-white/10 rounded-2xl p-6 mb-4 shadow-2xl">
-            <label className="flex items-center gap-3 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={selectedComponents.flows.selected}
-                onChange={() => toggleComponent(["flows"])}
-                className="w-5 h-5 text-blue-600 rounded"
-              />
-              <div className="flex-1">
-                <h3 className="font-semibold text-white">Flows</h3>
-                <p className="text-sm text-white/60">
-                  Choose the flows to be included in this deployment
-                </p>
-              </div>
-            </label>
-            {selectedComponents.flows.selected && (
-              <div className="ml-8 mt-3">
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={true}
-                    className="w-4 h-4 text-blue-600 rounded"
-                  />
-                  <span className="text-sm text-white/80">Start Flows</span>
-                  <span className="text-sm text-green-400 ml-2">
-                    {selectedComponents.flows.count} of {selectedComponents.flows.total}
-                  </span>
-                </label>
-              </div>
-            )}
-          </div>
+            <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 p-4 text-sm leading-6 text-amber-100" role="note">
+              Do not treat these records as a production deployment.
+              A version-pinned runtime and deployment health checks are required first.
+            </div>
 
-          {/* Automation Tasks */}
-          <div className="bg-[#1a1f3a]/80 backdrop-blur-xl border border-white/10 rounded-2xl p-6 mb-4 shadow-2xl">
-            <label className="flex items-center gap-3 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={selectedComponents.automationTasks.selected}
-                onChange={() => toggleComponent(["automationTasks"])}
-                className="w-5 h-5 text-blue-600 rounded"
-              />
-              <div className="flex-1">
-                <h3 className="font-semibold text-white">Automation Tasks</h3>
-                <p className="text-sm text-white/60">
-                  Choose the tasks to be included in this deployment
-                </p>
+            {!token && <p role="alert" className="huemn-notice">Sign in to manage releases.</p>}
+            {error && <p role="alert" className="rounded-xl border border-rose-500/40 bg-rose-500/10 p-4 text-sm text-rose-200">{error}</p>}
+            {notice && <p role="status" className="rounded-xl border border-sky-500/40 bg-sky-500/10 p-4 text-sm text-sky-100">{notice}</p>}
+
+            <section className="rounded-2xl border border-slate-700 bg-slate-900/90 p-5 sm:p-6">
+              <h2 className="text-lg font-semibold text-slate-50">Create a release candidate</h2>
+              <p className="mt-1 text-sm text-slate-300">An invalid graph or duplicate version number will be rejected.</p>
+              <form className="mt-5 grid gap-4" onSubmit={(event) => { event.preventDefault(); void create(); }}>
+                <div>
+                  <label className="mb-2 block text-sm font-medium text-slate-100" htmlFor="release-number">Version number</label>
+                  <input id="release-number" value={versionNumber} onChange={(e) => setVersionNumber(e.target.value)}
+                    maxLength={50} required placeholder="1.0.0" autoComplete="off"
+                    className="w-full rounded-lg border border-slate-600 bg-slate-950 px-3 py-3 text-sm text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-sky-400" />
+                </div>
+                <div>
+                  <label className="mb-2 block text-sm font-medium text-slate-100" htmlFor="release-notes">Release notes</label>
+                  <textarea id="release-notes" value={notes} onChange={(e) => setNotes(e.target.value)} rows={3}
+                    placeholder="Changes, risk, and testing evidence"
+                    className="w-full rounded-lg border border-slate-600 bg-slate-950 px-3 py-3 text-sm text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-sky-400" />
+                </div>
+                <button type="submit" disabled={!token || saving || !versionNumber.trim()}
+                  className="huemn-primary-button min-h-11 justify-self-start rounded-lg px-5 py-2 text-sm font-semibold disabled:opacity-50">
+                  {saving ? "Creating…" : "Create snapshot"}
+                </button>
+              </form>
+            </section>
+
+            <section className="overflow-hidden rounded-2xl border border-slate-700 bg-slate-900/90">
+              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-700 p-5">
+                <div>
+                  <h2 className="text-lg font-semibold text-slate-50">Versions</h2>
+                  <p className="mt-1 text-sm text-slate-300">Current metadata version: {active?.version_number || "None"}</p>
+                </div>
+                <button type="button" disabled={!token || loading} onClick={() => void refresh()}
+                  className="huemn-secondary-button min-h-11 rounded-lg px-4 text-sm disabled:opacity-50">Refresh</button>
               </div>
-            </label>
-            {selectedComponents.automationTasks.selected && (
-              <div className="ml-8 mt-3 space-y-2">
-                {Object.entries(selectedComponents.automationTasks)
-                  .filter(([key]) => key !== "selected")
-                  .map(([key, value]: [string, any]) => (
-                    <label key={key} className="flex items-center gap-2 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={value.selected}
-                        onChange={() => toggleComponent(["automationTasks", key])}
-                        className="w-4 h-4 text-blue-600 rounded"
-                      />
-                      <span className="text-sm capitalize text-white/80">{key.replace(/([A-Z])/g, " $1").trim()}</span>
-                      <span className="text-sm text-green-400 ml-2">
-                        {value.count} of {value.total}
-                      </span>
-                    </label>
+              {loading ? (
+                <p role="status" className="p-6 text-sm text-slate-300">Loading versions…</p>
+              ) : versions.length === 0 ? (
+                <p className="p-6 text-sm text-slate-300">No version snapshots. Create a candidate above.</p>
+              ) : (
+                <ul className="divide-y divide-slate-700">
+                  {versions.map((version) => (
+                    <li key={version.id} className="flex flex-wrap items-center justify-between gap-4 p-5">
+                      <div>
+                        <p className="font-semibold text-slate-100">{version.version_number}</p>
+                        <p className="mt-1 text-xs text-slate-300">{version.is_published ? "Current management version" : "Candidate or previously published"}</p>
+                        {version.notes && <p className="mt-2 max-w-lg break-words text-sm text-slate-300">{version.notes}</p>}
+                      </div>
+                      {!version.is_published && (
+                        <button type="button" disabled={publishingId !== null || !token}
+                          onClick={() => void publish(version)}
+                          className="huemn-secondary-button min-h-11 rounded-lg px-4 text-sm disabled:opacity-50">
+                          {publishingId === version.id ? "Publishing…" : confirmId === version.id ? "Confirm publish" : "Mark published"}
+                        </button>
+                      )}
+                    </li>
                   ))}
-              </div>
-            )}
+                </ul>
+              )}
+            </section>
           </div>
-
-          <div className="flex justify-end mt-6">
-            <button
-              onClick={handlePublish}
-              className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium"
-            >
-              Proceed
-            </button>
-          </div>
-        </div>
+        </main>
       </AgentLayout>
     </ErrorBoundary>
   );
