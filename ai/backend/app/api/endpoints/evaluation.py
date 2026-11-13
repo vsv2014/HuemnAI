@@ -6,6 +6,9 @@ from datetime import datetime
 
 from app.db.session import get_db
 from app.db.models.evaluation import EvaluationLog
+from app.db.models.agent import Agent
+from app.api.auth import get_current_user
+from app.db.models.subscription import UserAccount
 
 router = APIRouter()
 
@@ -30,11 +33,16 @@ class EvaluationLogResponse(BaseModel):
 async def get_agent_evaluations(
     agent_id: int,
     limit: int = Query(50, le=100),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: UserAccount = Depends(get_current_user)
 ):
     """
     Get evaluation logs for a specific agent (Shadow Mode results).
     """
+    owned = db.query(Agent.id).filter(Agent.id == agent_id, Agent.user_id == current_user.id).first()
+    if not owned:
+        raise HTTPException(status_code=404, detail="Agent not found")
+
     logs = db.query(EvaluationLog).filter(
         EvaluationLog.agent_id == agent_id
     ).order_by(EvaluationLog.created_at.desc()).limit(limit).all()
