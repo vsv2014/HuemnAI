@@ -9,15 +9,23 @@ Deliver one production-proven AI service that accepts tenant-authorized knowledg
 
 **Architecture default**: Next.js frontend -> modular FastAPI application with model, RAG, graph-runtime, and tool modules -> PostgreSQL (and indexed vector search where justified), Redis/Celery workers, private object/file storage, OpenTelemetry-compatible traces. Add microservices or a separate workflow engine only after evidence supports them. Huemn does not need to adopt Artemis's ABL/AgentIR DSL.
 
-## Code in draft branches (NOT merged or fully integration-tested)
+## Single PR implementation status (review branch only)
 
-| PR | Engineering responsibility | Status |
+The user requested **one consolidated PR**, so [PR #8](https://github.com/vsv2014/HuemnAI/pull/8) is the single review target. Previous draft PRs #1–#7 and #9 were incorporated into this review branch; they are superseded rather than separately mergeable. **Nothing is merged or deployed.**
+
+| Capability | Implemented or improved in PR #8 | Not yet production complete |
 | --- | --- | --- |
-| [#1](https://github.com/vsv2014/HuemnAI/pull/1) | Private uploads, owner downloads, honest embedding failure/cosine behavior, persistent private-file volumes | Draft; file access and migration tests pending |
-| [#2](https://github.com/vsv2014/HuemnAI/pull/2) | Agent graph/resource ownership, controlled import/export, private conversation access | Draft; legacy `user_id=NULL` backfill and two-account tests pending |
-| [#3](https://github.com/vsv2014/HuemnAI/pull/3) | Block non-isolated generated Python execution; production secret/subscription safeguards | Draft; disabled execution needs UI handling; real sandbox remains TODO |
-| [#4](https://github.com/vsv2014/HuemnAI/pull/4) | Shared frontend Tabs, class utility, TypeScript CI check | Draft; frontend build/browser tests pending |
-| [#5](https://github.com/vsv2014/HuemnAI/pull/5) | Model/dimension provenance for embeddings and fail-closed RAG retrieval, disable unsafe shared-index fallback by default | Draft; **stacked on #1**; legacy embeddings need controlled reindex |
+| Agent builder and graph runtime | Fixed duplicated generation route; added owner-authorized graph lint endpoint and Validate graph UI, dangling/unreachable/cycle diagnostics | Existing 8K-line builder needs refactor, graph persistence/step replay and full E2E |
+| Model providers | Explicit per-provider routing, async OpenAI/Anthropic/Google adapters, stricter failure semantics, BYOK user scoping, corrected Model Library UI | Live provider health, model deprecation monitoring, managed credential policy, tests across native SDK versions |
+| Ingestion and embeddings | Private source storage, normalized owner download, overlapping bounded chunks, model/dimension provenance, no synthetic fallback | Legacy source migration/reindex, table-aware ingestion, incremental jobs and pgvector |
+| RAG retrieval | Reject mixed embedding spaces, tenant-scoped retrieval, explicit error states, offline Recall@K/Precision@K/MRR metrics | Filtered ANN/HNSW benchmarking, BM25 hybrid, rerank, citations and groundedness benchmarks |
+| Agent security/guardrails | Agent/graph/trace/evaluation/workflow owner checks, blocked unisolated code execution | Every connector/tool route auth, prompt-injection defenses, genuine isolated sandbox |
+| Durable workflows | Dedicated worker/scheduler processes, atomic claims, bounded retries, stale state recovery, recurrence | Approval checkpoints, exactly-once downstream idempotency, cancellation and restart/load tests |
+| AI observability | Low-cardinality embedding/retrieval metrics, request IDs, owner-protected debug/evaluation views | End-to-end OpenTelemetry traces, tool metrics, token cost and production alerts |
+| Deployment/scaling | Celery and scheduler services, shared private volume, protected production secrets | Validated CI, migrations, TLS/security hardening, backups, load tests and rollback |
+| UI/UX | Live Playground, functional Model Library, graph diagnostics, calmer design palette, scroll/touch fixes and source audit | Screenshots, browser accessibility checks, full responsive design system, remaining neon legacy routes |
+
+See [the UI/UX audit](HUEMN_UI_UX_AUDIT.md) for detailed source evidence and the browser test matrix. **No browser-based visual QA was performed.**
 
 ## Workstream A — Foundation, security, and release (P0)
 
@@ -100,12 +108,12 @@ First product workflow: **customer support triage from uploaded SOPs**.
 
 ## Dependencies, release and coordination
 
-1. Enable GitHub Actions on the fork; verify **main** health first.
-2. Stabilize baseline and secure data access/execution; reconcile PR #1/#2/#3/#4, including overlapping CI and Compose changes.
-3. Reconcile stacked PR #5 with the current head of PR #1, and run controlled reindex before enabling provenance gates in production.
-4. Deliver full AI observability and RAG benchmark before tuning indexes/providers.
-5. Prove durable approvals and one end-to-end support workflow; then expand templates and connectors.
-6. Record actual build/test results, not just committed code. Keep changes draft until verified.
+1. Enable GitHub Actions on the fork; run all tests and Docker/frontend builds from **PR #8**, against clean main.
+2. Review the consolidated code for import/type regressions and cross-account/data-leak behavior. Do not merge while unresolved.
+3. Migrate existing unowned agents/legacy uploads; reindex all synthetic/unversioned embeddings before enabling retrieval changes for customers.
+4. Add end-to-end managed/BYOK isolation and native-model SDK streaming tests, plus UI browser screenshots and accessibility checks.
+5. Complete pgvector/hybrid retrieval, durable approvals and idempotent side-effect workflow; add full AI observability and golden RAG evaluation.
+6. Prove one support workflow in staging, load test, rehearse rollback, and only then merge/deploy.
 
 **Out of scope without evidence:** cloning Artemis's ABL DSL, adopting Kafka/Restate/Kubernetes merely for parity, training a foundation model, or promising all 137 business jobs before one working customer flow.
 
