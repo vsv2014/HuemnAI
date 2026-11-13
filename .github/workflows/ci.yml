@@ -49,6 +49,8 @@ jobs:
         run: python -m unittest discover -s tests -p 'test_rag_evaluation.py'
       - name: Hybrid retrieval regression tests
         run: python -m unittest discover -s tests -p 'test_hybrid_retrieval.py'
+      - name: Provider configuration safety contracts
+        run: python -m unittest discover -s tests -p 'test_config_policy.py'
       - name: Build Docker image
         run: |
           docker build -t huemn-backend:ci .
