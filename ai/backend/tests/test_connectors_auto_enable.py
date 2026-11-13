@@ -1,27 +1,27 @@
-from app.core.connector_manager import discover_and_enable_connectors
-from app.core.tool_setup import register_default_tools
-from app.core.tool_registry import get_tool, list_tools
+"""Connector discovery must not turn demo modules into executable tools."""
+from app.core import connector_manager
+from app.core.tool_registry import list_tools
 
 
-def test_discover_and_enable_connectors(monkeypatch):
-    # Ensure default tools are registered
-    register_default_tools()
-
-    # Monkeypatch connectors to expose a mock connector list with a validate returning True
+def test_mock_connector_validation_does_not_enable_tool(monkeypatch):
     import app.services.connectors as connectors
 
     class MockModule:
         def validate(self):
             return True
 
-    monkeypatch.setattr(connectors, "__all__", ["jira", "zendesk"])
+    monkeypatch.setattr(connector_manager.settings, "USE_REAL_CONNECTORS", True)
     monkeypatch.setattr(connectors, "jira", MockModule())
     monkeypatch.setattr(connectors, "zendesk", MockModule())
+    list_tools().pop("connector:jira", None)
+    list_tools().pop("connector:zendesk", None)
+    connector_manager.discover_and_enable_connectors()
+    assert "connector:jira" not in list_tools()
+    assert "connector:zendesk" not in list_tools()
 
-    discover_and_enable_connectors()
 
-    tools = list_tools()
-    assert "connector:jira" in tools
-    assert tools["connector:jira"].enabled is True
-    assert "connector:zendesk" in tools
-    assert tools["connector:zendesk"].enabled is True
+def test_demo_connector_mode_never_auto_enables(monkeypatch):
+    monkeypatch.setattr(connector_manager.settings, "USE_REAL_CONNECTORS", False)
+    list_tools().pop("connector:jira", None)
+    connector_manager.discover_and_enable_connectors()
+    assert "connector:jira" not in list_tools()
