@@ -40,6 +40,8 @@ jobs:
           node-version: "18"
       - name: Install deps
         run: npm ci
+      - name: Typecheck
+        run: npm run typecheck
       - name: Build
         env:
           NEXT_PUBLIC_API_BASE: http://localhost/api
