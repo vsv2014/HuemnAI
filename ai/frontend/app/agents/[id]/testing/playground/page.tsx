@@ -107,7 +107,10 @@ export default function PlaygroundPage() {
                 Real agent execution with conversation continuity and an inspectable trace.
               </p>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <Link href={"/agents/" + agentId + "/validate"} className="huemn-secondary-button inline-flex min-h-[40px] items-center rounded-lg px-4 py-2 text-sm">
+                Validate graph
+              </Link>
               <button type="button" onClick={() => setShowTrace((v) => !v)}
                 className="huemn-secondary-button rounded-lg px-4 py-2 text-sm" aria-expanded={showTrace}>
                 {showTrace ? "Hide trace" : "View trace"} ({trace.length})
