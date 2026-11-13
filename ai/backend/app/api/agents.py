@@ -24,6 +24,15 @@ from app.api.auth import get_current_user, get_current_user_optional
 router = APIRouter()
 
 
+def _get_owned_agent(db: Session, agent_id: int, user: UserAccount) -> Agent:
+    """Only the creator can inspect or modify an agent's private configuration."""
+    agent = db.query(Agent).filter(Agent.id == agent_id, Agent.user_id == user.id).first()
+    if not agent:
+        raise HTTPException(status_code=404, detail="Agent not found")
+    return agent
+
+
+
 def build_node_code(node: AgentNode) -> str:
     node_type = node.node_type.value if hasattr(node.node_type, "value") else str(node.node_type)
     payload = {
@@ -416,7 +425,7 @@ def get_user_id(authorization: Optional[str] = Header(None)) -> Optional[int]:
 async def create_agent(
     agent_data: AgentCreate, 
     request: Request,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db), current_user: UserAccount = Depends(get_current_user)
 ):
     """Create a new agent"""
     # Handle agent_type conversion if it's a string
@@ -428,6 +437,7 @@ async def create_agent(
             agent_type = AgentType.CHATBOT  # Default to CHATBOT
     
     agent = Agent(
+        user_id=current_user.id,
         name=agent_data.name,
         description=agent_data.description,
         agent_type=agent_type,
@@ -466,10 +476,10 @@ async def list_agents(
     limit: int = 100,
     agent_type: Optional[AgentType] = None,
     is_active: Optional[bool] = None,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db), current_user: UserAccount = Depends(get_current_user)
 ):
     """List all agents"""
-    query = db.query(Agent)
+    query = db.query(Agent).filter(Agent.user_id == current_user.id)
     
     if agent_type:
         query = query.filter(Agent.agent_type == agent_type)
@@ -494,11 +504,9 @@ async def list_agents(
 
 
 @router.get("/{agent_id}", response_model=Dict[str, Any])
-async def get_agent(agent_id: int, db: Session = Depends(get_db)):
+async def get_agent(agent_id: int, db: Session = Depends(get_db), current_user: UserAccount = Depends(get_current_user)):
     """Get agent details with nodes and connections"""
-    agent = db.query(Agent).filter(Agent.id == agent_id).first()
-    if not agent:
-        raise HTTPException(status_code=404, detail="Agent not found")
+    agent = _get_owned_agent(db, agent_id, current_user)
     
     # Get all nodes
     nodes = [
@@ -557,14 +565,19 @@ async def update_agent(
     agent_id: int, 
     agent_data: AgentUpdate, 
     request: Request,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db), current_user: UserAccount = Depends(get_current_user)
 ):
     """Update an agent"""
-    agent = db.query(Agent).filter(Agent.id == agent_id).first()
-    if not agent:
-        raise HTTPException(status_code=404, detail="Agent not found")
+    agent = _get_owned_agent(db, agent_id, current_user)
     
     update_data = agent_data.dict(exclude_unset=True)
+    if update_data.get("entry_node_id") is not None:
+        entry = db.query(AgentNode).filter(
+            AgentNode.id == update_data["entry_node_id"],
+            AgentNode.agent_id == agent.id
+        ).first()
+        if not entry:
+            raise HTTPException(status_code=404, detail="Entry node not found")
     for key, value in update_data.items():
         setattr(agent, key, value)
     
@@ -592,12 +605,10 @@ async def update_agent(
 async def delete_agent(
     agent_id: int, 
     request: Request,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db), current_user: UserAccount = Depends(get_current_user)
 ):
     """Delete an agent"""
-    agent = db.query(Agent).filter(Agent.id == agent_id).first()
-    if not agent:
-        raise HTTPException(status_code=404, detail="Agent not found")
+    agent = _get_owned_agent(db, agent_id, current_user)
     
     agent_name = agent.name # Capture name before deletion
     
