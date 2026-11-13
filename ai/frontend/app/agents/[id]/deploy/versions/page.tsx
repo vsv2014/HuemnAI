@@ -37,12 +37,8 @@ export default function VersionsPage() {
           notes: v.notes || "",
         })));
       } else {
-        // Fallback to mock data
-        setVersions([
-          { id: "1", version: "1.2.0", published: true, publishedAt: "2026-01-03", notes: "Added new features" },
-          { id: "2", version: "1.1.0", published: true, publishedAt: "2025-12-20", notes: "Bug fixes" },
-          { id: "3", version: "1.0.0", published: true, publishedAt: "2025-12-01", notes: "Initial release" },
-        ]);
+        setVersions([]);
+        setError(response.error || "The version API did not return a valid list.");
       }
     } catch (err) {
       console.error("Failed to load versions:", err);
@@ -81,13 +77,13 @@ export default function VersionsPage() {
   return (
     <ErrorBoundary>
       <AgentLayout>
-        <div className="p-8">
+        <div className="huemn-workspace min-h-full p-4 sm:p-8">
           <div className="mb-8">
             <h1 className="text-4xl font-bold bg-gradient-to-r from-white to-white/70 bg-clip-text text-transparent mb-3">
               Versions
             </h1>
             <p className="text-white/60 text-lg">
-              View and manage agent versions
+              View actual release records. Publishing currently updates management metadata, not an isolated runtime deployment.
             </p>
           </div>
 
@@ -102,8 +98,8 @@ export default function VersionsPage() {
               <p className="text-white/60">No versions found</p>
             </div>
           ) : (
-            <div className="bg-[#1a1f3a]/80 backdrop-blur-xl border border-white/10 rounded-2xl overflow-hidden shadow-2xl">
-              <table className="w-full">
+            <div className="rounded-2xl border border-slate-700 bg-slate-900/90 overflow-x-auto">
+              <table className="w-full min-w-[620px]">
                 <thead className="bg-[#0f1419]/60">
                   <tr>
                     <th className="px-4 py-3 text-left text-xs font-medium text-white/60 uppercase">Version</th>
@@ -137,8 +133,7 @@ export default function VersionsPage() {
                             Publish
                           </button>
                         )}
-                        <button className="text-blue-400 hover:text-blue-300 mr-4">View</button>
-                        <button className="text-red-400 hover:text-red-300">Rollback</button>
+                        <span className="text-xs text-slate-400">Rollback requires version-pinned runtime support</span>
                       </td>
                     </tr>
                   ))}
