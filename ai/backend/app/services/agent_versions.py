@@ -11,6 +11,30 @@ from app.db.models.agent import Agent, AgentNode, AgentConnection
 from app.services.graph_validation import validate_graph
 
 
+_SECRET_KEYS = frozenset({
+    "api_key", "access_token", "refresh_token", "private_key",
+    "password", "client_secret", "authorization", "credentials",
+    "bearer_token", "secret_key", "webhook_secret",
+})
+
+
+def safe_snapshot(value: Any) -> Any:
+    """Omit literal credentials from immutable release records.
+
+    References to a separately managed secret remain available; actual
+    credentials must be resolved by the authenticated runtime at execution.
+    """
+    if isinstance(value, dict):
+        return {
+            key: "[REDACTED]" if str(key).casefold() in _SECRET_KEYS
+            else safe_snapshot(child)
+            for key, child in value.items()
+        }
+    if isinstance(value, list):
+        return [safe_snapshot(child) for child in value]
+    return deepcopy(value)
+
+
 def snapshot_agent(db: Session, agent: Agent) -> Dict[str, Any]:
     nodes = db.query(AgentNode).filter(
         AgentNode.agent_id == agent.id
@@ -36,7 +60,7 @@ def snapshot_agent(db: Session, agent: Agent) -> Dict[str, Any]:
             "system_prompt": agent.system_prompt,
             "welcome_message": agent.welcome_message,
             "fallback_message": agent.fallback_message,
-            "settings": deepcopy(agent.settings or {}),
+            "settings": safe_snapshot(agent.settings or {}),
             "entry_node_id": agent.entry_node_id,
         },
         "nodes": [
@@ -45,11 +69,11 @@ def snapshot_agent(db: Session, agent: Agent) -> Dict[str, Any]:
                 "type": node.node_type.value,
                 "name": node.name,
                 "label": node.label,
-                "config": deepcopy(node.config or {}),
+                "config": safe_snapshot(node.config or {}),
                 "position": {"x": node.position_x, "y": node.position_y},
                 "timeout": node.timeout,
                 "retry_count": node.retry_count,
-                "error_handling": deepcopy(node.error_handling or {}),
+                "error_handling": safe_snapshot(node.error_handling or {}),
             }
             for node in nodes
         ],
@@ -58,7 +82,7 @@ def snapshot_agent(db: Session, agent: Agent) -> Dict[str, Any]:
                 "id": edge.id,
                 "source": edge.source_node_id,
                 "target": edge.target_node_id,
-                "condition": deepcopy(edge.condition or {}),
+                "condition": safe_snapshot(edge.condition or {}),
                 "priority": edge.priority,
                 "label": edge.label,
             }
