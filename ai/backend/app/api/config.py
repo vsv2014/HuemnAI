@@ -438,8 +438,11 @@ async def create_config(
         if field_name not in payload.fields or not payload.fields[field_name]:
             raise HTTPException(status_code=400, detail=f"Missing required field: {field_name}")
     
+    # Reject unknown fields; otherwise arbitrary unencrypted secrets could leak via config_data.
+    if set(payload.fields) - set(provider_def["fields"]):
+        raise HTTPException(status_code=400, detail="Unrecognized provider configuration fields")
     # Separate sensitive and non-sensitive fields
-    sensitive_fields = ["api_key", "api_token", "secret", "client_secret", "password", "security_token", "access_token"]
+    sensitive_fields = ["api_key", "api_token", "secret", "client_secret", "secret_access_key", "password", "security_token", "access_token", "refresh_token", "private_key"]
     config_data = {}
     api_key = None
     secret = None
@@ -450,7 +453,7 @@ async def create_config(
             if field_name == "api_key" or field_name == "api_token" or field_name == "access_token":
                 # access_token for LinkedIn should be stored as api_key
                 api_key = value
-            elif field_name == "secret" or field_name == "client_secret":
+            elif field_name in ("secret", "client_secret", "secret_access_key", "refresh_token", "private_key"):
                 secret = value
             elif field_name == "password" or field_name == "security_token":
                 password = value
@@ -547,7 +550,9 @@ async def update_config(
     if payload.fields:
         provider_def = PROVIDER_DEFINITIONS.get(config.provider_type, {}).get(config.provider)
         if provider_def:
-            sensitive_fields = ["api_key", "api_token", "secret", "client_secret", "password", "security_token", "access_token"]
+            if set(payload.fields) - set(provider_def["fields"]):
+                raise HTTPException(status_code=400, detail="Unrecognized provider configuration fields")
+            sensitive_fields = ["api_key", "api_token", "secret", "client_secret", "secret_access_key", "password", "security_token", "access_token", "refresh_token", "private_key"]
             config_data = config.config_data or {}
             
             for field_name, value in payload.fields.items():
@@ -555,7 +560,7 @@ async def update_config(
                     if field_name == "api_key" or field_name == "api_token" or field_name == "access_token":
                         # access_token for LinkedIn should be stored as api_key
                         config.set_api_key(value)
-                    elif field_name == "secret" or field_name == "client_secret":
+                    elif field_name in ("secret", "client_secret", "secret_access_key", "refresh_token", "private_key"):
                         config.set_secret(value)
                     elif field_name == "password" or field_name == "security_token":
                         config.set_password(value)
