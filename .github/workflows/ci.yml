@@ -51,6 +51,10 @@ jobs:
           python -m unittest discover -s tests -p 'test_scheduler_policy.py'
       - name: Offline RAG evaluation regression tests
         run: python -m unittest discover -s tests -p 'test_rag_evaluation.py'
+      - name: Persisted agent trajectory unit tests
+        run: python -m unittest discover -s tests -p 'test_trajectory_evaluation.py'
+      - name: Agent release snapshot unit tests
+        run: python -m unittest discover -s tests -p 'test_agent_snapshots.py'
       - name: Hybrid retrieval regression tests
         run: python -m unittest discover -s tests -p 'test_hybrid_retrieval.py'
       - name: Provider configuration safety contracts
