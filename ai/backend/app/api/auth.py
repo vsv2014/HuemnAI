@@ -12,6 +12,7 @@ from app.db.models.subscription import UserAccount, SubscriptionPlan, Subscripti
 from app.utils.subscription import sync_tool_subscriptions
 from app.core.config import settings
 from app.core.passwords import hash_password, verify_password, needs_rehash
+from app.core.provider_scope import bind_provider_user
 from app.services.email_service import send_welcome_email, send_login_notification_email, send_password_reset_email, send_otp_email
 import logging
 import requests
@@ -86,7 +87,7 @@ def create_reset_token(email: str) -> str:
     }
     return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
 
-def get_current_user(
+async def get_current_user(
     credentials: HTTPAuthorizationCredentials = Depends(security),
     db: Session = Depends(get_db)
 ) -> UserAccount:
@@ -99,6 +100,7 @@ def get_current_user(
         user = db.query(UserAccount).filter(UserAccount.id == user_id).first()
         if not user or not user.is_active:
             raise HTTPException(status_code=401, detail="Invalid or inactive user")
+        bind_provider_user(user.id)
         return user
     except jwt.ExpiredSignatureError:
         raise HTTPException(status_code=401, detail="Token expired. Please login again.")
@@ -106,7 +108,7 @@ def get_current_user(
         logger.error(f"Auth error: {e}")
         raise HTTPException(status_code=401, detail="Invalid token")
 
-def get_current_user_optional(
+async def get_current_user_optional(
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(security_optional),
     db: Session = Depends(get_db)
 ) -> Optional[UserAccount]:
@@ -120,6 +122,7 @@ def get_current_user_optional(
         user = db.query(UserAccount).filter(UserAccount.id == user_id).first()
         if not user or not user.is_active:
             return None
+        bind_provider_user(user.id)
         return user
     except:
         return None
