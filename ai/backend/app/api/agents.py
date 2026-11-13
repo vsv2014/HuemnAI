@@ -895,6 +895,24 @@ async def generate_flow(
     return result
 
 
+@router.get("/{agent_id}/validate")
+async def validate_agent_graph(
+    agent_id: int,
+    db: Session = Depends(get_db),
+    current_user: UserAccount = Depends(get_current_user),
+):
+    """Return actionable graph-lint diagnostics without executing any nodes."""
+    from app.services.graph_validation import validate_graph
+    agent = _get_owned_agent(db, agent_id, current_user)
+    nodes = db.query(AgentNode).filter(AgentNode.agent_id == agent.id).all()
+    connections = db.query(AgentConnection).filter(AgentConnection.agent_id == agent.id).all()
+    return validate_graph(
+        (node.id for node in nodes),
+        ((edge.source_node_id, edge.target_node_id) for edge in connections),
+        agent.entry_node_id,
+    )
+
+
 # Conversation/Execution endpoint
 @router.post("/conversations")  # Return dict directly to ensure all fields are included
 async def process_message(
