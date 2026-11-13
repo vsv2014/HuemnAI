@@ -24,6 +24,7 @@ from app.services.status_service import start_token_consumer
 from app.db.session import ping_database
 from app.core.redis import redis_client
 from app.core.config import settings
+from app.core.provider_scope import bind_provider_user, reset_provider_user
 from app.core.logging import get_logger
 import os
 import sentry_sdk
@@ -124,6 +125,16 @@ async def log_requests(request: Request, call_next):
         if settings.SENTRY_DSN:
             sentry_sdk.capture_exception(exc)
         raise
+
+@app.middleware("http")
+async def clear_provider_scope_for_each_request(request: Request, call_next):
+    """Prevent credential principal reuse across requests handled by one worker."""
+    principal_token = bind_provider_user(None)
+    try:
+        return await call_next(request)
+    finally:
+        reset_provider_user(principal_token)
+
 
 @app.get("/")
 async def root():
