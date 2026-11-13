@@ -364,20 +364,18 @@ export default function AgentTestPage() {
                 ))}
               </div>
 
-              {/* Voice Input Simulation */}
+              {/* Prefill a sample prompt; this page does not capture microphone audio. */}
               <div className="space-y-3">
                 <button
-                  onClick={() => {
-                    setInput("Hello");
-                    setTimeout(() => handleSend(), 100);
-                  }}
-                  className="w-full px-6 py-4 bg-gradient-to-r from-blue-500 to-purple-500 text-white rounded-lg hover:from-blue-600 hover:to-purple-600 transition-all font-semibold"
+                  type="button"
+                  onClick={() => setInput("Hello")}
+                  className="w-full min-h-11 rounded-lg border border-sky-400/40 bg-sky-500/15 px-6 py-3 font-semibold text-sky-100 transition-colors hover:bg-sky-500/25 focus-visible:outline focus-visible:outline-2 focus-visible:outline-sky-300"
                 >
-                  🎤 Simulate Voice Input
+                  Use sample greeting
                 </button>
-                <div className="text-sm text-white/60">
-                  Click to simulate voice input or use keypad above
-                </div>
+                <p className="text-sm text-slate-300">
+                  This fills the message field. Select Send to test the agent. Microphone recording is not available in this panel.
+                </p>
               </div>
             </div>
           </div>
