@@ -53,42 +53,17 @@ def _is_due(now: datetime, task: ScheduledTask) -> bool:
 
 def _execute_task(task: ScheduledTask) -> Optional[Dict[str, Any]]:
     payload = task.payload or {}
-    # Orchestrator daily run
+    # Orchestrator runs are always queued; do not execute locally when broker is down.
     if (task.task_type or "").lower() == "orchestrator_run":
+        session_id = payload.get("session_id")
+        if not session_id:
+            return {"published": False, "error": "Missing session_id"}
         try:
-            session_id = payload.get("session_id")
-            if not session_id:
-                raise ValueError("Missing session_id in payload")
-            try:
-                job = orchestrator_daily_run.delay(session_id)
-                return {"published": True, "queued": True, "job_id": job.id}
-            except Exception:
-                pass
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            async def _run():
-                try:
-                    session = await MemoryStore.get_session(session_id)
-                    if not session or "plan" not in session:
-                        await manager.send_json({"event": "console", "data": {"line": f"Daily run skipped: plan not found (session {session_id})"}}, client_id=session_id)
-                        return {"skipped": True}
-                    exe = StepExecutor(session_id)
-                    await manager.send_json({"event": "console", "data": {"line": "Daily automation run started"}}, client_id=session_id)
-                    result = await exe.run(session["plan"])
-                    await manager.send_json({"event": "console", "data": {"line": "Daily automation run completed"}}, client_id=session_id)
-                    return {"published": True, "result": result}
-                except Exception as e:
-                    try:
-                        await manager.send_json({"event": "console", "data": {"line": f"Daily run failed: {e}"}}, client_id=session_id)
-                    except Exception:
-                        pass
-                    return {"published": False, "error": str(e)}
-            out = loop.run_until_complete(_run())
-            loop.close()
-            return out
-        except Exception as e:
-            logger.error(f"Failed orchestrator_run for task {task.id}: {e}")
-            return {"published": False, "error": str(e)}
+            job = orchestrator_daily_run.delay(session_id)
+            return {"published": True, "queued": True, "job_id": job.id}
+        except Exception as exc:
+            logger.warning("Workflow broker dispatch failed for task %s (%s)", task.id, type(exc).__name__)
+            return {"published": False, "error": "Unable to queue workflow job"}
     # Default: publish event for general workflows
     event = {
         "event": "workflow_triggered",
