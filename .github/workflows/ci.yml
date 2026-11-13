@@ -45,6 +45,8 @@ jobs:
           python -m unittest discover -s tests -p 'test_scheduler_policy.py'
       - name: Offline RAG evaluation regression tests
         run: python -m unittest discover -s tests -p 'test_rag_evaluation.py'
+      - name: Hybrid retrieval regression tests
+        run: python -m unittest discover -s tests -p 'test_hybrid_retrieval.py'
       - name: Build Docker image
         run: |
           docker build -t huemn-backend:ci .
