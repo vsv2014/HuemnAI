@@ -253,7 +253,7 @@ export default function AgentTestPage() {
       {isChatbot && (
         <>
           {/* Messages */}
-          <div className={`flex-1 overflow-y-auto p-6 ${isDebugOpen ? 'ml-96' : ''} transition-all`}>
+          <div className={`flex-1 overflow-y-auto p-6 ${''} transition-all`}>
             <div className="max-w-4xl mx-auto space-y-4">
               {messages.map((message, index) => (
                 <div
@@ -293,7 +293,7 @@ export default function AgentTestPage() {
           </div>
 
           {/* Input */}
-          <div className={`border-t border-white/10 bg-[#0b0f19]/80 backdrop-blur-xl p-4 ${isDebugOpen ? 'ml-96' : ''} transition-all`}>
+          <div className={`border-t border-white/10 bg-[#0b0f19]/80 backdrop-blur-xl p-4 ${''} transition-all`}>
             <div className="max-w-4xl mx-auto">
               <div className="flex gap-2">
                 <textarea
@@ -320,7 +320,7 @@ export default function AgentTestPage() {
 
       {/* IVR Interface */}
       {isIVR && (
-        <div className={`flex-1 flex items-center justify-center p-6 ${isDebugOpen ? 'ml-96' : ''} transition-all`}>
+        <div className={`flex-1 flex items-center justify-center p-6 ${''} transition-all`}>
           <div className="max-w-2xl w-full">
             <div className="bg-white/5 rounded-lg border border-white/10 p-8 text-center">
               <div className="mb-6">
@@ -384,11 +384,26 @@ export default function AgentTestPage() {
         </div>
       )}
       
-      <DebugPanel
-        isOpen={isDebugOpen}
-        onClose={() => setIsDebugOpen(false)}
-        debugTrace={debugTrace}
-      />
+      {isDebugOpen && (
+        <div className="fixed inset-0 z-[80]" role="presentation">
+          <button
+            type="button"
+            aria-label="Close execution trace"
+            className="absolute inset-0 w-full bg-slate-950/70"
+            onClick={() => setIsDebugOpen(false)}
+          />
+          <aside
+            aria-label="Agent execution trace"
+            className="absolute inset-y-0 right-0 z-10 w-full max-w-[420px] overflow-auto border-l border-slate-700 bg-slate-950 shadow-2xl"
+          >
+            <DebugPanel
+              isOpen
+              onClose={() => setIsDebugOpen(false)}
+              debugTrace={debugTrace}
+            />
+          </aside>
+        </div>
+      )}
       </div>
     </ErrorBoundary>
   );
