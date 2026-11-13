@@ -1,5 +1,6 @@
 from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from prometheus_fastapi_instrumentator import Instrumentator
 from app.api import chat, actions, feedback
@@ -43,6 +44,16 @@ http_logger = get_logger("http")
 import os
 os.makedirs("uploads", exist_ok=True)
 app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
+
+# Legacy knowledge uploads may still exist under the public /uploads mount.
+# Deny direct HTTP access; authenticated downloads use /api/knowledge/sources/{id}/download.
+@app.middleware("http")
+async def protect_private_knowledge_uploads(request: Request, call_next):
+    path = request.scope.get("path", "")
+    if path == "/uploads/knowledge" or path.startswith("/uploads/knowledge/"):
+        return JSONResponse(status_code=404, content={"detail": "Not found"})
+    return await call_next(request)
+
 
 # register lifecycle for background jobs
 register_lifecycle(app)
