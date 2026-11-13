@@ -48,16 +48,20 @@ def get_embedding_with_profile(text: str) -> Tuple[List[float], Dict[str, Any]]:
     )
     if not api_key:
         raise EmbeddingConfigurationError("Embedding provider credentials are not configured")
+    if len(text) > 8000:
+        raise ValueError("Embedding input exceeds maximum supported size; chunk content before indexing")
 
-    try:
-        from openai import OpenAI
-        response = OpenAI(api_key=api_key, timeout=20).embeddings.create(
-            input=text[:8000], model=model
-        )
-        vector = list(response.data[0].embedding)
-    except Exception as exc:
-        log.warning("Embedding generation failed for model %s (%s)", model, type(exc).__name__)
-        raise EmbeddingProviderError("Embedding provider request failed") from exc
+    from app.services.ai_metrics import measure_ai_stage
+    with measure_ai_stage("embedding"):
+        try:
+            from openai import OpenAI
+            response = OpenAI(api_key=api_key, timeout=20).embeddings.create(
+                input=text, model=model
+            )
+            vector = list(response.data[0].embedding)
+        except Exception as exc:
+            log.warning("Embedding generation failed for model %s (%s)", model, type(exc).__name__)
+            raise EmbeddingProviderError("Embedding provider request failed") from exc
 
     if not vector or any(not math.isfinite(value) for value in vector):
         raise EmbeddingProviderError("Embedding provider returned an invalid vector")
