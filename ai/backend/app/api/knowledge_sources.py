@@ -19,6 +19,7 @@ from app.api.auth import get_current_user
 from app.services.web_crawler import WebCrawler
 from app.services.document_processor import DocumentProcessor
 from app.services.embeddings_service import get_embedding_with_profile
+from app.services.chunking import chunk_text
 from sqlalchemy.orm import Session
 
 logger = logging.getLogger(__name__)
@@ -82,18 +83,25 @@ def _trigger_crawl_async(source_id: int, user_id: int):
                 raise ValueError(f"Failed to crawl any content from {source.url}. The website might be blocking crawlers or require authentication.")
             
             for page in crawled_pages:
-                embedding, embedding_profile = get_embedding_with_profile(page['content'])
-                
-                content = KnowledgeContent(
-                    source_id=source.id,
-                    title=page['title'],
-                    url=page['url'],
-                    content=page['content'],
-                    embedding=embedding,
-                    content_metadata={**(page.get("metadata") or {}), "embedding_profile": embedding_profile},
-                    word_count=len(page['content'].split())
-                )
-                content_chunks.append(content)
+                page_chunks = chunk_text(page["content"])
+                for part_index, part in enumerate(page_chunks):
+                    embedding, embedding_profile = get_embedding_with_profile(part)
+                    content = KnowledgeContent(
+                        source_id=source.id,
+                        title=page["title"] if part_index == 0 else f'{page["title"]} (Part {part_index + 1})',
+                        url=page["url"],
+                        content=part,
+                        embedding=embedding,
+                        chunk_index=part_index,
+                        content_metadata={
+                            **(page.get("metadata") or {}),
+                            "embedding_profile": embedding_profile,
+                            "chunk_count": len(page_chunks),
+                            "chunker": "bounded-character-v1",
+                        },
+                        word_count=len(part.split()),
+                    )
+                    content_chunks.append(content)
         
         else:
             # Process document
@@ -103,26 +111,28 @@ def _trigger_crawl_async(source_id: int, user_id: int):
             processor = DocumentProcessor()
             doc_data = processor.process_file(source.file_path)
             
-            words = doc_data['content'].split()
-            chunk_size = 5000
-            
-            for i in range(0, len(words), chunk_size):
-                chunk_words = words[i:i+chunk_size]
-                chunk_content = ' '.join(chunk_words)
-                
+            doc_chunks = chunk_text(doc_data["content"])
+            for part_index, chunk_content in enumerate(doc_chunks):
                 embedding, embedding_profile = get_embedding_with_profile(chunk_content)
-                
                 content = KnowledgeContent(
                     source_id=source.id,
-                    title=doc_data['title'] if i == 0 else f"{doc_data['title']} (Part {i//chunk_size + 1})",
+                    title=doc_data["title"] if part_index == 0 else f'{doc_data["title"]} (Part {part_index + 1})',
                     content=chunk_content,
                     embedding=embedding,
-                    chunk_index=i // chunk_size,
-                    content_metadata={**(doc_data.get("metadata") or {}), "embedding_profile": embedding_profile},
-                    word_count=len(chunk_words)
+                    chunk_index=part_index,
+                    content_metadata={
+                        **(doc_data.get("metadata") or {}),
+                        "embedding_profile": embedding_profile,
+                        "chunk_count": len(doc_chunks),
+                        "chunker": "bounded-character-v1",
+                    },
+                    word_count=len(chunk_content.split()),
                 )
                 content_chunks.append(content)
         
+        if not content_chunks:
+            raise ValueError("Knowledge source contains no indexable content")
+
         # Delete old content
         db.query(KnowledgeContent).filter(KnowledgeContent.source_id == source.id).delete()
         
@@ -542,19 +552,25 @@ async def crawl_source(
             
             # Store each page as a content chunk
             for page in crawled_pages:
-                # Create embedding
-                embedding, embedding_profile = get_embedding_with_profile(page['content'])
-                
-                content = KnowledgeContent(
-                    source_id=source.id,
-                    title=page['title'],
-                    url=page['url'],
-                    content=page['content'],
-                    embedding=embedding,
-                    content_metadata={**(page.get("metadata") or {}), "embedding_profile": embedding_profile},
-                    word_count=len(page['content'].split())
-                )
-                content_chunks.append(content)
+                page_chunks = chunk_text(page["content"])
+                for part_index, part in enumerate(page_chunks):
+                    embedding, embedding_profile = get_embedding_with_profile(part)
+                    content = KnowledgeContent(
+                        source_id=source.id,
+                        title=page["title"] if part_index == 0 else f'{page["title"]} (Part {part_index + 1})',
+                        url=page["url"],
+                        content=part,
+                        embedding=embedding,
+                        chunk_index=part_index,
+                        content_metadata={
+                            **(page.get("metadata") or {}),
+                            "embedding_profile": embedding_profile,
+                            "chunk_count": len(page_chunks),
+                            "chunker": "bounded-character-v1",
+                        },
+                        word_count=len(part.split()),
+                    )
+                    content_chunks.append(content)
         
         else:
             # Process document
@@ -564,28 +580,28 @@ async def crawl_source(
             processor = DocumentProcessor()
             doc_data = processor.process_file(source.file_path)
             
-            # Split large documents into chunks (max 5000 words per chunk)
-            words = doc_data['content'].split()
-            chunk_size = 5000
-            
-            for i in range(0, len(words), chunk_size):
-                chunk_words = words[i:i+chunk_size]
-                chunk_content = ' '.join(chunk_words)
-                
-                # Create embedding
+            doc_chunks = chunk_text(doc_data["content"])
+            for part_index, chunk_content in enumerate(doc_chunks):
                 embedding, embedding_profile = get_embedding_with_profile(chunk_content)
-                
                 content = KnowledgeContent(
                     source_id=source.id,
-                    title=doc_data['title'] if i == 0 else f"{doc_data['title']} (Part {i//chunk_size + 1})",
+                    title=doc_data["title"] if part_index == 0 else f'{doc_data["title"]} (Part {part_index + 1})',
                     content=chunk_content,
                     embedding=embedding,
-                    chunk_index=i // chunk_size,
-                    content_metadata={**(doc_data.get("metadata") or {}), "embedding_profile": embedding_profile},
-                    word_count=len(chunk_words)
+                    chunk_index=part_index,
+                    content_metadata={
+                        **(doc_data.get("metadata") or {}),
+                        "embedding_profile": embedding_profile,
+                        "chunk_count": len(doc_chunks),
+                        "chunker": "bounded-character-v1",
+                    },
+                    word_count=len(chunk_content.split()),
                 )
                 content_chunks.append(content)
         
+        if not content_chunks:
+            raise ValueError("Knowledge source contains no indexable content")
+
         # Delete old content
         db.query(KnowledgeContent).filter(KnowledgeContent.source_id == source.id).delete()
         
