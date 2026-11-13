@@ -11,6 +11,7 @@ from app.db.session import get_db
 from app.db.models.subscription import UserAccount, SubscriptionPlan, Subscription, UserIntegration, UserToolSubscription, EmailVerification
 from app.utils.subscription import sync_tool_subscriptions
 from app.core.config import settings
+from app.core.passwords import hash_password, verify_password, needs_rehash
 from app.services.email_service import send_welcome_email, send_login_notification_email, send_password_reset_email, send_otp_email
 import logging
 import requests
@@ -64,14 +65,6 @@ class AuthResponse(BaseModel):
     requires_otp: bool = False
     is_verified: bool = True
     message: Optional[str] = None
-
-def hash_password(password: str) -> str:
-    """Hash password using SHA256 (in production, use bcrypt)"""
-    return hashlib.sha256(password.encode()).hexdigest()
-
-def verify_password(password: str, password_hash: str) -> bool:
-    """Verify password"""
-    return hash_password(password) == password_hash
 
 def create_jwt_token(user: UserAccount) -> str:
     """Create stable JWT token tied to account creation time"""
@@ -447,7 +440,11 @@ async def login(
         if not verify_password(request.password, user.password_hash):
             logger.warning(f"Invalid password attempt for email: {request.email}")
             raise HTTPException(status_code=401, detail="Invalid email or password")
-        
+        # Upgrade existing unsalted SHA-256 hashes only after verifying credentials.
+        # This change commits alongside the normal last-login update below.
+        if needs_rehash(user.password_hash):
+            user.password_hash = hash_password(request.password)
+
         if not user.is_active:
             raise HTTPException(status_code=403, detail="Account is inactive")
             
