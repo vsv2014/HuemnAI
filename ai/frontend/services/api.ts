@@ -207,6 +207,29 @@ export async function getAgent(id: string | number, token: string) {
   });
 }
 
+export interface GraphValidationDiagnostic {
+  code: string;
+  message: string;
+  node?: number;
+  source?: number;
+  target?: number;
+}
+
+export interface AgentGraphValidation {
+  valid: boolean;
+  errors: GraphValidationDiagnostic[];
+  warnings: GraphValidationDiagnostic[];
+  node_count: number;
+  connection_count: number;
+}
+
+export async function validateAgentGraph(agentId: number, token: string) {
+  if (!token) return { error: "No authentication token" };
+  return safeFetch(`${API_BASE}/api/agents/${agentId}/validate`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+}
+
 export async function createAgent(agentData: any, token: string) {
   if (!token) return { error: "No authentication token" };
   return safeFetch(`${API_BASE}/api/agents/`, {
