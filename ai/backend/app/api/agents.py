@@ -900,11 +900,14 @@ async def generate_flow(
 async def process_message(
     request: ConversationRequest, 
     background_tasks: BackgroundTasks,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: Optional[UserAccount] = Depends(get_current_user_optional)
 ):
     """Process a message through an agent"""
     agent = db.query(Agent).filter(Agent.id == request.agent_id).first()
     if not agent:
+        raise HTTPException(status_code=404, detail="Agent not found")
+    if not agent.is_public and (not current_user or agent.user_id != current_user.id):
         raise HTTPException(status_code=404, detail="Agent not found")
     
     if not agent.is_active:
@@ -920,9 +923,14 @@ async def process_message(
         )
     ).first()
     
+    if conversation and conversation.user_id is not None and (
+        not current_user or conversation.user_id != current_user.id
+    ):
+        raise HTTPException(status_code=404, detail="Conversation not found")
     if not conversation:
         conversation = AgentConversation(
             agent_id=request.agent_id,
+            user_id=current_user.id if current_user else None,
             session_id=session_id,
             channel=request.channel,
             context=request.context or {}
@@ -1156,7 +1164,7 @@ async def add_conversation_message(
     session_id: str,
     payload: ConversationMessageRequest,
     db: Session = Depends(get_db),
-    current_user: UserAccount | None = Depends(get_current_user_optional)
+    current_user: UserAccount = Depends(get_current_user)
 ):
     conversation = db.query(AgentConversation).filter(
         AgentConversation.session_id == session_id
@@ -1164,6 +1172,7 @@ async def add_conversation_message(
     
     if not conversation:
         raise HTTPException(status_code=404, detail="Conversation not found")
+    _get_owned_agent(db, conversation.agent_id, current_user)
     
     role = payload.role.lower()
     if role == "agent":
