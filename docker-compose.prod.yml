@@ -50,6 +50,47 @@ services:
       redis:
         condition: service_healthy
 
+
+  worker:
+    build:
+      context: ./ai/backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    command: ["celery", "-A", "app.core.celery_app:celery_app", "worker", "--loglevel=INFO", "--concurrency=2"]
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      REDIS_URL: redis://redis:6379/0
+      ENV: production
+      SECRET_KEY: ${SECRET_KEY:?Set a strong, random SECRET_KEY of at least 32 characters}
+      BYPASS_SUBSCRIPTION: "0"
+    volumes:
+      - private_knowledge_data:/app/private_uploads
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  scheduler:
+    build:
+      context: ./ai/backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    command: ["python", "-m", "app.workers.scheduler"]
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      REDIS_URL: redis://redis:6379/0
+      ENV: production
+      SECRET_KEY: ${SECRET_KEY:?Set a strong, random SECRET_KEY of at least 32 characters}
+      BYPASS_SUBSCRIPTION: "0"
+    volumes:
+      - private_knowledge_data:/app/private_uploads
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
   frontend:
     build:
       context: ./ai/frontend
