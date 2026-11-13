@@ -67,6 +67,10 @@ jobs:
           node-version: "20"
       - name: Install deps
         run: npm ci
+      - name: All-page UI source audit
+        run: |
+          npm run audit:ui
+          cat reports/UI_AUDIT.md >> "$GITHUB_STEP_SUMMARY"
       - name: Typecheck
         run: npm run typecheck
       - name: Build
