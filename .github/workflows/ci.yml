@@ -36,6 +36,8 @@ jobs:
         run: python -m unittest discover -s tests -p 'test_code_execution_guard.py'
       - name: Password hash migration unit tests
         run: python -m unittest discover -s tests -p 'test_password_hash_migration.py'
+      - name: Enterprise authorization and UI contract tests
+        run: python -m unittest discover -s tests -p 'test_enterprise_boundaries.py'
       - name: Build Docker image
         run: |
           docker build -t huemn-backend:ci .
