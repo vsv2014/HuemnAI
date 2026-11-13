@@ -881,7 +881,7 @@ async def delete_connection(
     return {"message": "Connection deleted successfully"}
 
 
-@router.post("/generate-flow", response_model=Dict[str, Any])
+@router.post("/generate-flow/simple", response_model=Dict[str, Any])
 async def generate_flow(
     request: GenerateFlowRequest,
     db: Session = Depends(get_db), current_user: UserAccount = Depends(get_current_user)
@@ -1004,7 +1004,7 @@ async def process_message(
                 # Log debug trace for debugging
                 logger.info(f"Extracted debug_trace length: {len(debug_trace)}")
                 logger.info(f"debug_trace type: {type(debug_trace)}")
-                logger.info(f"debug_trace value: {debug_trace}")
+                # Never log raw trace payloads; they may contain customer messages.
                 
                 if debug_trace:
                     logger.info(f"Debug trace steps: {[e.get('step') for e in debug_trace]}")
@@ -1088,7 +1088,7 @@ async def process_message(
     
     logger.info(f"Returning response with debug_trace length: {len(debug_trace)}")
     logger.info(f"Response dict keys: {list(response_dict.keys())}")
-    logger.info(f"debug_trace value: {debug_trace}")
+                # Never log raw trace payloads; they may contain customer messages.
     logger.info(f"debug_trace type: {type(debug_trace)}")
     
     # Verify debug_trace is in the dict before returning
