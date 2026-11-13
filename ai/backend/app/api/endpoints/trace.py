@@ -86,7 +86,7 @@ async def get_conversation_trace(
         if event.node_id and event.node_id in nodes:
             node = nodes[event.node_id]
             node_name = node.name
-            node_type = node.node_type
+            node_type = getattr(node.node_type, "value", str(node.node_type))
 
         step = TraceStep(
             id=event.id,
@@ -108,8 +108,10 @@ async def get_conversation_trace(
     status = "completed"
     if any(s.event_type in ["error", "exception"] for s in steps):
         status = "failed"
-    elif conversation.status: # If conversation model has status
-        status = conversation.status
+    elif not conversation.is_active:
+        status = "ended"
+    else:
+        status = "active" if not conversation.ended_at else "ended"
 
     return TraceResponse(
         conversation_id=conversation_id,
