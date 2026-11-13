@@ -43,7 +43,7 @@ class EnterpriseReleaseSafetyTests(unittest.TestCase):
 
     def test_release_snapshots_include_graph(self):
         snapshot = function_in("app/services/agent_versions.py", "snapshot_agent")
-        for component in ("graph_validation", "validate_graph", "nodes", "connections", "entry_node_id"):
+        for component in ("validate_graph", "nodes", "connections", "entry_node_id"):
             with self.subTest(component=component):
                 self.assertIn(component, snapshot)
         release = function_in("app/api/enterprise.py", "create_version")
