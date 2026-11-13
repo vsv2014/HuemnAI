@@ -25,6 +25,8 @@ services:
       - .env
     environment:
       - ENV=production
+      - SECRET_KEY=${SECRET_KEY:?Set a strong, random SECRET_KEY of at least 32 characters}
+      - BYPASS_SUBSCRIPTION=0
     restart: always
     networks:
       - huemn-network
