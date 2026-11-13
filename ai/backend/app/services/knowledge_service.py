@@ -289,25 +289,27 @@ def query_crawled_knowledge(query: str, user_id: int, limit: int = 5) -> List[Di
             if not all_content:
                 return []
             
-            # Score content by similarity
-            scored_content = []
-            for content in all_content:
-                if content.embedding:
-                    stored_profile = (content.content_metadata or {}).get("embedding_profile")
-                    # Existing unversioned/fallback vectors require a controlled reindex.
-                    if not embeddings_compatible(stored_profile, query_profile):
-                        continue
-                    try:
-                        # Calculate similarity
-                        similarity = cosine_similarity(query_embedding, content.embedding)
-                        if similarity > 0:  # Only include positive matches
-                            scored_content.append((similarity, content))
-                    except Exception as e:
-                        logger.warning(f"Error calculating similarity: {e}")
-                        continue
+            # Score content by similarity (metrics omit tenant and query text)
+            from app.services.ai_metrics import measure_ai_stage
+            with measure_ai_stage("retrieval_scoring"):
+                scored_content = []
+                for content in all_content:
+                    if content.embedding:
+                        stored_profile = (content.content_metadata or {}).get("embedding_profile")
+                        # Existing unversioned/fallback vectors require a controlled reindex.
+                        if not embeddings_compatible(stored_profile, query_profile):
+                            continue
+                        try:
+                            # Calculate similarity
+                            similarity = cosine_similarity(query_embedding, content.embedding)
+                            if similarity > 0:  # Only include positive matches
+                                scored_content.append((similarity, content))
+                        except Exception as e:
+                            logger.warning(f"Error calculating similarity: {e}")
+                            continue
             
-            # Sort by score (highest first)
-            scored_content.sort(key=lambda x: x[0], reverse=True)
+                # Sort by score (highest first)
+                scored_content.sort(key=lambda x: x[0], reverse=True)
             
             # Return top results
             results = []
