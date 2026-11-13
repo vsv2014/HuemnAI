@@ -16,39 +16,21 @@ body {
   overflow: auto;
 }
 
-/* Prevent scrolling on agent builder page */
-html:has([data-agent-builder]),
-html:has([data-agent-builder]) * {
-  overflow: hidden !important;
-}
-
+/* The agent builder has its own scrollable panels. Never apply overflow:hidden
+   to *all descendants*: it makes menus, editors, dialogs and mobile views unusable. */
 html:has([data-agent-builder]) {
-  position: fixed !important;
-  width: 100% !important;
-  height: 100% !important;
-  margin: 0 !important;
-  padding: 0 !important;
-  top: 0 !important;
-  left: 0 !important;
+  overflow: auto;
 }
-
 body:has([data-agent-builder]) {
-  position: fixed !important;
-  width: 100vw !important;
-  height: 100vh !important;
-  margin: 0 !important;
-  padding: 0 !important;
-  top: 0 !important;
-  left: 0 !important;
-  overflow: hidden !important;
+  min-height: 100dvh;
+  overflow-x: hidden;
 }
-
-/* Ensure main content doesn't scroll */
-body:has([data-agent-builder]) #__next,
-body:has([data-agent-builder]) #__next > div {
-  height: 100vh !important;
-  overflow: hidden !important;
-  position: relative !important;
+[data-agent-builder] {
+  min-height: 0;
+}
+[data-agent-builder] .react-flow,
+[data-agent-builder] .react-flow__renderer {
+  min-height: 0;
 }
 
 ::-webkit-scrollbar {
@@ -1295,4 +1277,66 @@ header.fixed {
   transform: none !important;
   background: transparent !important;
   box-shadow: none !important;
+}
+
+
+/* Enterprise workspace design tokens; use these consistently instead of unrelated
+   neon accent colors and unreadable translucent overlays. */
+:root {
+  --huemn-page: #0b1220;
+  --huemn-surface: #121d2e;
+  --huemn-surface-raised: #1b2940;
+  --huemn-border: #36465e;
+  --huemn-text: #f4f7fb;
+  --huemn-muted: #bbc9dd;
+  --huemn-primary: #7084ff;
+  --huemn-primary-hover: #8796ff;
+  --huemn-focus: #64d8ff;
+  --huemn-danger: #fda4af;
+  color-scheme: dark;
+}
+.huemn-workspace {
+  background: var(--huemn-page);
+  color: var(--huemn-text);
+}
+.huemn-primary-button {
+  background: #384ad2;
+  color: #fff;
+  border: 1px solid #6c7dff;
+  transition: background .16s ease, border-color .16s ease;
+}
+.huemn-primary-button:hover:not(:disabled) { background: #4c5def; }
+.huemn-secondary-button {
+  background: var(--huemn-surface-raised);
+  color: var(--huemn-text);
+  border: 1px solid var(--huemn-border);
+  transition: background .16s ease, border-color .16s ease;
+}
+.huemn-secondary-button:hover:not(:disabled) {
+  background: #293954;
+  border-color: #6e83a1;
+}
+.huemn-notice {
+  border: 1px solid var(--huemn-border);
+  background: var(--huemn-surface);
+  color: var(--huemn-muted);
+  padding: 1rem;
+  border-radius: .75rem;
+}
+.huemn-workspace :where(button, a, textarea, input, select):focus-visible {
+  outline: 2px solid var(--huemn-focus);
+  outline-offset: 3px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .huemn-workspace *, .huemn-workspace *::before, .huemn-workspace *::after {
+    animation-duration: .01ms !important;
+    transition-duration: .01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+@media (max-width: 640px) {
+  .huemn-workspace {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
 }
