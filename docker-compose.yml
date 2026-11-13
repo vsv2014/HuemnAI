@@ -25,6 +25,10 @@ services:
       - .env
     environment:
       - ENV=production
+      - SECRET_KEY=${SECRET_KEY:?Set a strong, random SECRET_KEY of at least 32 characters}
+      - BYPASS_SUBSCRIPTION=0
+    volumes:
+      - private_knowledge_data:/app/private_uploads
     restart: always
     networks:
       - huemn-network
@@ -54,3 +58,5 @@ services:
 networks:
   huemn-network:
     driver: bridge
+volumes:
+  private_knowledge_data:
