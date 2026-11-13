@@ -30,22 +30,17 @@ def register_lifecycle(app: FastAPI):
             discover_and_enable_connectors()
         except Exception:
             pass
-        start_status_watcher()
-        # start daily knowledge reindexer (short interval during dev)
-        start_reindexer(interval_seconds=60 * 60 * 24)
-        try:
+        # Production timers are owned by exactly one dedicated scheduler process.
+        # Never start timers or event forwarders in every Gunicorn API worker.
+        from app.core.config import settings
+        import os
+        if not settings.IS_PROD and os.getenv("HUEMN_DEV_INPROCESS_JOBS", "0") == "1":
+            start_status_watcher()
+            start_reindexer(interval_seconds=60 * 60 * 24)
             start_token_consumer(interval_seconds=300)
-        except Exception:
-            pass
-        try:
             import asyncio
             asyncio.create_task(start_forwarder())
-        except Exception:
-            pass
-        try:
             start_workflow_scheduler()
-        except Exception:
-            pass
         yield
         # Shutdown
         pass
