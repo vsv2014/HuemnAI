@@ -25,6 +25,8 @@ services:
       - .env
     environment:
       - ENV=production
+    volumes:
+      - private_knowledge_data:/app/private_uploads
     restart: always
     networks:
       - huemn-network
@@ -54,3 +56,5 @@ services:
 networks:
   huemn-network:
     driver: bridge
+volumes:
+  private_knowledge_data:
