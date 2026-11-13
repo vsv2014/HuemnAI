@@ -74,8 +74,12 @@ def load_tool_configs():
                 apply_config_to_entry(entry, r)
             else:
                 # create a lightweight entry for unknown tool, so admin can view it
-                new_entry = ToolEntry(name=r.name, handler=lambda payload: None)
+                def unavailable_handler(payload, tool_name=r.name):
+                    raise RuntimeError(f"Tool '{tool_name}' has no executable implementation")
+                new_entry = ToolEntry(name=r.name, handler=unavailable_handler)
                 apply_config_to_entry(new_entry, r)
+                # A saved config cannot make an unimplemented tool executable.
+                new_entry.enabled = False
                 _registry[r.name] = new_entry
     finally:
         db.close()
