@@ -1172,13 +1172,10 @@ header {
   pointer-events: auto !important;
 }
 
-/* Ensure header stays fixed and non-interactive for dragging */
-header[style*="position"],
-header.sticky,
-header.fixed {
-  position: sticky !important;
-  top: 0 !important;
-  z-index: 50 !important;
+/* Preserve each header's intended fixed or sticky positioning. */
+header.sticky {
+  top: 0;
+  z-index: 50;
 }
 
 /* ============================================================================
