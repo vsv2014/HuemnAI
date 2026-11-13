@@ -1,5 +1,6 @@
 from sqlalchemy.orm import Session
 from app.db.models.enterprise import AIModel, ModelProvider
+from app.db.models.agent import Agent
 from app.core.security import encrypt_string, decrypt_string
 from typing import List, Optional, Dict, Any
 
@@ -36,9 +37,21 @@ class ModelProviderService:
         return db.query(AIModel).filter(AIModel.agent_id == agent_id, AIModel.is_active == True).all()
 
     @staticmethod
-    def get_provider_config(db: Session, provider_id: int) -> Dict[str, Any]:
-        """Returns the full config (decrypted) for a specific provider"""
-        provider = db.query(AIModel).filter(AIModel.id == provider_id).first()
+    def get_provider_config(
+        db: Session, provider_id: int, owner_user_id: int
+    ) -> Dict[str, Any]:
+        """Resolve BYOK only inside an explicitly authorized agent ownership scope.
+
+        Never select/decrypt an arbitrary model credential by globally visible ID.
+        """
+        if not isinstance(owner_user_id, int) or isinstance(owner_user_id, bool) or owner_user_id <= 0:
+            raise ValueError("Authenticated owner_user_id is required")
+        provider = db.query(AIModel).join(
+            Agent, AIModel.agent_id == Agent.id
+        ).filter(
+            AIModel.id == provider_id,
+            Agent.user_id == owner_user_id
+        ).first()
         if not provider:
             return {}
         
