@@ -12,60 +12,43 @@ except ImportError:
     ANTHROPIC_AVAILABLE = False
 
 class ClaudeLLM(BaseLLM):
-    async def stream(self, message: str, messages: Optional[List[Dict[str, str]]] = None, model: Optional[str] = None, temperature: float = 0.7, max_tokens: int = 2000) -> AsyncGenerator[str, None]:
-        # Get configuration
+    async def stream(
+        self, message: str, messages: Optional[List[Dict[str, str]]] = None,
+        model: Optional[str] = None, temperature: float = 0.7, max_tokens: int = 2000
+    ) -> AsyncGenerator[str, None]:
+        """Anthropic SDK streaming with explicit provider errors."""
         from app.services.config_service import get_llm_config
-        config = get_llm_config("claude")
-        
-        api_key = None
-        config_model = "claude-3-sonnet-20240229" # Default
-        
-        if config and config.get("is_database"):
-            api_key = config.get("api_key")
-            config_model = config.get("config_data", {}).get("model", config_model)
-            
-        if not api_key:
-            logger.warning("Claude API key not configured.")
-            yield "⚠️ Claude API key not configured."
-            return
-
+        config = get_llm_config("anthropic") or {}
+        key = config.get("api_key")
+        data = config.get("config_data") or {}
+        selected = model or data.get("model")
+        if not key:
+            raise RuntimeError("Anthropic credentials are not configured")
         if not ANTHROPIC_AVAILABLE:
-            yield "⚠️ Anthropic library not installed."
-            return
+            raise RuntimeError("Anthropic SDK is not installed")
+        if not selected:
+            raise RuntimeError("No Anthropic model configured")
 
-        client = AsyncAnthropic(api_key=api_key)
-        
-        target_model = model or config_model
-        
-        # Format messages for Claude
-        # Claude expects specific role structure (user/assistant alternating)
-        # and system prompt is separate in newer API
-        
-        system_prompt = "You are a helpful assistant."
-        formatted_messages = []
-        
-        if messages:
-            for msg in messages:
-                if msg["role"] == "system":
-                    system_prompt = msg["content"]
-                else:
-                    formatted_messages.append({
-                        "role": msg["role"],
-                        "content": msg["content"]
-                    })
-        else:
-            formatted_messages = [{"role": "user", "content": message}]
+        system = "You are a helpful assistant."
+        formatted = []
+        for item in (messages or [{"role": "user", "content": message}]):
+            if item.get("role") == "system":
+                system = str(item.get("content", system))
+            elif item.get("role") in ("user", "assistant"):
+                formatted.append({"role": item["role"], "content": item["content"]})
+        if not formatted:
+            formatted = [{"role": "user", "content": message}]
 
+        client = AsyncAnthropic(api_key=key, timeout=45, max_retries=0)
         try:
             async with client.messages.stream(
-                max_tokens=max_tokens,
-                messages=formatted_messages,
-                model=target_model,
-                system=system_prompt,
-                temperature=temperature,
-            ) as stream:
-                async for text in stream.text_stream:
-                    yield text
-        except Exception as e:
-            logger.error(f"Claude error: {e}")
-            yield f"Error from Claude: {str(e)}"
+                max_tokens=max_tokens, messages=formatted, model=selected,
+                system=system, temperature=temperature
+            ) as response:
+                async for token in response.text_stream:
+                    yield token
+        except Exception as exc:
+            logger.warning("Anthropic inference failed (%s)", type(exc).__name__)
+            raise RuntimeError("Anthropic inference failed") from exc
+        finally:
+            await client.close()
