@@ -5,7 +5,9 @@ from pydantic import BaseModel
 from datetime import datetime
 
 from app.db.session import get_db
-from app.db.models.agent import AgentAnalyticsEvent, AgentConversation, AgentNode
+from app.db.models.agent import Agent, AgentAnalyticsEvent, AgentConversation, AgentNode
+from app.api.auth import get_current_user
+from app.db.models.subscription import UserAccount
 
 router = APIRouter()
 
@@ -36,7 +38,8 @@ class TraceResponse(BaseModel):
 @router.get("/{conversation_id}", response_model=TraceResponse)
 async def get_conversation_trace(
     conversation_id: int,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: UserAccount = Depends(get_current_user)
 ):
     """
     Get full execution trace for a specific conversation session.
@@ -45,6 +48,9 @@ async def get_conversation_trace(
     # 1. Get Conversation Details
     conversation = db.query(AgentConversation).filter(AgentConversation.id == conversation_id).first()
     if not conversation:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    owner = db.query(Agent).filter(Agent.id == conversation.agent_id, Agent.user_id == current_user.id).first()
+    if not owner:
         raise HTTPException(status_code=404, detail="Conversation not found")
 
     # 2. Get All Events
