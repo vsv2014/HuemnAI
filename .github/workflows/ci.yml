@@ -1,8 +1,9 @@
 name: CI
 
 on:
+  workflow_dispatch:
   push:
-    branches: ["main", "master"]
+    branches: ["main", "master", "integration/enterprise-foundations"]
   pull_request:
     branches: ["main", "master"]
 
@@ -23,7 +24,8 @@ jobs:
           pip install -r requirements.txt
       - name: Static checks
         run: |
-          python -m py_compile $(git ls-files '*.py')
+          python -m compileall -q app tests
+          python tests/check_syntax.py
       - name: Embedding regression tests
         run: python -m unittest discover -s tests -p 'test_embedding_similarity.py'
       - name: Embedding provenance regression tests
