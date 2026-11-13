@@ -24,6 +24,8 @@ jobs:
       - name: Static checks
         run: |
           python -m py_compile $(git ls-files '*.py')
+      - name: Agent authorization contract regression tests
+        run: python -m unittest discover -s tests -p 'test_agent_access_policy.py'
       - name: Build Docker image
         run: |
           docker build -t huemn-backend:ci .
