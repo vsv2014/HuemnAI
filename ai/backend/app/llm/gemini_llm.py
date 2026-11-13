@@ -14,67 +14,51 @@ except ImportError:
     GEMINI_AVAILABLE = False
 
 class GeminiLLM(BaseLLM):
-    async def stream(self, message: str, messages: Optional[List[Dict[str, str]]] = None, model: Optional[str] = None, temperature: float = 0.7, max_tokens: int = 2000) -> AsyncGenerator[str, None]:
-        # Get configuration
+    async def stream(
+        self, message: str, messages: Optional[List[Dict[str, str]]] = None,
+        model: Optional[str] = None, temperature: float = 0.7, max_tokens: int = 2000
+    ) -> AsyncGenerator[str, None]:
+        """Use the Google GenAI async SDK, with typed failures and no fake tokens."""
         from app.services.config_service import get_llm_config
-        config = get_llm_config("gemini")
-        
-        api_key = None
-        config_model = "gemini-pro"
-        
-        if config and config.get("is_database"):
-            api_key = config.get("api_key")
-            config_model = config.get("config_data", {}).get("model", config_model)
-            
-        if not api_key:
-            logger.warning("Gemini API key not configured.")
-            yield "⚠️ Gemini API key not configured."
-            return
-
+        config = get_llm_config("google") or {}
+        key = config.get("api_key")
+        data = config.get("config_data") or {}
+        selected = model or data.get("model")
+        if not key:
+            raise RuntimeError("Google GenAI credentials are not configured")
         if not GEMINI_AVAILABLE:
-            yield "⚠️ Google GenAI library not installed."
-            return
+            raise RuntimeError("Google GenAI SDK is not installed")
+        if not selected:
+            raise RuntimeError("No Google GenAI model configured")
 
-        client = genai.Client(api_key=api_key)
-        
-        target_model = model or config_model
-        
-        # Convert messages to Gemini format
-        formatted_contents = []
-        system_instruction = None
-        
-        if messages:
-            for msg in messages:
-                role = msg["role"]
-                content = msg["content"]
-                
-                if role == "system":
-                    system_instruction = content
-                elif role == "user":
-                    formatted_contents.append(types.Content(role="user", parts=[types.Part.from_text(text=content)]))
-                elif role == "assistant":
-                    formatted_contents.append(types.Content(role="model", parts=[types.Part.from_text(text=content)]))
-        else:
-             formatted_contents.append(types.Content(role="user", parts=[types.Part.from_text(text=message)]))
+        history = messages or [{"role": "user", "content": message}]
+        system_instructions = [x["content"] for x in history if x.get("role") == "system"]
+        contents = []
+        for item in history:
+            role = item.get("role")
+            if role in ("user", "assistant"):
+                contents.append(types.Content(
+                    role="user" if role == "user" else "model",
+                    parts=[types.Part.from_text(text=str(item.get("content", "")))]
+                ))
+        if not contents:
+            contents = [types.Content(role="user", parts=[types.Part.from_text(text=message)])]
+        options = {"temperature": temperature, "max_output_tokens": max_tokens}
+        if system_instructions:
+            options["system_instruction"] = "\n".join(system_instructions)
 
+        client = genai.Client(api_key=key)
         try:
-            config_args = {}
-            if system_instruction:
-                 config_args['system_instruction'] = system_instruction
-            
-            config_args['temperature'] = temperature
-            config_args['max_output_tokens'] = max_tokens
-
-            response = client.models.generate_content_stream(
-                model=target_model,
-                contents=formatted_contents,
-                config=types.GenerateContentConfig(**config_args)
+            response = await client.aio.models.generate_content_stream(
+                model=selected,
+                contents=contents,
+                config=types.GenerateContentConfig(**options),
             )
-            
-            for chunk in response:
+            async for chunk in response:
                 if chunk.text:
                     yield chunk.text
-                    
-        except Exception as e:
-            logger.error(f"Gemini error: {e}")
-            yield f"Error from Gemini: {str(e)}"
+        except Exception as exc:
+            logger.warning("Google GenAI inference failed (%s)", type(exc).__name__)
+            raise RuntimeError("Google GenAI inference failed") from exc
+        finally:
+            await client.aio.aclose()
