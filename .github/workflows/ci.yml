@@ -24,6 +24,8 @@ jobs:
       - name: Static checks
         run: |
           python -m py_compile $(git ls-files '*.py')
+      - name: Password hashing migration tests
+        run: python -m unittest discover -s tests -p 'test_password_hash_migration.py'
       - name: Build Docker image
         run: |
           docker build -t huemn-backend:ci .
