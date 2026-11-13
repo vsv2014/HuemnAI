@@ -8,7 +8,7 @@ from copy import deepcopy
 import re
 from typing import Dict, Any
 from sqlalchemy.orm import Session
-from app.db.models.agent import Agent, AgentNode, AgentConnection
+from app.db.models.agent import Agent, AgentNode, AgentConnection, AgentFlow
 from app.services.graph_validation import validate_graph
 
 
@@ -44,6 +44,9 @@ def snapshot_agent(db: Session, agent: Agent) -> Dict[str, Any]:
     connections = db.query(AgentConnection).filter(
         AgentConnection.agent_id == agent.id
     ).order_by(AgentConnection.id.asc()).all()
+    flows = db.query(AgentFlow).filter(
+        AgentFlow.agent_id == agent.id
+    ).order_by(AgentFlow.id.asc()).all()
     graph = validate_graph(
         [node.id for node in nodes],
         [(edge.source_node_id, edge.target_node_id) for edge in connections],
@@ -89,6 +92,17 @@ def snapshot_agent(db: Session, agent: Agent) -> Dict[str, Any]:
                 "label": edge.label,
             }
             for edge in connections
+        ],
+        "flows": [
+            {
+                "id": flow.id,
+                "name": flow.name,
+                "description": flow.description,
+                "flow_definition": safe_snapshot(flow.flow_definition),
+                "is_active": flow.is_active,
+                "is_default": flow.is_default,
+            }
+            for flow in flows
         ],
     }
 
