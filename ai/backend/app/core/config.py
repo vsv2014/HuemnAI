@@ -9,6 +9,8 @@ class Settings:
     APP_NAME = "HUEMN.Ai"
     ENV = os.getenv("ENV", "dev")
     IS_PROD = ENV.lower() in ("prod", "production")
+    # Development-only authentication shortcuts require explicit opt-in.
+    DEV_AUTH_BYPASS = ENV.lower() == "dev" and os.getenv("DEV_AUTH_BYPASS", "0") == "1"
 
     # Database
     DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./huemn.db" if not IS_PROD else "")
