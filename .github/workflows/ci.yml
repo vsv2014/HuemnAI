@@ -28,6 +28,8 @@ jobs:
         run: python -m unittest discover -s tests -p 'test_embedding_similarity.py'
       - name: Embedding provenance regression tests
         run: python -m unittest discover -s tests -p 'test_embedding_provenance.py'
+      - name: Bounded RAG chunking regression tests
+        run: python -m unittest discover -s tests -p 'test_bounded_chunking.py'
       - name: Agent authorization contract tests
         run: python -m unittest discover -s tests -p 'test_agent_access_policy.py'
       - name: Unsafe code execution guard tests
