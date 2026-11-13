@@ -5,13 +5,24 @@ retrieval. It is NOT a pgvector/HNSW index and does not replace source ACLs.
 """
 from collections import Counter
 import math
-import re
+import unicodedata
 from typing import Any, List, Tuple
 
 
 def tokenize(text: str) -> List[str]:
-    return re.findall(r"\w+", (text or "").lower(), flags=re.UNICODE)
-
+    """Keep combining marks attached to letters in Indic and other scripts."""
+    tokens = []
+    buf = []
+    for char in (text or "").casefold():
+        category = unicodedata.category(char)
+        if category[:1] in ("L", "M", "N") or char == "_":
+            buf.append(char)
+        elif buf:
+            tokens.append("".join(buf))
+            buf.clear()
+    if buf:
+        tokens.append("".join(buf))
+    return tokens
 
 def rank_hybrid(
     query: str, candidates: List[Tuple[float, Any]], limit: int = 5
