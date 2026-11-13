@@ -38,6 +38,11 @@ jobs:
         run: python -m unittest discover -s tests -p 'test_password_hash_migration.py'
       - name: Enterprise authorization and UI contract tests
         run: python -m unittest discover -s tests -p 'test_enterprise_boundaries.py'
+      - name: Graph lint and BYOK isolation tests
+        run: |
+          python -m unittest discover -s tests -p 'test_graph_validation.py'
+          python -m unittest discover -s tests -p 'test_provider_scope.py'
+          python -m unittest discover -s tests -p 'test_scheduler_policy.py'
       - name: Build Docker image
         run: |
           docker build -t huemn-backend:ci .
