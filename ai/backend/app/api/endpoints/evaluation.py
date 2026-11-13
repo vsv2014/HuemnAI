@@ -6,7 +6,7 @@ from datetime import datetime
 
 from app.db.session import get_db
 from app.db.models.evaluation import EvaluationLog
-from app.db.models.agent import Agent
+from app.db.models.agent import Agent, AgentConversation
 from app.api.auth import get_current_user
 from app.db.models.subscription import UserAccount
 
@@ -108,4 +108,50 @@ async def evaluate_retrieval_on_goldset(
             "Retrieval metrics do not measure answer groundedness or hallucinations.",
             "No document text or customer question is saved by this endpoint.",
         ],
+    }
+
+
+class TrajectoryEvaluationRequest(BaseModel):
+    session_id: str = Field(min_length=1, max_length=255)
+    required_sequence: List[str] = Field(min_length=1, max_length=50)
+    forbidden_types: List[str] = Field(default_factory=list, max_length=50)
+    max_error_steps: int = Field(default=0, ge=0, le=100)
+
+
+@router.post("/agent/{agent_id}/trajectory/run")
+async def evaluate_persisted_agent_trajectory(
+    agent_id: int,
+    request: TrajectoryEvaluationRequest,
+    db: Session = Depends(get_db),
+    current_user: UserAccount = Depends(get_current_user),
+):
+    """Score *persisted* trace evidence, never caller-supplied fabricated events."""
+    from app.services.trajectory_evaluation import score_trajectory
+
+    owned = db.query(Agent.id).filter(
+        Agent.id == agent_id,
+        Agent.user_id == current_user.id,
+    ).first()
+    if not owned:
+        raise HTTPException(status_code=404, detail="Agent not found")
+    conversation = db.query(AgentConversation).filter(
+        AgentConversation.agent_id == agent_id,
+        AgentConversation.session_id == request.session_id,
+    ).first()
+    if not conversation:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    trace = conversation.debug_trace if isinstance(conversation.debug_trace, list) else []
+    if not trace:
+        raise HTTPException(status_code=409, detail="No persisted trace to evaluate")
+    result = score_trajectory(
+        trace,
+        request.required_sequence,
+        request.forbidden_types,
+        request.max_error_steps,
+    )
+    return {
+        "agent_id": agent_id,
+        "session_id": request.session_id,
+        **result,
     }
