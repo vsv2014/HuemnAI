@@ -59,11 +59,12 @@ async def protect_private_knowledge_uploads(request: Request, call_next):
 register_lifecycle(app)
 
 # Start status watcher for activity tracking
-start_status_watcher()
-
-# Start knowledge crawler scheduler
-start_knowledge_crawler_scheduler()
-start_token_consumer(interval_seconds=60)
+# In-process timers belong to local development only. Production workers are
+# separate processes; four Gunicorn workers must never each start a scheduler.
+if not settings.IS_PROD and os.getenv("HUEMN_DEV_INPROCESS_JOBS", "0") == "1":
+    start_status_watcher()
+    start_knowledge_crawler_scheduler()
+    start_token_consumer(interval_seconds=60)
 
 # Initialize Prometheus Metrics
 Instrumentator().instrument(app).expose(app, include_in_schema=False)
