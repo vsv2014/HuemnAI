@@ -5,6 +5,7 @@ It is not itself a deployment: runtime must be changed to resolve version-pinned
 snapshots before environment promotion or rollback can be offered.
 """
 from copy import deepcopy
+import re
 from typing import Dict, Any
 from sqlalchemy.orm import Session
 from app.db.models.agent import Agent, AgentNode, AgentConnection
@@ -14,7 +15,8 @@ from app.services.graph_validation import validate_graph
 _SECRET_KEYS = frozenset({
     "api_key", "access_token", "refresh_token", "private_key",
     "password", "client_secret", "authorization", "credentials",
-    "bearer_token", "secret_key", "webhook_secret",
+    "bearer_token", "secret_key", "webhook_secret", "token",
+    "service_account_key", "access_key", "signing_key",
 })
 
 
@@ -26,7 +28,7 @@ def safe_snapshot(value: Any) -> Any:
     """
     if isinstance(value, dict):
         return {
-            key: "[REDACTED]" if str(key).casefold() in _SECRET_KEYS
+            key: "[REDACTED]" if re.sub(r"(?<!^)(?=[A-Z])", "_", str(key)).lower().replace("-", "_") in _SECRET_KEYS
             else safe_snapshot(child)
             for key, child in value.items()
         }
