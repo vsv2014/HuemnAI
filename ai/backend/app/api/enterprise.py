@@ -15,7 +15,28 @@ from app.db.models.agent import Agent, AgentVersion
 
 from app.services.llm.provider_service import model_service
 
-router = APIRouter(prefix="/agents/{agent_id}", tags=["enterprise"])
+from app.api.auth import get_current_user
+from app.db.models.subscription import UserAccount
+
+
+def require_owned_agent(
+    agent_id: int,
+    db: Session = Depends(get_db),
+    current_user: UserAccount = Depends(get_current_user),
+) -> None:
+    """All enterprise agent settings are private to their authenticated owner."""
+    owned = db.query(Agent.id).filter(
+        Agent.id == agent_id, Agent.user_id == current_user.id
+    ).first()
+    if owned is None:
+        raise HTTPException(status_code=404, detail="Agent not found")
+
+
+router = APIRouter(
+    prefix="/agents/{agent_id}",
+    tags=["enterprise"],
+    dependencies=[Depends(require_owned_agent)],
+)
 
 
 # ============================================================================
