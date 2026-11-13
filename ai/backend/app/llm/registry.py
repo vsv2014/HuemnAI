@@ -42,27 +42,25 @@ def get_llm(name: str = None):
             elif get_llm_config("mistral") and get_llm_config("mistral").get("is_database") and get_llm_config("mistral").get("api_key"):
                 name = "mistral"
             else:
-                # No UI config - default to openai (will return error when used)
-                name = "openai"
+                raise RuntimeError("No configured and enabled LLM provider")
         except Exception as e:
             logger.debug(f"Error checking UI config: {e}")
-            # No fallback - default to openai (will return error when used)
-            name = "openai"
+            raise RuntimeError("Unable to determine available LLM provider") from e
     
     if name not in _LLM_INSTANCES:
         if name == "openai":
             _LLM_INSTANCES[name] = OpenAILLM()
         elif name == "azure":
             _LLM_INSTANCES[name] = AzureLLM()
-        elif name == "claude":
+        elif name in ("claude", "anthropic"):
             _LLM_INSTANCES[name] = ClaudeLLM()
-        elif name == "gemini":
+        elif name in ("gemini", "google", "google_gemini"):
             _LLM_INSTANCES[name] = GeminiLLM()
-        elif name in ["groq", "together", "ollama", "mistral", "cohere", "google"]:
+        elif name in ["groq", "together", "ollama", "mistral", "cohere"]:
             _LLM_INSTANCES[name] = GenericLLM(provider=name)
         else:
-            # Fallback to OpenAI if unknown
-            _LLM_INSTANCES[name] = OpenAILLM()
+            # Unknown providers must never execute a different model silently.
+            raise ValueError(f"Unsupported LLM provider: {name}")
     return _LLM_INSTANCES[name]
 
 def get_available_llm():
@@ -99,5 +97,5 @@ def get_available_llm():
     except Exception as e:
         logger.debug(f"Error checking UI config: {e}")
     
-    # NO FALLBACK - return openai instance (will return error when used)
-    return get_llm("openai")
+    # Missing configuration is an operational error, not an implicit provider choice.
+    raise RuntimeError("No configured and enabled LLM provider. Configure a provider in Settings.")
