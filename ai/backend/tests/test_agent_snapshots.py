@@ -11,9 +11,13 @@ class AgentSnapshotTests(unittest.TestCase):
             "api_key": "sk-secret",
             "provider": "openai",
             "nested": [{"authorization": "Bearer another-secret", "token_limit": 4096}],
+            "apiKey": "CAMEL_CASE_SECRET",
+            "client-secret": "HYPHEN_SECRET",
         }
         cleaned = safe_snapshot(original)
         self.assertEqual(cleaned["api_key"], "[REDACTED]")
+        self.assertEqual(cleaned["apiKey"], "[REDACTED]")
+        self.assertEqual(cleaned["client-secret"], "[REDACTED]")
         self.assertEqual(cleaned["nested"][0]["authorization"], "[REDACTED]")
         self.assertEqual(cleaned["nested"][0]["token_limit"], 4096)
         self.assertEqual(original["api_key"], "sk-secret")
