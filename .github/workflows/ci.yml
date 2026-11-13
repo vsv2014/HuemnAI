@@ -24,6 +24,8 @@ jobs:
       - name: Static checks
         run: |
           python -m py_compile $(git ls-files '*.py')
+      - name: Untrusted code execution guard tests
+        run: python -m unittest discover -s tests -p 'test_code_execution_guard.py'
       - name: Build Docker image
         run: |
           docker build -t huemn-backend:ci .
