@@ -2,12 +2,14 @@
 API endpoints for managing knowledge sources (websites, documents)
 """
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, HttpUrl
 from typing import List, Optional, Dict
 from datetime import datetime, timedelta
 import logging
 import os
 import shutil
+import uuid
 from pathlib import Path
 
 from app.db.session import SessionLocal
@@ -24,8 +26,10 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 # Upload directory for documents
-UPLOAD_DIR = Path("uploads/knowledge")
+# Knowledge files must not live under the publicly served /uploads mount.
+UPLOAD_DIR = Path(os.getenv("HUEMN_PRIVATE_KNOWLEDGE_DIR", "private_uploads/knowledge"))
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+LEGACY_UPLOAD_DIR = Path("uploads/knowledge")
 
 def get_db():
     db = SessionLocal()
@@ -78,11 +82,7 @@ def _trigger_crawl_async(source_id: int, user_id: int):
                 raise ValueError(f"Failed to crawl any content from {source.url}. The website might be blocking crawlers or require authentication.")
             
             for page in crawled_pages:
-                embedding = None
-                try:
-                    embedding = get_embedding(page['content'])
-                except Exception as e:
-                    logger.warning(f"Error creating embedding: {e}")
+                embedding = get_embedding(page['content'])
                 
                 content = KnowledgeContent(
                     source_id=source.id,
@@ -110,11 +110,7 @@ def _trigger_crawl_async(source_id: int, user_id: int):
                 chunk_words = words[i:i+chunk_size]
                 chunk_content = ' '.join(chunk_words)
                 
-                embedding = None
-                try:
-                    embedding = get_embedding(chunk_content)
-                except Exception as e:
-                    logger.warning(f"Error creating embedding: {e}")
+                embedding = get_embedding(chunk_content)
                 
                 content = KnowledgeContent(
                     source_id=source.id,
@@ -261,8 +257,12 @@ async def upload_document(
 ):
     """Upload a document file"""
     try:
+        # Drop any path components from client filenames; use a random storage name.
+        original_filename = Path((file.filename or "").replace("\\", "/")).name
+        if original_filename in ("", ".", ".."):
+            raise HTTPException(status_code=400, detail="A valid document filename is required")
         # Determine file type
-        file_ext = Path(file.filename).suffix.lower()
+        file_ext = Path(original_filename).suffix.lower()
         source_type_map = {
             '.pdf': SourceType.PDF,
             '.docx': SourceType.DOCX,
@@ -285,6 +285,7 @@ async def upload_document(
             name=name,
             source_type=source_type,
             file_path=None,  # Will be set after file is saved
+            source_metadata={"original_filename": original_filename},
             auto_crawl=auto_crawl,
             is_active=True,
             crawl_status="pending"
@@ -295,7 +296,7 @@ async def upload_document(
         db.refresh(source)
         
         # Save file with source ID
-        file_path = UPLOAD_DIR / f"{user.id}_{source.id}_{file.filename}"
+        file_path = UPLOAD_DIR / f"{user.id}_{source.id}_{uuid.uuid4().hex}{file_ext}"
         with open(file_path, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
         
@@ -317,7 +318,8 @@ async def upload_document(
                 "id": source.id,
                 "name": source.name,
                 "source_type": source.source_type.value,
-                "file_path": source.file_path,
+                "file_path": None,  # Raw server file paths must not be exposed to clients.
+                "download_url": f"/api/knowledge/sources/{source.id}/download",
                 "crawl_status": source.crawl_status,
                 "created_at": source.created_at.isoformat()
             }
@@ -347,7 +349,8 @@ async def list_sources(
                 "name": s.name,
                 "source_type": s.source_type.value,
                 "url": s.url,
-                "file_path": s.file_path,
+                "file_path": None,
+                "download_url": f"/api/knowledge/sources/{s.id}/download" if s.file_path else None,
                 "auto_crawl": s.auto_crawl,
                 "crawl_status": s.crawl_status,
                 "last_crawled_at": s.last_crawled_at.isoformat() if s.last_crawled_at else None,
@@ -360,6 +363,41 @@ async def list_sources(
             for s in sources
         ]
     }
+
+def _safe_knowledge_path(file_path: str) -> Path:
+    """Resolve only private knowledge files or explicitly supported legacy uploads."""
+    path = Path(file_path).resolve()
+    allowed_roots = (UPLOAD_DIR.resolve(), LEGACY_UPLOAD_DIR.resolve())
+    if not any(path.is_relative_to(root) for root in allowed_roots):
+        raise HTTPException(status_code=404, detail="Document not found")
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="Document not found")
+    return path
+
+
+@router.get("/sources/{source_id}/download")
+async def download_source(
+    source_id: int,
+    user: UserAccount = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Download a knowledge document only when the authenticated user owns it."""
+    source = db.query(KnowledgeSource).filter(
+        KnowledgeSource.id == source_id,
+        KnowledgeSource.user_id == user.id,
+    ).first()
+    if not source or not source.file_path:
+        raise HTTPException(status_code=404, detail="Document not found")
+    path = _safe_knowledge_path(source.file_path)
+    original_name = (source.source_metadata or {}).get("original_filename") or path.name
+    filename = Path(str(original_name).replace("\\", "/")).name
+    return FileResponse(
+        path=path,
+        media_type="application/octet-stream",
+        filename=filename,
+        headers={"Cache-Control": "private, no-store"},
+    )
+
 
 @router.get("/sources/{source_id}")
 async def get_source(
@@ -383,7 +421,8 @@ async def get_source(
             "name": source.name,
             "source_type": source.source_type.value,
             "url": source.url,
-            "file_path": source.file_path,
+            "file_path": None,
+            "download_url": f"/api/knowledge/sources/{source.id}/download" if source.file_path else None,
             "auto_crawl": source.auto_crawl,
             "crawl_interval_hours": source.crawl_interval_hours,
             "crawl_status": source.crawl_status,
@@ -504,11 +543,7 @@ async def crawl_source(
             # Store each page as a content chunk
             for page in crawled_pages:
                 # Create embedding
-                embedding = None
-                try:
-                    embedding = get_embedding(page['content'])
-                except Exception as e:
-                    logger.warning(f"Error creating embedding: {e}")
+                embedding = get_embedding(page['content'])
                 
                 content = KnowledgeContent(
                     source_id=source.id,
@@ -538,11 +573,7 @@ async def crawl_source(
                 chunk_content = ' '.join(chunk_words)
                 
                 # Create embedding
-                embedding = None
-                try:
-                    embedding = get_embedding(chunk_content)
-                except Exception as e:
-                    logger.warning(f"Error creating embedding: {e}")
+                embedding = get_embedding(chunk_content)
                 
                 content = KnowledgeContent(
                     source_id=source.id,
