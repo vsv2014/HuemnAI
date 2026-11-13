@@ -42,6 +42,8 @@ jobs:
         run: python -m unittest discover -s tests -p 'test_password_hash_migration.py'
       - name: Enterprise authorization and UI contract tests
         run: python -m unittest discover -s tests -p 'test_enterprise_boundaries.py'
+      - name: Enterprise releases and tool security tests
+        run: python -m unittest discover -s tests -p 'test_release_policies.py'
       - name: Graph lint and BYOK isolation tests
         run: |
           python -m unittest discover -s tests -p 'test_graph_validation.py'
