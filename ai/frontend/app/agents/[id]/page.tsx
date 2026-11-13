@@ -16,6 +16,8 @@ import {
   processAgentMessage,
   getAgents,
   redirectChatToCall,
+  validateAgentGraph,
+  type AgentGraphValidation,
 } from "@/services/api";
 import DebugPanel from "@/components/DebugPanel";
 
@@ -7236,6 +7238,9 @@ export default function AgentBuilderPage() {
   });
   const [searchQuery, setSearchQuery] = useState("");
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  const [graphReport, setGraphReport] = useState<AgentGraphValidation | null>(null);
+  const [graphChecking, setGraphChecking] = useState(false);
+  const [graphError, setGraphError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!isAuthenticated) {
@@ -7260,6 +7265,25 @@ export default function AgentBuilderPage() {
       console.error(err);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const checkGraph = async () => {
+    if (!token || graphChecking) return;
+    setGraphChecking(true);
+    setGraphError(null);
+    setGraphReport(null);
+    try {
+      const response = await validateAgentGraph(agentId, token);
+      if (response?.error) throw new Error(String(response.error));
+      if (!response || !Array.isArray(response.errors) || !Array.isArray(response.warnings)) {
+        throw new Error("Graph validation returned an unexpected response.");
+      }
+      setGraphReport(response);
+    } catch (cause) {
+      setGraphError(cause instanceof Error ? cause.message : "Graph validation failed");
+    } finally {
+      setGraphChecking(false);
     }
   };
 
@@ -7295,7 +7319,7 @@ export default function AgentBuilderPage() {
         WebkitUserSelect: 'none',
         MozUserSelect: 'none',
         msUserSelect: 'none',
-        touchAction: 'none',
+        touchAction: 'auto',
       }}
       onDragStart={(e) => {
         // Only allow dragging inside ReactFlow canvas, not the page container
@@ -7326,7 +7350,7 @@ export default function AgentBuilderPage() {
           WebkitUserSelect: 'none',
           MozUserSelect: 'none',
           msUserSelect: 'none',
-          touchAction: 'none',
+          touchAction: 'auto',
           cursor: 'default'
         }}
         onDragStart={(e) => {
@@ -7347,16 +7371,7 @@ export default function AgentBuilderPage() {
           return false;
         }}
         draggable={false}
-        onMouseDown={(e) => {
-          e.preventDefault();
-          e.stopPropagation();
-        }}
-        onMouseMove={(e) => {
-          if (e.buttons === 1) {
-            e.preventDefault();
-            e.stopPropagation();
-          }
-        }}
+
       >
         <div 
           className="flex items-center justify-between"
@@ -7382,7 +7397,12 @@ export default function AgentBuilderPage() {
               <p className="text-sm text-white/60">{agent.description || "No description"}</p>
             </div>
           </div>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <button type="button" onClick={() => { void checkGraph(); }}
+              disabled={graphChecking}
+              className="huemn-secondary-button min-h-[44px] rounded-lg px-4 py-2 text-sm font-semibold disabled:opacity-50">
+              {graphChecking ? "Checking graph…" : "Validate graph"}
+            </button>
             <button
               onClick={() => setShowTestPanel(!showTestPanel)}
               className={`px-4 py-2 rounded-lg transition-colors font-semibold ${
@@ -7403,6 +7423,27 @@ export default function AgentBuilderPage() {
         </div>
       </div>
 
+      {(graphReport || graphError) && (
+        <section aria-live="polite" className="max-h-48 overflow-y-auto border-b border-slate-700 bg-slate-900/95 px-4 py-3 text-sm">
+          <div className="mx-auto max-w-5xl">
+            {graphError && <p role="alert" className="text-rose-200">{graphError}</p>}
+            {graphReport && (
+              <>
+                <p className={graphReport.valid ? "font-semibold text-emerald-200" : "font-semibold text-rose-200"}>
+                  {graphReport.valid ? "Graph structure valid" : "Graph has blocking errors"} · {graphReport.node_count} nodes · {graphReport.connection_count} connections
+                </p>
+                {graphReport.errors.concat(graphReport.warnings).length > 0 && (
+                  <ul className="mt-2 list-inside list-disc space-y-1 text-slate-200">
+                    {graphReport.errors.map((issue, i) => <li key={"error-" + i}>Error: {issue.message} {issue.node ? "(node " + issue.node + ")" : ""}</li>)}
+                    {graphReport.warnings.map((issue, i) => <li key={"warning-" + i}>Warning: {issue.message} {issue.node ? "(node " + issue.node + ")" : ""}</li>)}
+                  </ul>
+                )}
+              </>
+            )}
+          </div>
+        </section>
+      )}
+
       {/* Main Content Area with Tabs */}
       <div 
         className="flex-1 min-h-0 flex flex-col no-drag"
@@ -7411,7 +7452,7 @@ export default function AgentBuilderPage() {
           WebkitUserSelect: 'none',
           MozUserSelect: 'none',
           msUserSelect: 'none',
-        touchAction: 'none'
+        touchAction: 'auto'
         }}
         onDragStart={(e) => {
           const target = e.target as HTMLElement;
@@ -7614,7 +7655,7 @@ export default function AgentBuilderPage() {
                                     color: "#fff",
                                     userSelect: 'none',
                                     WebkitUserSelect: 'none',
-                                    touchAction: 'none',
+                                    touchAction: 'auto',
                                     pointerEvents: 'auto',
                                     cursor: 'grab',
                                   }}
