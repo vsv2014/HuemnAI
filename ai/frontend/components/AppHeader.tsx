@@ -18,14 +18,14 @@ export default function AppHeader({ agentId, agentName, environment = "In Dev" }
 
   return (
     <header 
-      className="sticky top-0 z-50 bg-gradient-to-r from-[#1a1f3a]/95 to-[#252b4a]/95 border-b border-white/10 backdrop-blur-xl shadow-lg select-none no-drag"
+      className="sticky top-0 z-50 bg-slate-950/95 border-b border-slate-700/70 backdrop-blur-xl shadow-lg select-none no-drag"
       style={{ 
         pointerEvents: 'auto',
         userSelect: 'none',
         WebkitUserSelect: 'none',
         MozUserSelect: 'none',
         msUserSelect: 'none',
-        touchAction: 'none',
+        touchAction: 'auto',
         cursor: 'default'
       }}
       onDragStart={(e) => {

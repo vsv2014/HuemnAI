@@ -91,7 +91,7 @@ export default function AgentsPage() {
   }
 
   return (
-    <div className="min-h-screen text-white flex flex-col relative z-10">
+    <div className="huemn-workspace min-h-screen text-slate-100 flex flex-col relative z-10">
       <div className="flex-grow p-6">
         <div className="max-w-7xl mx-auto">
           <Link href="/" className="inline-flex items-center text-white/60 hover:text-white mb-6 transition-colors">
@@ -105,12 +105,12 @@ export default function AgentsPage() {
           <div className="mb-8">
             <div className="flex items-center justify-between mb-4">
               <div>
-                <h1 className="text-4xl font-bold mb-2">Agent Builder</h1>
+                <h1 className="text-3xl sm:text-4xl font-semibold tracking-tight mb-2">Agent Builder</h1>
                 <p className="text-white/70">Build and manage your AI agents with visual flow builder</p>
               </div>
               <Link
                 href="/agents/new"
-                className="px-6 py-3 bg-gradient-to-r from-blue-500 to-purple-500 text-white rounded-lg hover:from-blue-600 hover:to-purple-600 transition-all font-semibold shadow-[0_0_20px_rgba(59,130,246,0.3)] hover:shadow-[0_0_30px_rgba(59,130,246,0.5)] border border-white/10"
+                className="px-6 py-3 huemn-primary-button rounded-xl transition-colors font-semibold"
               >
                 + Create Agent
               </Link>
@@ -132,17 +132,17 @@ export default function AgentsPage() {
               <p className="text-white/60 mb-6">Create your first agent to get started</p>
               <Link
                 href="/agents/new"
-                className="inline-block px-6 py-3 bg-gradient-to-r from-blue-500 to-purple-500 text-white rounded-lg hover:from-blue-600 hover:to-purple-600 transition-all font-semibold"
+                className="inline-block px-6 py-3 huemn-primary-button rounded-xl transition-colors font-semibold"
               >
                 Create Your First Agent
               </Link>
             </div>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
               {agents.map((agent) => (
                 <div
                   key={agent.id}
-                  className="bg-white/5 rounded-2xl border border-white/10 p-6 hover:border-white/20 transition-all hover:bg-white/10 shadow-[0_8px_32px_0_rgba(0,0,0,0.36)] backdrop-blur-xl group"
+                  className="bg-slate-900/90 rounded-2xl border border-slate-700/75 p-5 hover:border-sky-500/40 transition-colors shadow-lg shadow-black/10 group"
                 >
                   <div className="flex items-start justify-between mb-4">
                     <div>
@@ -175,28 +175,28 @@ export default function AgentsPage() {
                       {new Date(agent.created_at).toLocaleDateString()}
                     </span>
                   </div>
-                  <div className="flex gap-2">
+                  <div className="flex flex-wrap gap-2">
                     <Link
                       href={`/agents/${agent.id}`}
-                      className="flex-1 px-4 py-2 bg-blue-500/20 text-blue-300 rounded-lg hover:bg-blue-500/30 transition-colors text-center text-sm font-medium border border-blue-500/30"
+                      className="flex-1 px-4 py-2 bg-sky-500/15 text-sky-200 rounded-lg hover:bg-sky-500/25 transition-colors text-center text-sm font-medium border border-blue-500/30"
                     >
                       Edit
                     </Link>
                     <Link
                       href={`/agents/${agent.id}/test`}
-                      className="px-4 py-2 bg-green-500/20 text-green-300 rounded-lg hover:bg-green-500/30 transition-colors text-sm font-medium border border-green-500/30"
+                      className="px-4 py-2 bg-emerald-500/15 text-emerald-200 rounded-lg hover:bg-emerald-500/25 transition-colors text-sm font-medium border border-green-500/30"
                     >
                       Test
                     </Link>
                     <Link
                       href={`/agents/${agent.id}/integrate`}
-                      className="px-4 py-2 bg-purple-500/20 text-purple-300 rounded-lg hover:bg-purple-500/30 transition-colors text-sm font-medium border border-purple-500/30"
+                      className="px-4 py-2 bg-slate-700/45 text-slate-200 rounded-lg hover:bg-slate-700/70 transition-colors text-sm font-medium border border-purple-500/30"
                     >
                       Integrate
                     </Link>
                     <button
                       onClick={() => handleDelete(agent.id)}
-                      className="px-4 py-2 bg-red-500/20 text-red-300 rounded-lg hover:bg-red-500/30 transition-colors text-sm font-medium border border-red-500/30"
+                      className="px-4 py-2 bg-rose-500/15 text-rose-200 rounded-lg hover:bg-rose-500/25 transition-colors text-sm font-medium border border-red-500/30"
                     >
                       Delete
                     </button>

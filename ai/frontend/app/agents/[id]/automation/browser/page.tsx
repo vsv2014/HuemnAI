@@ -299,7 +299,7 @@ export default function BrowserStudioPage() {
                 {isRecording ? "Stop Recording" : "🔴 Record Steps"}
               </Button>
               <Button className="bg-blue-600 hover:bg-blue-700" onClick={handleExecute} disabled={isExecuting || isRecording}>
-                {isExecuting ? <><LoadingSpinner size="sm" className="mr-2" /> Executing...</> : "Execute Now"}
+                {isExecuting ? <><span className="mr-2"><LoadingSpinner size="sm" /></span> Executing...</> : "Execute Now"}
               </Button>
             </div>
           </div>

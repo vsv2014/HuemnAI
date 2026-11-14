@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Dict, Any, Tuple
 import os
 
 try:
@@ -7,53 +7,96 @@ except Exception:
     openai = None
 
 
-def get_embedding(text: str) -> List[float]:
-    """Return an embedding vector for text using OpenAI embeddings if available, else a simple hash-based vector."""
-    text = text[:8000] if text else ""
-    # Try to get from user configuration first (OpenAI for embeddings)
-    from app.services.config_service import get_llm_config
-    config = get_llm_config("openai")  # Embeddings require OpenAI
-    api_key = config.get("api_key") if config else None
-    embedding_model = config.get("config_data", {}).get("embedding_model", "text-embedding-3-small") if config else None
-    
-    # Fallback to environment (deprecated - use UI Settings instead)
-    if not api_key:
-        api_key = os.getenv("OPENAI_API_KEY")
-        if not api_key:
-            # No key configured - will use fallback embeddings
-            pass
-    if not embedding_model:
-        embedding_model = os.getenv("OPENAI_EMBEDDING_MODEL", "text-embedding-3-small")
-    
-    # Prefer OpenAI if configured
-    if openai and api_key:
-        try:
-            # Try new OpenAI API (v1.0+)
-            from openai import OpenAI
-            client = OpenAI(api_key=api_key, timeout=20)
-            model = embedding_model
-            resp = client.embeddings.create(input=text, model=model)
-            return resp.data[0].embedding
-        except (ImportError, AttributeError):
-            # Fallback to old API format
-            try:
-                openai.api_key = os.getenv("OPENAI_API_KEY")
-                model = os.getenv("OPENAI_EMBEDDING_MODEL", "text-embedding-3-small")
-                resp = openai.Embedding.create(input=text, model=model, request_timeout=20)
-                return resp["data"][0]["embedding"]
-            except Exception as e:
-                logger = __import__("logging").getLogger(__name__)
-                logger.warning(f"OpenAI embedding failed: {e}, using fallback")
+class EmbeddingError(RuntimeError):
+    """Embedding generation failed; do not substitute incompatible synthetic vectors."""
 
-    # Fallback: naive embedding (character-level hashed buckets)
-    vec_size = 64
-    vec = [0.0] * vec_size
-    for i, ch in enumerate(text[:512]):
-        vec[i % vec_size] += ord(ch) / 255.0
-    # normalize
-    norm = sum(x*x for x in vec) ** 0.5 or 1.0
-    return [x / norm for x in vec]
+
+class EmbeddingConfigurationError(EmbeddingError):
+    """No usable embedding provider is configured."""
+
+
+class EmbeddingProviderError(EmbeddingError):
+    """A configured embedding provider could not return a valid vector."""
+
+
+def get_embedding(text: str) -> List[float]:
+    """Compatibility wrapper for call sites that only need the vector."""
+    vector, _profile = get_embedding_with_profile(text)
+    return vector
+
+
+def get_embedding_with_profile(text: str) -> Tuple[List[float], Dict[str, Any]]:
+    """Generate a real model embedding, or fail explicitly.
+
+    Query and document embeddings must originate from compatible embedding-model
+    configurations. Existing 64-dimensional synthetic vectors need migration.
+    """
+    import math
+    import logging
+    log = logging.getLogger(__name__)
+
+    if not text or not text.strip():
+        raise ValueError("Cannot embed empty text")
+    if openai is None:
+        raise EmbeddingConfigurationError("OpenAI embedding SDK is not installed")
+
+    from app.services.config_service import get_llm_config
+    config = get_llm_config("openai") or {}
+    api_key = config.get("api_key") or os.getenv("OPENAI_API_KEY")
+    model = (config.get("config_data") or {}).get("embedding_model") or os.getenv(
+        "OPENAI_EMBEDDING_MODEL", "text-embedding-3-small"
+    )
+    if not api_key:
+        raise EmbeddingConfigurationError("Embedding provider credentials are not configured")
+    if len(text) > 8000:
+        raise ValueError("Embedding input exceeds maximum supported size; chunk content before indexing")
+
+    from app.services.ai_metrics import measure_ai_stage
+    with measure_ai_stage("embedding"):
+        try:
+            from openai import OpenAI
+            response = OpenAI(api_key=api_key, timeout=20).embeddings.create(
+                input=text, model=model
+            )
+            vector = list(response.data[0].embedding)
+        except Exception as exc:
+            log.warning("Embedding generation failed for model %s (%s)", model, type(exc).__name__)
+            raise EmbeddingProviderError("Embedding provider request failed") from exc
+
+    if not vector or any(not math.isfinite(value) for value in vector):
+        raise EmbeddingProviderError("Embedding provider returned an invalid vector")
+    return vector, {
+        "provider": "openai",
+        "model": str(getattr(response, "model", None) or model),
+        "dimensions": len(vector),
+    }
+
+
+def embeddings_compatible(stored: Any, query: Any) -> bool:
+    """Unknown, synthetic, or version-mismatched embedding spaces must not mix."""
+    if not isinstance(stored, dict) or not isinstance(query, dict):
+        return False
+    return (
+        stored.get("provider") == query.get("provider") == "openai"
+        and isinstance(stored.get("model"), str)
+        and stored.get("model") == query.get("model")
+        and isinstance(stored.get("dimensions"), int)
+        and not isinstance(stored.get("dimensions"), bool)
+        and stored["dimensions"] > 0
+        and stored["dimensions"] == query.get("dimensions")
+    )
 
 
 def cosine_similarity(a: List[float], b: List[float]) -> float:
-    return sum(x * y for x, y in zip(a, b))
+    """True cosine similarity; disallow truncation or zero-norm vectors."""
+    import math
+
+    if not a or not b or len(a) != len(b):
+        raise ValueError("Embedding vectors are empty or their dimensions differ")
+    if not all(math.isfinite(x) for x in a) or not all(math.isfinite(x) for x in b):
+        raise ValueError("Embedding contains non-finite values")
+    norm_a = math.sqrt(sum(x * x for x in a))
+    norm_b = math.sqrt(sum(y * y for y in b))
+    if norm_a == 0 or norm_b == 0:
+        raise ValueError("Cannot compare zero-length embedding vectors")
+    return sum(x * y for x, y in zip(a, b)) / (norm_a * norm_b)

@@ -1,5 +1,6 @@
 from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from prometheus_fastapi_instrumentator import Instrumentator
 from app.api import chat, actions, feedback
@@ -23,6 +24,7 @@ from app.services.status_service import start_token_consumer
 from app.db.session import ping_database
 from app.core.redis import redis_client
 from app.core.config import settings
+from app.core.provider_scope import bind_provider_user, reset_provider_user
 from app.core.logging import get_logger
 import os
 import sentry_sdk
@@ -44,15 +46,26 @@ import os
 os.makedirs("uploads", exist_ok=True)
 app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
 
+# Legacy knowledge uploads may still exist under the public /uploads mount.
+# Deny direct HTTP access; authenticated downloads use /api/knowledge/sources/{id}/download.
+@app.middleware("http")
+async def protect_private_knowledge_uploads(request: Request, call_next):
+    path = request.scope.get("path", "")
+    if path == "/uploads/knowledge" or path.startswith("/uploads/knowledge/"):
+        return JSONResponse(status_code=404, content={"detail": "Not found"})
+    return await call_next(request)
+
+
 # register lifecycle for background jobs
 register_lifecycle(app)
 
 # Start status watcher for activity tracking
-start_status_watcher()
-
-# Start knowledge crawler scheduler
-start_knowledge_crawler_scheduler()
-start_token_consumer(interval_seconds=60)
+# In-process timers belong to local development only. Production workers are
+# separate processes; four Gunicorn workers must never each start a scheduler.
+if not settings.IS_PROD and os.getenv("HUEMN_DEV_INPROCESS_JOBS", "0") == "1":
+    start_status_watcher()
+    start_knowledge_crawler_scheduler()
+    start_token_consumer(interval_seconds=60)
 
 # Initialize Prometheus Metrics
 Instrumentator().instrument(app).expose(app, include_in_schema=False)
@@ -112,6 +125,16 @@ async def log_requests(request: Request, call_next):
         if settings.SENTRY_DSN:
             sentry_sdk.capture_exception(exc)
         raise
+
+@app.middleware("http")
+async def clear_provider_scope_for_each_request(request: Request, call_next):
+    """Prevent credential principal reuse across requests handled by one worker."""
+    principal_token = bind_provider_user(None)
+    try:
+        return await call_next(request)
+    finally:
+        reset_provider_user(principal_token)
+
 
 @app.get("/")
 async def root():

@@ -1,4 +1,4 @@
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || process.env.NEXT_PUBLIC_API_BASE || (typeof window !== 'undefined' ? '/api-proxy' : 'http://localhost:8001');
+export const API_BASE = process.env.NEXT_PUBLIC_API_URL || process.env.NEXT_PUBLIC_API_BASE || (typeof window !== 'undefined' ? '/api-proxy' : 'http://localhost:8001');
 
 type SafeFetchOptions = RequestInit & { timeoutMs?: number };
 
@@ -204,6 +204,29 @@ export async function getAgent(id: string | number, token: string) {
     headers: {
       "Authorization": `Bearer ${token}`
     }
+  });
+}
+
+export interface GraphValidationDiagnostic {
+  code: string;
+  message: string;
+  node?: number;
+  source?: number;
+  target?: number;
+}
+
+export interface AgentGraphValidation {
+  valid: boolean;
+  errors: GraphValidationDiagnostic[];
+  warnings: GraphValidationDiagnostic[];
+  node_count: number;
+  connection_count: number;
+}
+
+export async function validateAgentGraph(agentId: number, token: string) {
+  if (!token) return { error: "No authentication token" };
+  return safeFetch(`${API_BASE}/api/agents/${agentId}/validate`, {
+    headers: { Authorization: `Bearer ${token}` },
   });
 }
 
@@ -717,15 +740,27 @@ export async function getTrace(id: string | number, token: string) {
 
 export async function getVersions(agentId: string | number, token: string) {
   if (!token) return { error: "No authentication token" };
-  // Stub implementation
   return safeFetch(`${API_BASE}/api/agents/${agentId}/versions`, {
     headers: { "Authorization": `Bearer ${token}` }
   });
 }
 
+export async function createVersion(
+  agentId: string | number,
+  versionNumber: string,
+  notes: string,
+  token: string,
+) {
+  if (!token) return { error: "No authentication token" };
+  const params = new URLSearchParams({ version_number: versionNumber.trim(), notes: notes.trim() });
+  return safeFetch(`${API_BASE}/api/agents/${agentId}/versions?${params.toString()}`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+}
+
 export async function publishVersion(agentId: string | number, versionId: string | number, token: string) {
   if (!token) return { error: "No authentication token" };
-  // Stub implementation
   return safeFetch(`${API_BASE}/api/agents/${agentId}/versions/${versionId}/publish`, {
     method: "POST",
     headers: { "Authorization": `Bearer ${token}` }

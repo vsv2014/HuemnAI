@@ -11,6 +11,8 @@ from app.db.session import get_db
 from app.db.models.subscription import UserAccount, SubscriptionPlan, Subscription, UserIntegration, UserToolSubscription, EmailVerification
 from app.utils.subscription import sync_tool_subscriptions
 from app.core.config import settings
+from app.core.passwords import hash_password, verify_password, needs_rehash
+from app.core.provider_scope import bind_provider_user
 from app.services.email_service import send_welcome_email, send_login_notification_email, send_password_reset_email, send_otp_email
 import logging
 import requests
@@ -65,14 +67,6 @@ class AuthResponse(BaseModel):
     is_verified: bool = True
     message: Optional[str] = None
 
-def hash_password(password: str) -> str:
-    """Hash password using SHA256 (in production, use bcrypt)"""
-    return hashlib.sha256(password.encode()).hexdigest()
-
-def verify_password(password: str, password_hash: str) -> bool:
-    """Verify password"""
-    return hash_password(password) == password_hash
-
 def create_jwt_token(user: UserAccount) -> str:
     """Create stable JWT token tied to account creation time"""
     base_time = user.created_at or datetime.utcnow()
@@ -93,7 +87,7 @@ def create_reset_token(email: str) -> str:
     }
     return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
 
-def get_current_user(
+async def get_current_user(
     credentials: HTTPAuthorizationCredentials = Depends(security),
     db: Session = Depends(get_db)
 ) -> UserAccount:
@@ -106,6 +100,7 @@ def get_current_user(
         user = db.query(UserAccount).filter(UserAccount.id == user_id).first()
         if not user or not user.is_active:
             raise HTTPException(status_code=401, detail="Invalid or inactive user")
+        bind_provider_user(user.id)
         return user
     except jwt.ExpiredSignatureError:
         raise HTTPException(status_code=401, detail="Token expired. Please login again.")
@@ -113,7 +108,7 @@ def get_current_user(
         logger.error(f"Auth error: {e}")
         raise HTTPException(status_code=401, detail="Invalid token")
 
-def get_current_user_optional(
+async def get_current_user_optional(
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(security_optional),
     db: Session = Depends(get_db)
 ) -> Optional[UserAccount]:
@@ -127,6 +122,7 @@ def get_current_user_optional(
         user = db.query(UserAccount).filter(UserAccount.id == user_id).first()
         if not user or not user.is_active:
             return None
+        bind_provider_user(user.id)
         return user
     except:
         return None
@@ -205,7 +201,7 @@ async def handle_otp_generation(email: str, db: Session) -> bool:
 def verify_otp_code(email: str, otp: str, db: Session) -> bool:
     """Verify OTP code"""
     # In development mode without SMTP, allow 123456 as a bypass
-    if settings.ENV == "dev" and otp == "123456":
+    if settings.DEV_AUTH_BYPASS and otp == "123456":
         logger.info(f"Bypassing OTP for {email} in dev mode using 123456")
         return True
 
@@ -232,7 +228,7 @@ async def send_otp_endpoint(
         
     success = await handle_otp_generation(request.email, db)
     
-    if settings.ENV == "dev":
+    if settings.DEV_AUTH_BYPASS:
         if not success:
             return {"message": "SMTP not configured. Please use '123456' for testing."}
         return {"message": "OTP sent successfully (Developer Mode: Use 123456 if email is not received)"}
@@ -270,11 +266,11 @@ async def signup(
         
         # In development mode, provide the bypass message
         dev_message = ""
-        if settings.ENV == "dev":
+        if settings.DEV_AUTH_BYPASS:
             dev_message = " (Developer Mode: Use 123456 if email is not configured)"
             
         if not success:
-            if settings.ENV == "dev":
+            if settings.DEV_AUTH_BYPASS:
                 return AuthResponse(
                     requires_otp=True,
                     is_verified=False,
@@ -385,7 +381,7 @@ async def login(
 ):
     """Login user"""
     # Dev bypass for a dedicated developer account
-    if settings.ENV == "dev" and request.email == "dev@huemn.ai" and request.password == "dev-bypass-2024":
+    if settings.DEV_AUTH_BYPASS and request.email == "dev@huemn.ai" and request.password == "dev-bypass-2024":
         logger.info("Dev bypass triggered for dev@huemn.ai")
         user = db.query(UserAccount).filter(UserAccount.email == "dev@huemn.ai").first()
         if not user:
@@ -421,7 +417,7 @@ async def login(
     
     if not user:
         # In dev mode, auto-create user if it doesn't exist when "override" is intended
-        if settings.ENV == "dev":
+        if settings.DEV_AUTH_BYPASS:
             logger.info(f"Dev mode: Auto-creating user {request.email} for login override")
             password_hash = hash_password(request.password)
             user = UserAccount(
@@ -441,13 +437,17 @@ async def login(
             raise HTTPException(status_code=401, detail="Invalid email or password")
     
     # In dev mode, bypass password and OTP verification
-    if settings.ENV == "dev":
+    if settings.DEV_AUTH_BYPASS:
         logger.info(f"Dev mode: Bypassing password/OTP for {request.email}")
     else:
         if not verify_password(request.password, user.password_hash):
             logger.warning(f"Invalid password attempt for email: {request.email}")
             raise HTTPException(status_code=401, detail="Invalid email or password")
-        
+        # Upgrade existing unsalted SHA-256 hashes only after verifying credentials.
+        # This change commits alongside the normal last-login update below.
+        if needs_rehash(user.password_hash):
+            user.password_hash = hash_password(request.password)
+
         if not user.is_active:
             raise HTTPException(status_code=403, detail="Account is inactive")
             
@@ -459,11 +459,11 @@ async def login(
                 
                 # In development mode, provide the bypass message
                 dev_message = ""
-                if settings.ENV == "dev":
+                if settings.DEV_AUTH_BYPASS:
                     dev_message = " (Developer Mode: Use 123456 if email is not configured)"
                     
                 if not success:
-                    if settings.ENV == "dev":
+                    if settings.DEV_AUTH_BYPASS:
                         return AuthResponse(
                             requires_otp=True,
                             is_verified=False,

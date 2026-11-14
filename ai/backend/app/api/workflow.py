@@ -6,6 +6,7 @@ from datetime import datetime
 from app.db.session import get_db
 from app.api.auth import get_current_user
 from app.db.models.scheduled_task import ScheduledTask, TaskStatus
+from app.db.models.agent import Agent
 
 router = APIRouter()
 
@@ -24,6 +25,9 @@ async def create_task(
     user = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
+    agent = db.query(Agent.id).filter(Agent.id == req.agent_id, Agent.user_id == user.id).first()
+    if not agent:
+        raise HTTPException(status_code=404, detail="Agent not found")
     st = ScheduledTask(
         agent_id=req.agent_id,
         task_type=req.task_type,
@@ -45,7 +49,9 @@ async def list_tasks(
     db: Session = Depends(get_db),
     user = Depends(get_current_user)
 ):
-    rows = db.query(ScheduledTask).order_by(ScheduledTask.id.desc()).all()
+    rows = db.query(ScheduledTask).filter(
+        ScheduledTask.created_by == user.id
+    ).order_by(ScheduledTask.id.desc()).limit(200).all()
     tasks = []
     for r in rows:
         tasks.append({
@@ -66,9 +72,14 @@ async def cancel_task(
     db: Session = Depends(get_db),
     user = Depends(get_current_user)
 ):
-    r = db.query(ScheduledTask).filter(ScheduledTask.id == task_id).first()
+    r = db.query(ScheduledTask).filter(
+        ScheduledTask.id == task_id,
+        ScheduledTask.created_by == user.id
+    ).first()
     if not r:
         raise HTTPException(status_code=404, detail="Task not found")
+    if r.status not in (TaskStatus.PENDING, TaskStatus.FAILED):
+        raise HTTPException(status_code=409, detail="Only pending or failed tasks can be cancelled")
     r.status = TaskStatus.CANCELLED
     db.commit()
     return {"success": True}

@@ -223,7 +223,7 @@ export default function AppSidebar({ agentId }: { agentId: number }) {
 
   return (
     <div
-      className={`fixed left-0 top-0 h-full bg-gradient-to-b from-[#1a1f3a] to-[#0f1419] border-r border-white/10 backdrop-blur-xl transition-all duration-300 z-40 shadow-2xl ${
+      className={`fixed left-0 top-0 h-full bg-slate-950 border-r border-slate-700/70 backdrop-blur-xl transition-all duration-300 z-40 shadow-2xl ${
         collapsed ? "w-16" : "w-64"
       }`}
     >
@@ -276,8 +276,8 @@ export default function AppSidebar({ agentId }: { agentId: number }) {
                     onClick={() => toggleSection(section.id)}
                     className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all ${
                       sectionActive
-                        ? "bg-gradient-to-r from-blue-500/20 to-purple-500/20 text-blue-300 border-l-2 border-blue-400"
-                        : "text-white/70 hover:bg-white/5 hover:text-white"
+                        ? "bg-sky-500/15 text-sky-200 border-l-2 border-sky-400"
+                        : "text-slate-300 hover:bg-slate-800 hover:text-white"
                     }`}
                   >
                     <span className="text-lg">{section.icon}</span>

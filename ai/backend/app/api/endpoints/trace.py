@@ -5,7 +5,9 @@ from pydantic import BaseModel
 from datetime import datetime
 
 from app.db.session import get_db
-from app.db.models.agent import AgentAnalyticsEvent, AgentConversation, AgentNode
+from app.db.models.agent import Agent, AgentAnalyticsEvent, AgentConversation, AgentNode
+from app.api.auth import get_current_user
+from app.db.models.subscription import UserAccount
 
 router = APIRouter()
 
@@ -36,7 +38,8 @@ class TraceResponse(BaseModel):
 @router.get("/{conversation_id}", response_model=TraceResponse)
 async def get_conversation_trace(
     conversation_id: int,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: UserAccount = Depends(get_current_user)
 ):
     """
     Get full execution trace for a specific conversation session.
@@ -45,6 +48,9 @@ async def get_conversation_trace(
     # 1. Get Conversation Details
     conversation = db.query(AgentConversation).filter(AgentConversation.id == conversation_id).first()
     if not conversation:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    owner = db.query(Agent).filter(Agent.id == conversation.agent_id, Agent.user_id == current_user.id).first()
+    if not owner:
         raise HTTPException(status_code=404, detail="Conversation not found")
 
     # 2. Get All Events
@@ -80,7 +86,7 @@ async def get_conversation_trace(
         if event.node_id and event.node_id in nodes:
             node = nodes[event.node_id]
             node_name = node.name
-            node_type = node.node_type
+            node_type = getattr(node.node_type, "value", str(node.node_type))
 
         step = TraceStep(
             id=event.id,
@@ -102,8 +108,10 @@ async def get_conversation_trace(
     status = "completed"
     if any(s.event_type in ["error", "exception"] for s in steps):
         status = "failed"
-    elif conversation.status: # If conversation model has status
-        status = conversation.status
+    elif not conversation.is_active:
+        status = "ended"
+    else:
+        status = "active" if not conversation.ended_at else "ended"
 
     return TraceResponse(
         conversation_id=conversation_id,

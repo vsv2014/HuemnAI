@@ -9,7 +9,11 @@ from app.db.session import get_db
 from app.db.models.tool_config import ToolConfig
 from sqlalchemy.orm import Session
 
-router = APIRouter()
+from app.api.auth import get_current_user
+from app.core.rbac import check_permission, Permission
+
+# All tool settings are authenticated; global config changes are admin-only.
+router = APIRouter(dependencies=[Depends(get_current_user)])
 
 
 class OperationModeRequest(BaseModel):
@@ -20,7 +24,8 @@ class OperationModeRequest(BaseModel):
 async def set_tool_operation_mode(
     tool_name: str,
     payload: OperationModeRequest,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    _admin: bool = Depends(check_permission(Permission.MANAGE_USERS)),
 ):
     """Set tool operation mode (independent or integrated)"""
     if payload.operation_mode not in ["independent", "integrated"]:
@@ -45,7 +50,7 @@ async def set_tool_operation_mode(
             "message": f"Tool {tool_name} set to {payload.operation_mode} mode"
         }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to set operation mode: {str(e)}")
+        raise HTTPException(status_code=500, detail="Unable to change tool settings")
 
 
 @router.get("/{tool_name}/operation-mode")
@@ -72,7 +77,7 @@ async def get_tool_operation_mode(
             "operation_mode": operation_mode
         }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to get operation mode: {str(e)}")
+        raise HTTPException(status_code=500, detail="Unable to read tool settings")
 
 
 @router.get("/{tool_name}/config")
@@ -104,7 +109,7 @@ async def get_tool_config(
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to get tool config: {str(e)}")
+        raise HTTPException(status_code=500, detail="Unable to read tool configuration")
 
 
 @router.get("/connectors/metadata")
@@ -117,5 +122,5 @@ async def get_connectors_metadata():
             "connectors": get_connector_metadata()
         }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to get connector metadata: {str(e)}")
+        raise HTTPException(status_code=500, detail="Unable to read connector metadata")
 

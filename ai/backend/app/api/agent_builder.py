@@ -193,46 +193,8 @@ async def execute_code(
     user: UserAccount = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """
-    Execute the generated agent code with the provided input.
-    """
-    # Capture stdout
-    stdout_capture = io.StringIO()
-    stderr_capture = io.StringIO()
-    
-    result = None
-    error = None
-    
-    try:
-        consume_tool_tokens(db, user, "agent_builder", 1)
-        # Create a restricted global namespace
-        # We allow standard builtins but could restrict further if needed
-        global_scope = {
-            "__builtins__": __builtins__,
-            "print": print, # Allow print to work (we might capture it if we redirect stdout)
-        }
-        
-        # Redirect stdout/stderr
-        with contextlib.redirect_stdout(stdout_capture), contextlib.redirect_stderr(stderr_capture):
-            # Execute the code definition
-            exec(request.code, global_scope)
-            
-            # Check if run_agent exists
-            if "run_agent" not in global_scope:
-                raise ValueError("The code must define a function named 'run_agent(input_text)'")
-            
-            # Call the function
-            run_agent = global_scope["run_agent"]
-            result = run_agent(request.input)
-            
-    except Exception as e:
-        error = f"{type(e).__name__}: {str(e)}\n{traceback.format_exc()}"
-        logger.error(f"Execution error: {error}")
-    
-    logs = stdout_capture.getvalue().splitlines() + stderr_capture.getvalue().splitlines()
-    
-    return ExecuteResponse(
-        result=str(result) if result is not None else None, 
-        logs=logs, 
-        error=error
+    """Fail closed until generated Python can execute inside an isolated worker."""
+    raise HTTPException(
+        status_code=503,
+        detail="Agent Python execution is disabled until a sandboxed executor is deployed.",
     )

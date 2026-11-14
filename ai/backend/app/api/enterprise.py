@@ -14,8 +14,30 @@ from app.db.models.enterprise import (
 from app.db.models.agent import Agent, AgentVersion
 
 from app.services.llm.provider_service import model_service
+from app.services.agent_versions import snapshot_agent, same_revision
 
-router = APIRouter(prefix="/agents/{agent_id}", tags=["enterprise"])
+from app.api.auth import get_current_user
+from app.db.models.subscription import UserAccount
+
+
+def require_owned_agent(
+    agent_id: int,
+    db: Session = Depends(get_db),
+    current_user: UserAccount = Depends(get_current_user),
+) -> None:
+    """All enterprise agent settings are private to their authenticated owner."""
+    owned = db.query(Agent.id).filter(
+        Agent.id == agent_id, Agent.user_id == current_user.id
+    ).first()
+    if owned is None:
+        raise HTTPException(status_code=404, detail="Agent not found")
+
+
+router = APIRouter(
+    prefix="/agents/{agent_id}",
+    tags=["enterprise"],
+    dependencies=[Depends(require_owned_agent)],
+)
 
 
 # ============================================================================
@@ -536,59 +558,97 @@ async def create_version(
     agent_id: int,
     version_number: str,
     notes: Optional[str] = None,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: UserAccount = Depends(get_current_user),
 ):
-    """Create a new version"""
-    agent = db.query(Agent).filter(Agent.id == agent_id).first()
+    """Create an immutable release candidate, not a production deployment."""
+    version_number = version_number.strip()
+    if not version_number or len(version_number) > 50:
+        raise HTTPException(status_code=422, detail="Version number must be 1-50 characters")
+    agent = db.query(Agent).filter(
+        Agent.id == agent_id, Agent.user_id == current_user.id
+    ).first()
     if not agent:
         raise HTTPException(status_code=404, detail="Agent not found")
-    
-    # Create snapshot of current agent state
-    snapshot = {
-        "name": agent.name,
-        "description": agent.description,
-        "settings": agent.settings,
-        # Add more snapshot data as needed
-    }
-    
+    if db.query(AgentVersion.id).filter(
+        AgentVersion.agent_id == agent_id,
+        AgentVersion.version_number == version_number
+    ).first():
+        raise HTTPException(status_code=409, detail="Version number already exists")
+    try:
+        snapshot = snapshot_agent(db, agent)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
     version = AgentVersion(
         agent_id=agent_id,
         version_number=version_number,
         configuration=snapshot,
         notes=notes,
+        created_by=current_user.id,
     )
     db.add(version)
     db.commit()
     db.refresh(version)
-    
     return {
         "id": version.id,
         "version_number": version.version_number,
-        "is_published": version.is_published,
+        "is_published": False,
+        "snapshot_node_count": len(snapshot["nodes"]),
+        "snapshot_connection_count": len(snapshot["connections"]),
+        "deployment_status": "release_candidate",
     }
 
 
 @router.post("/versions/{version_id}/publish", response_model=Dict[str, Any])
-async def publish_version(agent_id: int, version_id: int, db: Session = Depends(get_db)):
-    """Publish a version"""
+async def publish_version(
+    agent_id: int,
+    version_id: int,
+    db: Session = Depends(get_db),
+    current_user: UserAccount = Depends(get_current_user),
+):
+    """Mark validated current graph as published in management metadata.
+
+    This does not yet pin public/runtime conversations to the stored snapshot.
+    Do not label it environment deployment or offer rollback until that exists.
+    """
+    agent = db.query(Agent).filter(
+        Agent.id == agent_id, Agent.user_id == current_user.id
+    ).first()
+    if not agent:
+        raise HTTPException(status_code=404, detail="Agent not found")
     version = db.query(AgentVersion).filter(
         AgentVersion.id == version_id,
         AgentVersion.agent_id == agent_id
     ).first()
-    
     if not version:
         raise HTTPException(status_code=404, detail="Version not found")
-    
+    try:
+        current = snapshot_agent(db, agent)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    if not same_revision(version.configuration, current):
+        raise HTTPException(
+            status_code=409,
+            detail="Agent graph or settings changed after snapshot. Create a new version.",
+        )
+    # At most one *currently published* version in management metadata.
+    db.query(AgentVersion).filter(
+        AgentVersion.agent_id == agent_id,
+        AgentVersion.id != version.id
+    ).update({AgentVersion.is_published: False}, synchronize_session=False)
     version.is_published = True
-    version.published_at = datetime.now()
+    version.published_at = datetime.utcnow()
+    agent.version = version.version_number
     db.commit()
     db.refresh(version)
-    
     return {
         "id": version.id,
         "version_number": version.version_number,
         "is_published": version.is_published,
         "published_at": version.published_at.isoformat() if version.published_at else None,
+        "deployment_status": "metadata_published",
+        "runtime_version_pinning": False,
     }
 
 

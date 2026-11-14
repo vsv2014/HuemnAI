@@ -1,275 +1,115 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
-import { useParams } from "next/navigation";
+import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
 import AgentLayout from "@/components/AgentLayout";
-import LoadingSpinner from "@/components/LoadingSpinner";
 import ErrorBoundary from "@/components/ErrorBoundary";
 import { useAuthStore } from "@/store/authStore";
-import { getModels } from "@/services/api";
-import { Card } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
-interface AIModel {
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || process.env.NEXT_PUBLIC_API_BASE || "http://localhost:8001";
+
+type ModelConfiguration = {
   id: number;
   name: string;
   provider: string;
-  model_name: string;
+  provider_type: string;
   is_active: boolean;
   is_default: boolean;
-  base_url?: string;
-  has_key: boolean;
-}
+  config_data?: { model?: string; deployment_name?: string; model_id?: string };
+};
 
 export default function ModelsLibraryPage() {
-  const params = useParams();
-  const agentId = parseInt(params?.id as string);
-  const { token } = useAuthStore();
-  const [models, setModels] = useState<AIModel[]>([]);
+  const token = useAuthStore((state) => state.token);
+  const [configs, setConfigs] = useState<ModelConfiguration[]>([]);
   const [loading, setLoading] = useState(true);
-  const [showAddModal, setShowAddModal] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Form State
-  const [formData, setFormData] = useState({
-    name: "",
-    provider: "openai",
-    model_name: "",
-    api_key: "",
-    base_url: "",
-    is_default: false,
-  });
-
-  useEffect(() => {
-    if (token) {
-      loadModels();
+  const load = useCallback(async () => {
+    if (!token) {
+      setLoading(false);
+      setError("Sign in to view your configured providers.");
+      return;
     }
-  }, [agentId, token]);
-
-  const loadModels = useCallback(async () => {
-    if (!token) return;
     setLoading(true);
+    setError(null);
     try {
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_BASE}/agents/${agentId}/models`, {
-        headers: { "Authorization": `Bearer ${token}` }
+      const response = await fetch(API_BASE + "/api/config/?provider_type=llm", {
+        cache: "no-store",
+        headers: { Authorization: "Bearer " + token },
       });
+      if (!response.ok) throw new Error("Unable to retrieve model configurations (" + response.status + ")");
       const data = await response.json();
-      if (response.ok) {
-        setModels(data);
-      } else {
-        setError(data.detail || "Failed to load models");
+      if (!data?.success || !Array.isArray(data.configs)) {
+        throw new Error("The model registry returned an invalid response.");
       }
-    } catch (err) {
-      setError("Failed to load models. Please check your connection.");
+      setConfigs(data.configs);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Unable to load model configurations.");
     } finally {
       setLoading(false);
     }
-  }, [agentId, token]);
+  }, [token]);
 
-  const handleAddModel = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError(null);
-    try {
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_BASE}/agents/${agentId}/models`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${token}`
-        },
-        body: JSON.stringify(formData)
-      });
-      if (response.ok) {
-        setShowAddModal(false);
-        loadModels();
-        setFormData({ name: "", provider: "openai", model_name: "", api_key: "", base_url: "", is_default: false });
-      } else {
-        const data = await response.json();
-        setError(data.detail || "Failed to add model");
-      }
-    } catch (err) {
-      setError("Failed to add model. Please try again.");
-    }
-  };
+  useEffect(() => { void load(); }, [load]);
 
-  const deleteModel = async (id: number) => {
-    if (!confirm("Are you sure you want to delete this model configuration?")) return;
-    try {
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_BASE}/agents/${agentId}/models/${id}`, {
-        method: "DELETE",
-        headers: { "Authorization": `Bearer ${token}` }
-      });
-      if (response.ok) {
-        loadModels();
-      }
-    } catch (err) {
-      setError("Failed to delete model.");
-    }
-  };
-
-  const getProviderIcon = (provider: string) => {
-    switch(provider) {
-      case 'openai': return "🟢";
-      case 'anthropic': return "🧠";
-      case 'google_gemini': return "✨";
-      case 'azure_openai': return "☁️";
-      case 'ollama': return "🦙";
-      default: return "🤖";
-    }
-  };
-
+  const configured = configs.filter((config) => config.provider_type === "llm");
   return (
     <ErrorBoundary>
       <AgentLayout>
-        <div className="p-8 h-full flex flex-col gap-6">
-          <div className="flex justify-between items-start">
-            <div>
-              <h1 className="text-4xl font-bold bg-gradient-to-r from-white to-white/70 bg-clip-text text-transparent mb-3">
-                Models Library <Badge variant="outline" className="ml-2 border-blue-500 text-blue-400">BYOK</Badge>
-              </h1>
-              <p className="text-white/60 text-lg max-w-3xl">
-                Bring Your Own Key (BYOK). Configure custom model providers and API keys to use across your agent's flows.
-              </p>
+        <main className="huemn-workspace min-h-full px-4 py-6 sm:px-8">
+          <div className="mx-auto max-w-6xl">
+            <div className="mb-7 flex flex-wrap items-start justify-between gap-4">
+              <div>
+                <div className="mb-2 text-xs font-semibold uppercase tracking-[0.16em] text-sky-300">Model management</div>
+                <h1 className="text-3xl font-semibold tracking-tight text-slate-50 sm:text-4xl">Model providers</h1>
+                <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-300">
+                  Inspect your configured model providers. Keys are managed in Settings and are never displayed here.
+                  A configured provider is not proof that a model is currently available or supported.
+                </p>
+              </div>
+              <Link href="/settings" className="huemn-primary-button inline-flex min-h-[44px] items-center rounded-xl px-5 text-sm font-medium">
+                Manage provider keys
+              </Link>
             </div>
-            <Button className="bg-blue-600 hover:bg-blue-700" onClick={() => setShowAddModal(true)}>
-              + Add Model Provider
-            </Button>
+
+            <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
+              <p className="text-sm text-slate-400">{configured.length} configured providers</p>
+              <button type="button" onClick={() => { void load(); }} disabled={loading}
+                className="huemn-secondary-button rounded-lg px-4 py-2 text-sm disabled:opacity-50">
+                Refresh
+              </button>
+            </div>
+
+            {error && <p role="alert" className="mb-5 rounded-xl border border-rose-500/40 bg-rose-500/10 p-4 text-sm text-rose-200">{error}</p>}
+
+            {loading ? (
+              <div role="status" className="rounded-xl border border-slate-700 bg-slate-900 p-8 text-center text-sm text-slate-300">Loading your provider configurations…</div>
+            ) : configured.length === 0 ? (
+              <section className="rounded-2xl border border-dashed border-slate-600 bg-slate-900/75 p-8 text-center">
+                <h2 className="text-xl font-medium text-slate-100">No models configured</h2>
+                <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-slate-400">Add a provider and its credentials in Settings. Huemn will not silently substitute a different provider.</p>
+                <Link href="/settings" className="mt-5 inline-flex text-sm font-medium text-sky-300 hover:text-sky-100">Open provider settings</Link>
+              </section>
+            ) : (
+              <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+                {configured.map((config) => (
+                  <article key={config.id} className="rounded-2xl border border-slate-700/80 bg-slate-900/90 p-5 shadow-lg shadow-black/10">
+                    <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+                      <span className="text-xs font-medium uppercase tracking-widest text-sky-300">{config.provider}</span>
+                      <span className={"rounded-full border px-2.5 py-1 text-xs " + (config.is_active ? "border-emerald-600/35 bg-emerald-600/10 text-emerald-200" : "border-slate-600 bg-slate-800 text-slate-300")}>
+                        {config.is_active ? "Configured" : "Disabled"}
+                      </span>
+                    </div>
+                    <h2 className="break-words text-lg font-semibold text-slate-100">{config.name || config.provider}</h2>
+                    <p className="mt-2 break-all font-mono text-sm text-slate-300">{config.config_data?.model || config.config_data?.deployment_name || config.config_data?.model_id || "Model not specified"}</p>
+                    {config.is_default && <p className="mt-4 text-xs font-medium text-sky-300">Default provider</p>}
+                  </article>
+                ))}
+              </div>
+            )}
+            <p className="mt-7 text-xs leading-5 text-slate-400">Provider health tests, model retirement detection, managed/BYOK policy, and per-model cost comparisons require backend validation before being marked production-ready.</p>
           </div>
-
-          {error && (
-            <div className="p-4 bg-red-500/10 border border-red-500/20 rounded-lg text-red-400 text-sm">
-              {error}
-            </div>
-          )}
-
-          {loading ? (
-            <div className="flex-1 flex items-center justify-center">
-              <LoadingSpinner size="lg" />
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {models.map((model) => (
-                <Card key={model.id} className="p-6 bg-[#1a1f3a]/80 border-white/10 flex flex-col gap-4 group hover:border-blue-500/30 transition-all">
-                  <div className="flex justify-between items-start">
-                    <div className="flex items-center gap-3">
-                      <span className="text-3xl">{getProviderIcon(model.provider)}</span>
-                      <div>
-                        <h3 className="font-bold text-white flex items-center gap-2">
-                          {model.name}
-                          {model.is_default && <Badge className="bg-blue-500 text-[10px]">DEFAULT</Badge>}
-                        </h3>
-                        <p className="text-xs text-white/40 uppercase tracking-tighter">{model.provider} / {model.model_name}</p>
-                      </div>
-                    </div>
-                    <Button variant="ghost" size="sm" className="text-white/20 hover:text-red-400" onClick={() => deleteModel(model.id)}>
-                      🗑️
-                    </Button>
-                  </div>
-
-                  <div className="space-y-2 mt-2">
-                    <div className="flex justify-between text-xs">
-                      <span className="text-white/40">API Key:</span>
-                      <span className="text-green-400 font-mono">{model.has_key ? "••••••••••••" : "Missing"}</span>
-                    </div>
-                    {model.base_url && (
-                      <div className="flex justify-between text-xs">
-                        <span className="text-white/40">Endpoint:</span>
-                        <span className="text-white/60 truncate max-w-[150px]">{model.base_url}</span>
-                      </div>
-                    )}
-                  </div>
-                </Card>
-              ))}
-
-              {models.length === 0 && (
-                <div className="col-span-full py-20 text-center border-2 border-dashed border-white/5 rounded-3xl">
-                  <div className="text-6xl mb-4 opacity-20">🤖</div>
-                  <p className="text-white/40 font-light text-xl">No model providers configured yet.</p>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Add Model Modal */}
-          {showAddModal && (
-            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-              <Card className="w-full max-w-md bg-[#1a1f3a] border-white/20 p-8 shadow-2xl animate-in zoom-in-95 duration-200">
-                <h2 className="text-2xl font-bold text-white mb-6">Add Model Provider</h2>
-                <form onSubmit={handleAddModel} className="space-y-4">
-                  <div className="space-y-2">
-                    <Label className="text-white/80">Friendly Name</Label>
-                    <Input 
-                      placeholder="e.g. Production GPT-4" 
-                      className="bg-[#0f1419] border-white/10 text-white"
-                      value={formData.name}
-                      onChange={(e) => setFormData({...formData, name: e.target.value})}
-                      required
-                    />
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <Label className="text-white/80">Provider</Label>
-                      <Select value={formData.provider} onValueChange={(val) => setFormData({...formData, provider: val})}>
-                        <SelectTrigger className="bg-[#0f1419] border-white/10 text-white">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent className="bg-[#1a1f3a] border-white/10 text-white">
-                          <SelectItem value="openai">OpenAI</SelectItem>
-                          <SelectItem value="anthropic">Anthropic</SelectItem>
-                          <SelectItem value="google_gemini">Google Gemini</SelectItem>
-                          <SelectItem value="azure_openai">Azure OpenAI</SelectItem>
-                          <SelectItem value="ollama">Ollama (Local)</SelectItem>
-                          <SelectItem value="custom_api">Custom API</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="space-y-2">
-                      <Label className="text-white/80">Model Name</Label>
-                      <Input 
-                        placeholder="e.g. gpt-4-turbo" 
-                        className="bg-[#0f1419] border-white/10 text-white"
-                        value={formData.model_name}
-                        onChange={(e) => setFormData({...formData, model_name: e.target.value})}
-                        required
-                      />
-                    </div>
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label className="text-white/80">API Key</Label>
-                    <Input 
-                      type="password" 
-                      placeholder="sk-..." 
-                      className="bg-[#0f1419] border-white/10 text-white"
-                      value={formData.api_key}
-                      onChange={(e) => setFormData({...formData, api_key: e.target.value})}
-                      required={formData.provider !== 'ollama'}
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label className="text-white/80">Base URL (Optional)</Label>
-                    <Input 
-                      placeholder="https://..." 
-                      className="bg-[#0f1419] border-white/10 text-white"
-                      value={formData.base_url}
-                      onChange={(e) => setFormData({...formData, base_url: e.target.value})}
-                    />
-                  </div>
-
-                  <div className="flex justify-end gap-3 mt-8">
-                    <Button variant="ghost" type="button" onClick={() => setShowAddModal(false)}>Cancel</Button>
-                    <Button type="submit" className="bg-blue-600 hover:bg-blue-700">Configure Model</Button>
-                  </div>
-                </form>
-              </Card>
-            </div>
-          )}
-        </div>
+        </main>
       </AgentLayout>
     </ErrorBoundary>
   );

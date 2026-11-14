@@ -18,6 +18,7 @@ import {
   ArrowLeft,
   Cloud,
   MessageSquare,
+  User,
   Brain
 } from "lucide-react";
 import toast from "react-hot-toast";
@@ -43,7 +44,13 @@ import ReactFlow, {
 import "reactflow/dist/style.css";
 import TrialBanner from "@/components/TrialBanner";
 import { useAuthStore } from "@/store/authStore";
-import { startToolSession, exportOrchestratorSession, importOrchestratorZip } from "@/services/api";
+import { API_BASE, startToolSession, exportOrchestratorSession, importOrchestratorZip } from "@/services/api";
+
+function builderSocketUrl(path: string) {
+  const url = new URL(`${API_BASE}${path}`, window.location.origin);
+  url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+  return url.toString();
+}
 
 // --- Types ---
 interface ExecutionResult {
@@ -502,8 +509,6 @@ export default function AgentBuilderPage() {
     };
   }, [hoveringDivider, split]);
 
-  const API_BASE = process.env.NEXT_PUBLIC_API_URL as string;
-  const WS_BASE = API_BASE.replace(/^http/i, "ws");
   const isGreeting = (t: string) => {
     const p = (t || "").trim().toLowerCase();
     if (!p) return false;
@@ -536,7 +541,7 @@ export default function AgentBuilderPage() {
           setFuDraft("");
         }
         try {
-          const ws = new WebSocket(`${WS_BASE}/api/sync/${data.session_id}`);
+          const ws = new WebSocket(builderSocketUrl(`/api/sync/${data.session_id}`));
           wsSyncRef.current = ws;
           ws.onopen = () => {
             try { ws.send(JSON.stringify({ type: "ping", ts: Date.now() })); } catch {}
@@ -678,7 +683,7 @@ export default function AgentBuilderPage() {
           }
         }
         try {
-          const ws = new WebSocket(`${WS_BASE}/api/sync/${data.session_id}`);
+          const ws = new WebSocket(builderSocketUrl(`/api/sync/${data.session_id}`));
           wsSyncRef.current = ws;
           ws.onopen = () => {
             try { ws.send(JSON.stringify({ type: "ping", ts: Date.now() })); } catch {}
@@ -874,7 +879,7 @@ export default function AgentBuilderPage() {
   useEffect(() => {
     if (!sessionId) return;
     try {
-      const url = `${WS_BASE}/api/orchestrator/console/${sessionId}`;
+      const url = builderSocketUrl(`/api/orchestrator/console/${sessionId}`);
       const ws = new WebSocket(url);
       wsRef.current = ws;
       ws.onmessage = (evt) => {
@@ -1274,12 +1279,12 @@ export default function AgentBuilderPage() {
   };
 
   return (
-    <div className="flex h-screen bg-neutral-950 text-gray-200 overflow-hidden font-sans selection:bg-sky-500/20">
+    <div className="flex min-h-[100dvh] h-auto lg:h-screen bg-slate-950 text-slate-100 overflow-auto lg:overflow-hidden font-sans selection:bg-sky-500/20">
       {/* Main Container */}
       <div className="flex-1 flex flex-col min-w-0">
         
         {/* Header - Unified Theme */}
-        <header className="bg-black/80 backdrop-blur-md border-b border-white/10 p-4 flex justify-between items-center h-16 shrink-0 shadow-[0_4px_20px_rgba(59,130,246,0.08)]">
+        <header className="bg-slate-950/95 backdrop-blur-md border-b border-slate-700/70 p-3 sm:p-4 flex flex-wrap gap-3 justify-between items-center min-h-16 shrink-0">
           <div className="flex items-center space-x-3">
             <div className="flex items-center space-x-1 mr-2 border-r border-white/10 pr-3">
                 <button onClick={() => router.back()} className="p-2 hover:bg-sky-500/10 rounded-full transition-colors text-sky-400/80 hover:text-sky-300" title="Back">
@@ -1296,13 +1301,13 @@ export default function AgentBuilderPage() {
               <h1 className="text-xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-white via-white/80 to-white/60">
                 AI Orchestrator
               </h1>
-              <p className="text-xs text-white/50 font-medium tracking-wider">PREMIUM EDITION</p>
+              <p className="text-xs text-slate-300 font-medium tracking-wider">AGENT WORKSPACE</p>
             </div>
           </div>
           <div className="flex space-x-3 relative">
              <div className="flex items-center space-x-2 px-3 py-1 rounded-full bg-blue-950/30 border border-white/10 text-xs text-sky-300">
                <Zap className="w-3 h-3" />
-               <span>Turbo Mode Active</span>
+               <span>Workflow editor</span>
              </div>
               <div className={`flex items-center space-x-2 px-3 py-1 rounded-full border text-xs ${llmStatus?.configured ? 'bg-emerald-900/30 border-emerald-600/40 text-emerald-300' : 'bg-amber-900/20 border-amber-600/40 text-amber-300'}`}>
                 <Cpu className="w-3 h-3" />
@@ -1312,10 +1317,6 @@ export default function AgentBuilderPage() {
                 <Bot className="w-3 h-3" />
                 <span>{sessionId ? 'Bot: Connected' : 'Bot: Not Connected'}</span>
               </div>
-            <button className="bg-gradient-to-r from-indigo-600 to-sky-500 hover:from-indigo-500 hover:to-sky-400 text-white px-4 py-2 rounded shadow-lg shadow-blue-900/30 flex items-center space-x-2 text-sm font-bold transition-all transform hover:scale-105">
-              <Save className="w-4 h-4" />
-              <span>Save System</span>
-            </button>
             <button
               onClick={async () => {
                 if (!token) {
@@ -1373,7 +1374,7 @@ export default function AgentBuilderPage() {
                   }
                   setSessionId(sid);
                   try {
-                    const ws = new WebSocket(`${WS_BASE}/api/sync/${sid}`);
+                    const ws = new WebSocket(builderSocketUrl(`/api/sync/${sid}`));
                     wsSyncRef.current = ws;
                     ws.onmessage = (evt) => {
                       try {
