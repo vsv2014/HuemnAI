@@ -18,6 +18,7 @@ import {
   ArrowLeft,
   Cloud,
   MessageSquare,
+  User,
   Brain
 } from "lucide-react";
 import toast from "react-hot-toast";
@@ -43,7 +44,13 @@ import ReactFlow, {
 import "reactflow/dist/style.css";
 import TrialBanner from "@/components/TrialBanner";
 import { useAuthStore } from "@/store/authStore";
-import { startToolSession, exportOrchestratorSession, importOrchestratorZip } from "@/services/api";
+import { API_BASE, startToolSession, exportOrchestratorSession, importOrchestratorZip } from "@/services/api";
+
+function builderSocketUrl(path: string) {
+  const url = new URL(`${API_BASE}${path}`, window.location.origin);
+  url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+  return url.toString();
+}
 
 // --- Types ---
 interface ExecutionResult {
@@ -502,8 +509,6 @@ export default function AgentBuilderPage() {
     };
   }, [hoveringDivider, split]);
 
-  const API_BASE = process.env.NEXT_PUBLIC_API_URL as string;
-  const WS_BASE = API_BASE.replace(/^http/i, "ws");
   const isGreeting = (t: string) => {
     const p = (t || "").trim().toLowerCase();
     if (!p) return false;
@@ -536,7 +541,7 @@ export default function AgentBuilderPage() {
           setFuDraft("");
         }
         try {
-          const ws = new WebSocket(`${WS_BASE}/api/sync/${data.session_id}`);
+          const ws = new WebSocket(builderSocketUrl(`/api/sync/${data.session_id}`));
           wsSyncRef.current = ws;
           ws.onopen = () => {
             try { ws.send(JSON.stringify({ type: "ping", ts: Date.now() })); } catch {}
@@ -678,7 +683,7 @@ export default function AgentBuilderPage() {
           }
         }
         try {
-          const ws = new WebSocket(`${WS_BASE}/api/sync/${data.session_id}`);
+          const ws = new WebSocket(builderSocketUrl(`/api/sync/${data.session_id}`));
           wsSyncRef.current = ws;
           ws.onopen = () => {
             try { ws.send(JSON.stringify({ type: "ping", ts: Date.now() })); } catch {}
@@ -874,7 +879,7 @@ export default function AgentBuilderPage() {
   useEffect(() => {
     if (!sessionId) return;
     try {
-      const url = `${WS_BASE}/api/orchestrator/console/${sessionId}`;
+      const url = builderSocketUrl(`/api/orchestrator/console/${sessionId}`);
       const ws = new WebSocket(url);
       wsRef.current = ws;
       ws.onmessage = (evt) => {
@@ -1369,7 +1374,7 @@ export default function AgentBuilderPage() {
                   }
                   setSessionId(sid);
                   try {
-                    const ws = new WebSocket(`${WS_BASE}/api/sync/${sid}`);
+                    const ws = new WebSocket(builderSocketUrl(`/api/sync/${sid}`));
                     wsSyncRef.current = ws;
                     ws.onmessage = (evt) => {
                       try {

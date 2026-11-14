@@ -1,21 +1,18 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { useAuthStore } from "@/store/authStore";
 import dynamic from "next/dynamic";
+import { API_BASE } from "@/services/api";
 
 const ProductDemo = dynamic(() => import("@/components/ProductDemo"), { ssr: false });
 
-export default function ProductPage({ params }: { params: { slug: string } }) {
-  // `params` may be a Promise in newer Next.js versions — use `React.use` to unwrap safely
-  // this avoids the console warning about accessing `params.slug` directly
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { slug } = (React as any).use ? (React as any).use(params) : params;
+export default function ProductPage() {
+  const { slug } = useParams<{ slug: string }>();
   const router = useRouter();
   const { isAuthenticated, subscriptionStatus, trialDaysRemaining } = useAuthStore();
   const [product, setProduct] = useState<any>(null);
-  const API_BASE = process.env.NEXT_PUBLIC_API_URL;
 
   useEffect(() => {
     // Require authentication

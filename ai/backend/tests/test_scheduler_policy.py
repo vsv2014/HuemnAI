@@ -4,6 +4,7 @@ import datetime as dt
 from pathlib import Path
 from types import SimpleNamespace
 import unittest
+from typing import Optional
 
 
 SOURCE = Path(__file__).resolve().parents[1] / "app/services/workflow_scheduler.py"
@@ -17,6 +18,8 @@ namespace = {
     "datetime": dt.datetime,
     "timedelta": dt.timedelta,
     "timezone": dt.timezone,
+    "Optional": Optional,
+    "ScheduledTask": SimpleNamespace,
 }
 class FakeTaskStatus:
     PENDING = "pending"

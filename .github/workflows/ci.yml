@@ -79,12 +79,12 @@ jobs:
         run: |
           npm run audit:ui
           cat reports/UI_AUDIT.md >> "$GITHUB_STEP_SUMMARY"
-      - name: Typecheck
-        run: npm run typecheck
       - name: Build
         env:
-          NEXT_PUBLIC_API_BASE: http://localhost/api
+          NEXT_PUBLIC_API_BASE: http://localhost
         run: npm run build
+      - name: Typecheck including generated route types
+        run: npm run typecheck
       - name: Build Docker image
         run: |
           docker build -t huemn-frontend:ci .

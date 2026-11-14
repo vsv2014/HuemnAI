@@ -10,7 +10,7 @@ from app.db.models.agent import Agent, AgentNode, AgentConnection, AgentConversa
 from app.db.models.scheduled_task import ScheduledTask
 from app.db.models.evaluation import EvaluationLog
 from app.schemas.node_configs import NODE_CONFIG_REGISTRY
-from app.llm.registry import get_available_llm, get_llm
+from app.llm.registry import get_llm
 from app.llm.openai_llm import OpenAILLM
 from app.services.socket_manager import manager
 from app.core.config import settings
@@ -677,7 +677,7 @@ class AgentExecutor:
             perf = (node.config or {}).get("performance_config", {}) or {}
             rate_rpm = int(perf.get("rate_limit_rpm") or 0)
             burst = int(perf.get("rate_limit_burst") or 0)
-            cache_enabled = bool(perf.get("cache_results"))
+            cache_enabled = bool(perf.get("cache_results")) and node.node_type != NodeType.HIL_APPROVAL
             cache_ttl = int(perf.get("cache_ttl_seconds") or 0)
             monitoring = (node.config or {}).get("monitoring_config", {}) or {}
             validation_cfg = (node.config or {}).get("validation_config", {}) or {}
@@ -938,7 +938,7 @@ class AgentExecutor:
                             raise last_error
             
             # Output validation
-            if validation_cfg.get("output_enabled"):
+            if validation_cfg.get("output_enabled") and (result.get("metadata") or {}).get("status") != "pending_approval":
                 out_payload = {**(result.get("context") or {})}
                 err = self._validate_json_schema(validation_cfg.get("output_schema") or {}, out_payload)
                 if err:
@@ -1224,12 +1224,15 @@ class AgentExecutor:
         model_id = config.get("model_id")
         
         # Use existing LLM service
-        llm = get_llm(model_id) if model_id else get_available_llm()
+        llm = get_llm(config.get("provider"))
+        messages = [{"role": "user", "content": prompt}]
+        if system_prompt:
+            messages.insert(0, {"role": "system", "content": system_prompt})
         
         response = ""
         # For simplicity, using non-streaming here as part of a flow
         # But we could stream to WebSocket if needed
-        async for token in llm.stream(prompt, system_prompt=system_prompt):
+        async for token in llm.stream(prompt, messages=messages, model=model_id):
             response += token
             # Optional: stream tokens to manager.send_status if session_id is available
             
@@ -1288,278 +1291,7 @@ class AgentExecutor:
             "context": context,
             "metadata": {"automation_mode": mode}
         }
-    async def _execute_hil_approval_node(
-    self,
-    node,
-    context: Dict[str, Any],
-    conversation_id: int
-) -> Dict[str, Any]:
 
-    """
-    HIL Human Approval Runtime Node
-    """
-
-    config = node.config or {}
-
-    message = config.get(
-        "message_to_approver",
-        "Approval required"
-    )
-
-    approver_id = config.get("approver_id")
-
-    from app.db.models.ticket import Ticket
-
-    approval_ticket = Ticket(
-        conversation_id=conversation_id,
-        status="awaiting_approval",
-        title=f"HIL Approval Request: {node.name}",
-        description=message,
-        priority="high",
-        assigned_to=str(approver_id)
-        if approver_id else None,
-        customer_info={
-            "type": "approval_request",
-            "node_id": node.id,
-            "runtime": "HIL"
-        }
-    )
-
-    self.db.add(approval_ticket)
-    self.db.commit()
-
-    self._track_analytics_event(
-        agent_id=context.get("agent_id", 0),
-        conversation_id=conversation_id,
-        event_type="hil_approval_requested",
-        event_name="HIL Approval Node Triggered",
-        properties={
-            "ticket_id": approval_ticket.id,
-            "node_id": node.id
-        }
-    )
-
-    return {
-        "response": (
-            "Approval request submitted successfully. "
-            "Workflow execution paused."
-        ),
-        "next_node_id": None,
-        "context": context,
-        "metadata": {
-            "approval_ticket_id": approval_ticket.id,
-            "status": "pending_approval",
-            "runtime": "HIL"
-        }
-    }
-
-
-# =========================================================
-# HIL IO NODE
-# =========================================================
-
-async def _execute_hil_io_node(
-    self,
-    node,
-    context: Dict[str, Any]
-) -> Dict[str, Any]:
-
-    """
-    HIL Input / Output Runtime Node
-    """
-
-    config = node.config or {}
-
-    message = config.get("message", "")
-
-    rich = config.get("rich_elements", [])
-
-    if message:
-
-        context["message_history"].append({
-            "role": "assistant",
-            "content": message
-        })
-
-        if rich:
-            context["message_history"][-1]["rich"] = rich
-
-    return {
-        "response": message,
-        "next_node_id": None,
-        "context": context,
-        "metadata": {
-            "runtime": "HIL",
-            "node_type": "io",
-            "rich": rich
-        }
-    }
-
-
-# =========================================================
-# HIL AI NODE
-# =========================================================
-
-async def _execute_hil_ai_node(
-    self,
-    node,
-    context: Dict[str, Any]
-) -> Dict[str, Any]:
-
-    """
-    HIL Multi-modal AI Runtime Node
-    """
-
-    config = node.config or {}
-
-    prompt = config.get("prompt", "")
-
-    system_prompt = config.get("system_prompt")
-
-    model_id = config.get("model_id")
-
-    llm = (
-        get_llm(model_id)
-        if model_id
-        else get_available_llm()
-    )
-
-    response = ""
-
-    async for token in llm.stream(
-        prompt,
-        system_prompt=system_prompt
-    ):
-
-        response += token
-
-        # Optional:
-        # Stream token updates over websocket
-        # manager.send_status(...)
-
-    return {
-        "response": response,
-        "next_node_id": None,
-        "context": context,
-        "metadata": {
-            "runtime": "HIL",
-            "node_type": "ai",
-            "model_used": str(llm)
-        }
-    }
-
-
-# =========================================================
-# HIL KNOWLEDGE NODE
-# =========================================================
-
-async def _execute_hil_knowledge_node(
-    self,
-    node,
-    context: Dict[str, Any]
-) -> Dict[str, Any]:
-
-    """
-    HIL Knowledge Runtime Node
-    Supports:
-    - RAG
-    - OCR
-    - Docling
-    - Semantic Search
-    """
-
-    config = node.config or {}
-
-    query = config.get(
-        "query",
-        context.get("last_user_message")
-    )
-
-    user_id = context.get("user_id")
-
-    from app.services.knowledge_service import (
-        query_with_solution
-    )
-
-    result = await query_with_solution(
-        query=query,
-        user_id=user_id,
-        conversation_history=context.get(
-            "message_history",
-            []
-        )
-    )
-
-    return {
-        "response": result.get("solution", ""),
-        "next_node_id": None,
-        "context": context,
-        "metadata": {
-            "runtime": "HIL",
-            "node_type": "knowledge",
-            "knowledge_results": result.get("results", []),
-            "confidence": result.get("confidence")
-        }
-    }
-
-
-# =========================================================
-# HIL BROWSER AUTOMATION NODE
-# =========================================================
-
-async def _execute_hil_browser_node(
-    self,
-    node,
-    context: Dict[str, Any]
-) -> Dict[str, Any]:
-
-    """
-    HIL Browser Runtime Node
-    Supports:
-    - deterministic automation
-    - AI automation
-    - hybrid automation
-    """
-
-    config = node.config or {}
-
-    session_id = context.get(
-        "session_id",
-        "default"
-    )
-
-    from app.services.automation.browser_service import (
-        browser_service
-    )
-
-    service = browser_service(session_id)
-
-    mode = config.get(
-        "mode",
-        "hybrid"
-    )
-
-    instruction = config.get("instruction")
-
-    await service.execute_workflow(
-        workflow=config.get("workflow", {}),
-        mode=mode,
-        goal=instruction
-    )
-
-    return {
-        "response": (
-            f"HIL browser automation completed "
-            f"in {mode} mode."
-        ),
-        "next_node_id": None,
-        "context": context,
-        "metadata": {
-            "runtime": "HIL",
-            "node_type": "browser",
-            "execution_mode": mode
-        }
-    }
     async def _execute_hil_approval_node(self, node: AgentNode, context: Dict[str, Any], conversation_id: int) -> Dict[str, Any]:
         """Handles Human-in-the-loop Approval"""
         config = node.config or {}
@@ -1591,7 +1323,8 @@ async def _execute_hil_browser_node(
         
         return {
             "response": "Your request has been sent for manual approval. I'll let you know once it's reviewed.",
-            "next_node_id": None, # Pause execution
+            "next_node_id": None,
+            "prevent_default_connection": True,
             "context": context,
             "metadata": {"approval_ticket_id": approval_ticket.id, "status": "pending_approval"}
         }
